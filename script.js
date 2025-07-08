@@ -348,7 +348,7 @@
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
-			URL.revokeObjectURL(link.href);
+			setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
 		});
 
 		return fs;
@@ -428,29 +428,61 @@
 		// JP and DEMO versions don't need decompression, but other versions do
 		const layoutData = new DataView(lzssBackwards(layoutFile.end, file, layoutFile.end - layoutFile.start)?.buffer || file.buffer.slice(layoutFile.start, layoutFile.end));
 
+		console.log(layoutData);
 		// i'm not sure how this file structure works, but this should cover all versions of MLBIS
 		// you can find these offsets yourself by going through unnamed file 0x03, which has lists of increasing
 		// pointers into each file. these pointers stop right before the end of the file length, so it's easy to tell
 		// which pointer list belongs to which file
 		// (for example, in US /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
-		let emesplaceOffsets, feventOffsets, fmapdataOffsets, fobjOffsets, fobjmapOffsets, fobjmonOffsets, fobjpcOffsets, fpafOffsets;
-		const readIndices = at => {
+		let feventOffsets, fmapdataOffsets, fobjOffsets, fobjmapOffsets, fobjmonOffsets, fobjpcOffsets, fpafOffsets;
+		let roomIndices, unknownIndices;
+		const indices = at => {
 			const chunkLength = layoutData.getUint32(at, true);
 			const indices = [];
 			for (let o = 4; o < chunkLength; o += 4) indices.push(layoutData.getUint32(at + o, true));
 			return indices;
 		};
+		const fixedIndices = (at, until) => {
+			const indices = [];
+			for (let i = 0, o = at + 4; o < until; ++i, o += 4) indices.push(layoutData.getInt32(o, true));
+			return indices;
+		};
 
 		if (headers.gamecode === 'CLJE') { // US/AU
-			feventOffsets = readIndices(0xc8ac);
-			fmapdataOffsets = readIndices(0x11310);
-			fobjOffsets = readIndices(0xe8a0);
-			fobjmonOffsets = readIndices(0xba3c);
-			fobjpcOffsets = readIndices(0xbdb0);
-			fpafOffsets = readIndices(0xb8a0);
+			feventOffsets = indices(0xc8ac);
+			fmapdataOffsets = indices(0x11310);
+			fobjOffsets = indices(0xe8a0);
+			fobjmonOffsets = indices(0xba3c);
+			fobjpcOffsets = indices(0xbdb0);
+			fpafOffsets = indices(0xb8a0);
+			roomIndices = fixedIndices(0x19fd0, 0x1d504);
+			unknownIndices = fixedIndices(0x18e84, 0x19fd0);
+		} else if (headers.gamecode === 'CLJK') { // KO
+			fmapdataOffsets = indices(0x11310);
+			roomIndices = fixedIndices(0x19fd0, 0x1d504);
+			unknownIndices = fixedIndices(0x18e84, 0x19fd0);
+		} else if (headers.gamecode === 'CLJJ') { // JP
+			fmapdataOffsets = indices(0x11544);
+			roomIndices = fixedIndices(0x1a85c, 0x1dd90);
+			unknownIndices = fixedIndices(0x19710, 0x1a85c);
+		} else if (headers.gamecode === 'CLJP') { // EU
+			fmapdataOffsets = indices(0x11310);
+			roomIndices = fixedIndices(0x19fd0, 0x1d504);
+			unknownIndices = fixedIndices(0x18e84, 0x19fd0);
+		} else if (headers.gamecode === 'Y6PP') { // Demo
+			fmapdataOffsets = indices(0x9a3c);
+			fobjOffsets = indices(0x9cb0);
+			roomIndices = fixedIndices(0xe498, 0xe72c);
+			unknownIndices = fixedIndices(0xe220, 0xe318);
 		} else {
-			throw `unknown gamecode ${headers.gamecode}`;
+			throw new Error(`unknown gamecode ${headers.gamecode}`);
 		}
+
+		for (let i = 0, j = 0; i < roomIndices.length; i += 5, ++j) {
+			roomIndices[j] = { l1: roomIndices[i], l2: roomIndices[i + 1], l3: roomIndices[i + 2], props: roomIndices[i + 3], unknown: roomIndices[i + 4] };
+		}
+
+		roomIndices = roomIndices.slice(0, roomIndices.length / 5);
 
 		Object.assign(field, { feventOffsets, fmapdataOffsets, fobjOffsets, fobjmonOffsets, fobjpcOffsets, fpafOffsets });
 
