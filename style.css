@@ -1,0 +1,26 @@
+* { box-sizing: border-box; margin: 0; }
+
+@font-face {
+	font-family: "Red Hat Mono";
+	src: url("./redhat/mono.ttf");
+}
+
+@font-face {
+	font-family: "Red Hat Text";
+	src: url("./redhat/text.ttf");
+}
+
+body { background: #111; color: #999; font-family: "Red Hat Text"; overflow-x: hidden; }
+
+#file-input { position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, -50%); }
+
+canvas { display: block; image-rendering: pixelated; }
+
+section { border-bottom: 1px solid #666; position: relative; width: 100vw; }
+section .reveal { line-height: 32px; user-select: none; padding: 0 5px; }
+section .reveal:hover { color: #fffc; }
+section .content { width: calc(100% - 32px); padding: 20px; padding-left: 52px; }
+
+label { padding: 0 5px; user-select: none; }
+
+code { font-family: "Red Hat Mono" }
