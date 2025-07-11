@@ -86,18 +86,21 @@
 
 		const str = [];
 		for (let i = 0; i < end - o; i += 16384) {
-			str.push(String.fromCharCode(...new Uint8Array(buf.buffer.slice(o + i, Math.min(end, o + i + 16384))).map(x => x < 0x20 ? 46 : x)));
+			const slice = buf.buffer.slice(buf.byteOffset + o + i, buf.byteOffset + Math.min(end, o + i + 16384));
+			str.push(String.fromCharCode(...new Uint8Array(slice).map(x => x < 0x20 ? 46 : x)));
 		}
 
 		return str.join('');
 	};
 
 	const bytes = (o, l, buf = file) => {
-		return Array.from(new Uint8Array(buf.buffer.slice(o, o + l))).map(x => x.toString(16).padStart(2, '0')).join(' ');
+		const slice = buf.buffer.slice(buf.byteOffset + o, buf.byteOffset + o + l);
+		return Array.from(new Uint8Array(slice)).map(x => x.toString(16).padStart(2, '0')).join(' ');
 	};
 
-	const bits = (o, l) => {
-		return Array.from(new Uint8Array(file.buffer.slice(o, o + l))).map(x => x.toString(2).padStart(8, '0')).join(' ');
+	const bits = (o, l, buf = file) => {
+		const slice = buf.buffer.slice(buf.byteOffset + o, buf.byteOffset + o + l);
+		return Array.from(new Uint8Array(slice)).map(x => x.toString(2).padStart(8, '0')).join(' ');
 	};
 
 	const sanitize = s => s.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -114,7 +117,7 @@
 
 	Object.assign(window, { file, readString, bytes });
 
-	//////////////////// Decompression //////////////////////////////////////////////////////////////////////
+	//////////////////// Decompression/Unpacking ////////////////////////////////////////////////////////////////////
 
 	const lzssBackwards = (end, indat, inputLen) => {
 		const composite = indat.getUint32(end - 8, true);
@@ -203,6 +206,38 @@
 		}
 
 		return outbuf;
+	};
+
+	const unpackSegmented = (start, dat) => {
+		if (dat.byteLength < 4) return { offsets: [], segments: [] };
+		const offsets = [dat.getUint32(start, true)];
+		const segments = [];
+		console.log(':', dat, start);
+		for (let o = 4; o < offsets[0]; o += 4) {
+			const lastSplit = offsets[offsets.length - 1];
+			const split = dat.getUint32(o, true);
+			offsets.push(split);
+			segments.push(new DataView(dat.buffer, dat.byteOffset + start + lastSplit, split - lastSplit));
+		}
+
+		segments.push(new DataView(dat.buffer, dat.byteOffset + start + offsets[offsets.length - 1], dat.byteLength - offsets[offsets.length - 1]));
+
+		return { offsets, segments };
+	};
+
+	Object.assign(window, { lzssBackwards, lz77ish, unpackSegmented });
+
+	//////////////////// Misc ////////////////////////////////////////////////////////////////////////////////
+
+	const download = (name, mime, data) => {
+		const blob = new Blob([data], { type: mime });
+		const link = document.createElement('a');
+		link.href = URL.createObjectURL(blob);
+		link.download = name;
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
 	};
 
 	//////////////////// Sections ////////////////////////////////////////////////////////////////////////////////
@@ -340,15 +375,7 @@
 			}
 
 			downloadOutput.textContent = '';
-
-			const blob = new Blob([output], { type: 'application/octet-stream' });
-			const link = document.createElement('a');
-			link.href = URL.createObjectURL(blob);
-			link.download = fsentry.name;
-			document.body.appendChild(link);
-			link.click();
-			link.remove();
-			setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
+			download(fsentry.name, 'application/octet-stream', output);
 		});
 
 		return fs;
@@ -430,7 +457,7 @@
 
 		console.log(layoutData);
 		// i'm not sure how this file structure works, but this should cover all versions of MLBIS
-		// you can find these offsets yourself by going through unnamed file 0x03, which has lists of increasing
+		// you can find these offsets yourself by going through overlay 0x03, which has lists of increasing
 		// pointers into each file. these pointers stop right before the end of the file length, so it's easy to tell
 		// which pointer list belongs to which file
 		// (for example, in US /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
@@ -444,7 +471,7 @@
 		};
 		const fixedIndices = (at, until) => {
 			const indices = [];
-			for (let i = 0, o = at + 4; o < until; ++i, o += 4) indices.push(layoutData.getInt32(o, true));
+			for (let i = 0, o = at; o < until; ++i, o += 4) indices.push(layoutData.getInt32(o, true));
 			return indices;
 		};
 
@@ -469,51 +496,28 @@
 			fmapdataOffsets = indices(0x11310);
 			roomIndices = fixedIndices(0x19fd0, 0x1d504);
 			unknownIndices = fixedIndices(0x18e84, 0x19fd0);
-		} else if (headers.gamecode === 'Y6PP') { // Demo
+		} else if (headers.gamecode === 'Y6PP') { // EU Demo
 			fmapdataOffsets = indices(0x9a3c);
 			fobjOffsets = indices(0x9cb0);
 			roomIndices = fixedIndices(0xe498, 0xe72c);
 			unknownIndices = fixedIndices(0xe220, 0xe318);
+		} else if (headers.gamecode === 'Y6PE') { // US Demo
+			fmapdataOffsets = indices(0x9a3c);
+			fobjOffsets = indices(0x9cb0);
+			roomIndices = fixedIndices(0xe3dc, 0xe670);
+			unknownIndices = fixedIndices(0xe164, 0xe25c);
 		} else {
 			throw new Error(`unknown gamecode ${headers.gamecode}`);
 		}
 
+		field.roomOffsets = [];
 		for (let i = 0, j = 0; i < roomIndices.length; i += 5, ++j) {
-			roomIndices[j] = { l1: roomIndices[i], l2: roomIndices[i + 1], l3: roomIndices[i + 2], props: roomIndices[i + 3], unknown: roomIndices[i + 4] };
+			field.roomOffsets[j] = { l1: roomIndices[i], l2: roomIndices[i + 1], l3: roomIndices[i + 2], props: roomIndices[i + 3], unknown: roomIndices[i + 4] };
 		}
 
-		roomIndices = roomIndices.slice(0, roomIndices.length / 5);
-
-		Object.assign(field, { feventOffsets, fmapdataOffsets, fobjOffsets, fobjmonOffsets, fobjpcOffsets, fpafOffsets });
-
-		// room tile + properties indices is stored at the end of layoutData
-		let o = layoutData.byteLength - 5;
-		while (true) {
-			if (readString(o, 5, layoutData) === 'Z-Tbl') break;
-			--o;
-		}
-
-		field.roomOffsets = []; // read in reverse order, corrected later
-		let lastHadZero = false;
-		let maxIndex = -1;
-		let numRooms = 0;
-		while (o > 0) {
-			o -= 0x14;
-			const l1 = layoutData.getInt32(o, true);
-			const l2 = layoutData.getInt32(o + 4, true);
-			const l3 = layoutData.getInt32(o + 8, true);
-			const props = layoutData.getInt32(o + 12, true);
-			const unknown = layoutData.getInt32(o + 16, true);
-
-			// keep going down room offsets until we find a layer that references index 0; then, the next pass
-			// will probably be of the unknown data (which uses the rest of the indices)
-			if (lastHadZero && Math.min(l1, l2, l3, props, unknown) > maxIndex) break; // passed room offsets
-			lastHadZero = l1 === 0 || l2 === 0 || l3 === 0;
-			maxIndex = Math.max(maxIndex, l1, l2, l3, props, unknown);
-			field.roomOffsets.push({ l1, l2, l3, props, unknown });
-			++numRooms;
-		}
-		field.roomOffsets.reverse();
+		Object.assign(field, {
+			feventOffsets, fmapdataOffsets, fobjOffsets, fobjmonOffsets, fobjpcOffsets, fpafOffsets, roomIndices, unknownIndices,
+		});
 
 		let updatePalettes = true;
 		let updateTiles = true;
@@ -524,7 +528,7 @@
 		const options = document.createElement('div');
 
 		const roomPicker = document.createElement('select');
-		for (let i = 0; i < numRooms; ++i) {
+		for (let i = 0; i < field.roomOffsets.length; ++i) {
 			addHTML(roomPicker, `<option value="${i}">Room 0x${i.toString(16)}</option>`);
 		}
 		options.appendChild(roomPicker);
@@ -546,9 +550,10 @@
 		const showPalettes = optionCheckbox('Palettes', true, () => {});
 		const showTiles = optionCheckbox('Tiles', true, () => {});
 		const showExtensions = optionCheckbox('Room Extensions', true, () => { updateMaps = true; });
-		const showCollision = optionCheckbox('Collision', true, () => { updateOverlayTriangles = true; });
-		const showLoadingZones = optionCheckbox('Loading Zones', true, () => { updateOverlayTriangles = true; });
-		const showMystery = optionCheckbox('Mystery', true, () => { updateMaps = true; });
+		const showCollision = optionCheckbox('Collision', false, () => { updateOverlayTriangles = true; });
+		const showLoadingZones = optionCheckbox('Loading Zones', false, () => { updateOverlayTriangles = true; });
+		const showDepth = optionCheckbox('Depth', false, () => { updateMaps = true; });
+		const showAnimations = optionCheckbox('Animations', false, () => { updateMaps = true; });
 
 		section.appendChild(options);
 		const mapContainer = document.createElement('div');
@@ -711,149 +716,49 @@
 		const bottomProperties = document.createElement('div');
 		section.appendChild(bottomProperties);
 
-		// bitmap generation
-		const setPixel = (bitmap, pixel, rgb16) => {
-			bitmap[pixel*4] = (rgb16 & 0x1f) << 3;
-			bitmap[pixel*4 + 1] = (rgb16 >> 5 & 0x1f) << 3;
-			bitmap[pixel*4 + 2] = (rgb16 >> 10 & 0x1f) << 3;
-			bitmap[pixel*4 + 3] = 255;
-		};
-
-		field.genPalette = (props, layerId) => {
-			const bitmap = new Uint8ClampedArray(256 * 4);
-			const paletteOffset = props.getUint32(0x0c + layerId*4, true);
-			for (let i = 0; i < 256; ++i) {
-				const rgb16 = props.getUint16(paletteOffset + i*2, true);
-				setPixel(bitmap, i, props.getUint16(paletteOffset + i*2, true));
-			}
-
-			return new ImageData(bitmap, 16);
-		};
-
-		field.genTiles = (props, layer, layerId, paletteShift) => {
-			const paletteOffset = props.getUint32(0x0c + layerId*4, true);
-
-			const mapPropertiesOffset = props.getUint32(0x18, true);
-			const mapFlags = props.getUint8(mapPropertiesOffset + 5);
-
-			let o = 0;
-			const bitmap = new Uint8ClampedArray(256 * 256 * 4);
-			if (mapFlags & (1 << layerId)) { // 256 color
-				for (let i = 0; o < layer.byteLength; ++i) {
-					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
-					for (let j = 0; j < 64 && o < layer.byteLength; ++j) { // 8x8
-						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-						const paletteIndex = layer.getUint8(o++);
-						const rgb16 = props.getUint16(paletteOffset + paletteIndex*2, true);
-						setPixel(bitmap, pos, rgb16);
-					}
-				}
-			} else { // 16 color
-				for (let i = 0; o < layer.byteLength; ++i) {
-					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
-					for (let j = 0; j < 64 && o < layer.byteLength; j += 2) { // 8x8 still
-						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-						const composite = layer.getUint8(o++);
-						const rgb16Left = props.getUint16(paletteOffset + (paletteShift << 4 | (composite & 0xf))*2, true);
-						const rgb16Right = props.getUint16(paletteOffset + (paletteShift << 4 | composite >> 4)*2, true);
-						setPixel(bitmap, pos, rgb16Left);
-						setPixel(bitmap, pos | 1, rgb16Right);
-					}
-				}
-			}
-
-			return new ImageData(bitmap, 256);
-		};
-
-		field.genMap = (props, layers) => {
-			const mapPropertiesOffset = props.getUint32(0x18, true);
-			const mapWidth = props.getUint16(mapPropertiesOffset, true);
-			const mapHeight = props.getUint16(mapPropertiesOffset + 2, true);
-			const mapFlags = props.getUint8(mapPropertiesOffset + 5);
-
-			const bitmaps = [];
-			for (let i = 2; i >= 0; --i) {
-				if (!layers[i]) {
-					bitmaps[i] = undefined;
-					continue;
-				}
-
-				bitmaps[i] = new Uint8ClampedArray(mapWidth * mapHeight * 64 * 4);
-				let o = props.getUint32(i * 4, true);
-				const paletteOffset = props.getUint32(0xc + i*4, true);
-				for (let j = 0; j < mapHeight * mapWidth; ++j) {
-					const x = j % mapWidth;
-					const y = (j / mapWidth) | 0;
-					const tile = props.getUint16(o, true);
-					o += 2;
-					if (mapFlags & (1 << i)) { // 256 color
-						for (let k = 0; k < 64; ++k) {
-							const xx = (tile & 0x400) ? 7 - (k & 7) : k & 7;
-							const yy = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
-							const loc = (tile & 0x3ff) << 6 | k;
-							if (loc >= layers[i].byteLength) continue;
-							const paletteIndex = layers[i].getUint8(loc);
-							if (!paletteIndex) continue;
-							const rgb16 = props.getUint16(paletteOffset + paletteIndex*2, true);
-							setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx, rgb16);
-						}
-					} else { // 16 color
-						for (let k = 0; k < 64; k += 2) {
-							const xx = (tile & 0x400) ? 7 - (k & 7) : k & 7;
-							const yy = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
-							const loc = ((tile & 0x3ff) << 6 | k) >> 1;
-							if (loc >= layers[i].byteLength) continue;
-							const paletteComposite = layers[i].getUint8(loc);
-							const paletteRow = tile >> 12;
-							if (paletteComposite & 0xf) {
-								const rgb16 = props.getUint16(paletteOffset + (paletteRow << 4 | (paletteComposite & 0xf))*2, true);
-								setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx, rgb16);
-							}
-							if (paletteComposite >> 4) {
-								const rgb16 = props.getUint16(paletteOffset + (paletteRow << 4 | paletteComposite >> 4)*2, true);
-								setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx + ((tile & 0x400) ? -1 : 1), rgb16);
-							}
-						}
-					}
-				}
-			}
-
-			return bitmaps.map(x => x && new ImageData(x, mapWidth * 8, mapHeight * 8));
-		};
-
-		let collisionSelect, loadingZonesSelect, layers, props, room, unknown;
+		let collisionSelect, loadingZonesSelect, mapAnimations;
+		let layers, props, room, unknown;
 		const update = () => {
 			room = field.roomOffsets[parseInt(roomPicker.value)];
 
 			const layer = index => lz77ish(fieldFile.start + fmapdataOffsets[index], file);
 			layers = [room.l1, room.l2, room.l3].map(l => l !== -1 && new DataView(layer(l).buffer));
-			props = new DataView(layer(room.props).buffer);
+			props = unpackSegmented(0, new DataView(layer(room.props).buffer));
+			Object.assign(props, {
+				tiles: [props.segments[0], props.segments[1], props.segments[2]],
+				palettes: [props.segments[3], props.segments[4], props.segments[5]],
+				map: props.segments[6],
+				loadingZones: props.segments[7],
+				unknown8: props.segments[8],
+				animations: props.segments[9],
+				passiveAnimations: props.segments[10],
+				unknown11: props.segments[11],
+				unknown12: props.segments[12],
+				unknown13: props.segments[13],
+				collision: props.segments[14],
+				depth: props.segments[15],
+				unknown16: props.segments[16],
+				unknown17: props.segments[17],
+			});
+			console.log(props);
 
 			bottomProperties.innerHTML = sideProperties.innerHTML = '';
 
-			addHTML(bottomProperties, `<div>Layer offsets: <code>BG1 ${room.l1}; BG2 ${room.l2}; BG3 ${room.l3};
-				Props ${room.props}; Unknown ${room.unknown}</code></div>`);
+			addHTML(bottomProperties, `<div>Layers: <code>BG1 ${room.l1.toString(16)}, BG2 ${room.l2.toString(16)}, BG3 ${room.l3.toString(16)}, Props ${room.props.toString(16)}, ??? ${room.unknown.toString(16)}</code></div>`);
 
-			const tileLayoutOffsets = [0, 1, 2].map(x => props.getInt32(x * 4, true));
-			const paletteOffsets = [0, 1, 2].map(x => props.getInt32(0x0c + x*4, true));
-			console.log(tileLayoutOffsets, paletteOffsets);
-			const mapPropertiesOffset = props.getUint32(0x18, true);
-			const afterOffsets = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(x => props.getUint32(0x1c + x*4, true));
-
-			const mapWidth = props.getUint16(mapPropertiesOffset, true);
-			const mapHeight = props.getUint16(mapPropertiesOffset + 2, true);
-			const mapFlags = props.getUint16(mapPropertiesOffset + 4, true);
-			addHTML(sideProperties, `<div>Properties: <code>${mapWidth}x${mapHeight},
-				(${mapWidth * 8}x${mapHeight * 8}), ${(mapFlags & 0x1000) ? 'field' : 'map'}
+			const mapWidth = props.map.getUint16(0, true);
+			const mapHeight = props.map.getUint16(2, true);
+			const mapFlags = props.map.getUint16(4, true);
+			addHTML(sideProperties, `<div><code>${mapWidth}x${mapHeight} tiles,
+				(${mapWidth * 8}x${mapHeight * 8} px), ${(mapFlags & 0x1000) ? 'field' : 'map'}
 			</code></div>`);
+			addHTML(sideProperties, `<div>Other props: <code>${bytes(4, 8, props.map)}</code></div>`);
 
 			{
-				const loadingZonesOffset = props.getUint32(0x1c, true);
-				const endLoadingZones = props.getUint32(0x20, true);
-
+				const { loadingZones } = props;
 				loadingZonesSelect = document.createElement('select');
 				loadingZonesSelect.style.display = 'block';
-				addHTML(loadingZonesSelect, `<option value="">${(endLoadingZones - loadingZonesOffset) / 24} loading zones</option><hr>`);
+				addHTML(loadingZonesSelect, `<option value="">${loadingZones.byteLength / 24} loading zones</option><hr>`);
 				sideProperties.appendChild(loadingZonesSelect);
 
 				const loadingZoneData = document.createElement('div');
@@ -867,26 +772,26 @@
 						return;
 					}
 
-					const o = loadingZonesOffset + parseInt(loadingZonesSelect.value) * 24;
+					const o = parseInt(loadingZonesSelect.value) * 24;
 					loadingZoneData.innerHTML = `<ul>
-						<li>Flags: <code>${props.getUint8(o).toString(2).padStart(8, '0')} ${props.getUint8(o + 1).toString(2).padStart(8, '0')}</code></li>
-						<li>Other data: <code>${bytes(o + 16, 8, props)}</code></li>
+						<li>Flags: <code>${loadingZones.getUint8(o).toString(2).padStart(8, '0')}
+							${loadingZones.getUint8(o + 1).toString(2).padStart(8, '0')}</code></li>
+						<li>Other data: <code>${bytes(o + 16, 8, loadingZones)}</code></li>
 					</ul>`;
 				});
 
-				for (let i = 0, o = loadingZonesOffset; o < endLoadingZones; ++i, o += 24) {
-					const flags = props.getUint16(o, true);
-					const room = props.getUint16(o + 2, true);
+				for (let i = 0, o = 0; o < loadingZones.byteLength; ++i, o += 24) {
+					const flags = loadingZones.getUint16(o, true);
+					const room = loadingZones.getUint16(o + 2, true);
 					const direction = ('↑→↓←')[flags >> 2 & 3];
 					addHTML(loadingZonesSelect, `<option value="${i}">[${i}] ${direction} ${room.toString(16)}`);
 				}
 			}
 
 			{
-				const collisionOffset = props.getUint32(0x38, true);
-				const endCollision = props.getUint32(0x3c, true);
-				const numBoxes = collisionOffset !== endCollision ? props.getUint32(collisionOffset, true) : 0;
-				const numOtherBoxes = collisionOffset !== endCollision ? props.getUint32(collisionOffset + 4, true) : 0;
+				const { collision } = props;
+				const numBoxes = collision.byteLength > 0 ? collision.getUint32(0, true) : 0;
+				const numOtherBoxes = collision.byteLength > 0 ? collision.getUint32(4, true) : 0;
 
 				const container = document.createElement('div');
 
@@ -910,34 +815,34 @@
 				const changed = () => {
 					updateOverlayTriangles = true;
 
-					console.log('changed', collisionSelect.value);
-
 					if (collisionSelect.value === '') {
 						collisionData.innerHTML = '';
 						return;
 					}
 
 					const index = parseInt(collisionSelect.value);
-					let o = collisionOffset + 8;
+					let o = 8;
 					o += Math.min(index, numBoxes) * 40; // first chunk of prisms
 					o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
 
 					if (index < numBoxes) { // prism
-						const passFlags = props.getUint16(o + 4, true);
-						const passFlags2 = props.getUint16(o + 6, true);
-						const solidForDrill = passFlags & 2;
-						const solidForMiniMario = passFlags & 4;
+						const passables = collision.getUint16(o + 4, true);
+						const attributes = collision.getUint16(o + 6, true);
+						const solidForDrill = passables & 2;
+						const solidForMiniMario = passables & 4;
 
-						const unisolid = passFlags2 & 0x40;
+						const unisolid = attributes & 0x40;
+						const spikeballGrip = attributes & 4;
 
 						collisionData.innerHTML = `<ul>
-							<li>Flags: <code>${[0,1,2,3,4,5,6,7].map(i => props.getUint8(o + i).toString(2).padStart(8, '0')).join(' ')}</code></li>
+							<li>Flags: <code>${[0,1,2,3,4,5,6,7].map(i => collision.getUint8(o + i).toString(2).padStart(8, '0')).join(' ')}</code></li>
 							<li style="color: ${solidForDrill ? '#f99' : '#9f9'};">Drill ${solidForDrill ? 'can\'t' : 'can'} pass</li>
 							<li style="color: ${solidForMiniMario ? '#f99' : '#9f9'};">Mini ${solidForMiniMario ? 'can\'t' : 'can'} pass</li>
 							<li style="color: ${unisolid ? '#9f9' : '#f99'};">${unisolid ? 'Unisolid' : 'Not unisolid'}</li>
+							<li style="color: ${spikeballGrip ? '#9f9' : '#f99'};">${spikeballGrip ? 'Spike ball grippable' : 'Not spike ball grippable'}</li>
 						</ul>`;
 					} else { // special
-						collisionData.innerHTML = bytes(o, 24, props);
+						collisionData.innerHTML = bytes(o, 24, collision);
 					}
 				};
 
@@ -955,43 +860,192 @@
 				});
 				collisionSelect.addEventListener('input', changed);
 
-				let o = collisionOffset + 8;
-				for (let i = 0; i < numBoxes; ++i, o += 40) {
-					addHTML(collisionSelect, `<option value="${i}">[${i}] Prism</option>`);
-				}
-
+				for (let i = 0; i < numBoxes; ++i) addHTML(collisionSelect, `<option value="${i}">[${i}] Prism</option>`);
 				addHTML(collisionSelect, '<hr>');
+				for (let i = 0; i < numOtherBoxes; ++i) addHTML(collisionSelect, `<option value="${i + numBoxes}">[${i}] Special</option>`);
+			}
 
-				for (let i = 0; i < numOtherBoxes; ++i, o += 24) {
-					addHTML(collisionSelect, `<option value="${i + numBoxes}">[${i}] Special</option>`);
+			{
+				const { animations } = props;
+				const { segments } = unpackSegmented(0, animations);
+				mapAnimations = new Set();
+
+				const div = document.createElement('div');
+				div.textContent = 'Animations:';
+
+				let j = 0;
+				for (let i = 1; i < segments.length; i += 3) {
+					if (segments[i].byteLength < 8) continue;
+
+					const checkbox = document.createElement('input');
+					checkbox.type = 'checkbox';
+					checkbox.checked = false;
+					div.appendChild(checkbox);
+
+					const tileIndex = segments[0].getInt16(j*4, true);
+					const flags = segments[0].getUint16(j*4 + 2, true);
+					const wrapped = {
+						override: segments[i],
+						tiles: tileIndex >= 0 ? lz77ish(fieldFile.start + field.fmapdataOffsets[field.unknownIndices[tileIndex]], file) : undefined,
+					};
+
+					checkbox.addEventListener('input', () => {
+						if (checkbox.checked) mapAnimations.add(wrapped);
+						else mapAnimations.delete(wrapped);
+						updateMaps = true;
+					});
+
+					++j;
 				}
+
+				sideProperties.appendChild(div);
 			}
 
-			addHTML(bottomProperties, `<div>Map properties: <code>${bytes(mapPropertiesOffset, afterOffsets[0] - mapPropertiesOffset, props)}</code></div>`);
-			const names = [
-				'Loading zones', // 0
-				'?', // 1
-				'Animations', // 2
-				'?', // 3
-				'?', // 4
-				'?', // 5
-				'?', // 6
-				'Collision', // 7
-				'?', // 8
-				'?', // 9
-				'?', // 10
-			];
-			for (let i = 0; i < 10; ++i) {
-				addHTML(bottomProperties, `<div>afterOffsets[${i}] (${names[i]}): <code>${bytes(afterOffsets[i], afterOffsets[i+1] - afterOffsets[i], props)}</code></div>`);
+			addHTML(bottomProperties, `<div>unknown8: <code>${bytes(0, props.unknown8.byteLength, props.unknown8)}</code></div>`);
+
+			addHTML(bottomProperties, `<div>Animations:</div>`);
+			const animationList = document.createElement('ul');
+			const { segments: animationSegments } = unpackSegmented(0, props.animations);
+			for (let i = 0; i < animationSegments.length; ++i) {
+				addHTML(animationList, `<li>${i}: <code>${bytes(0, animationSegments[i].byteLength, animationSegments[i])}</code></li>`);
 			}
-			addHTML(bottomProperties, `<div>afterOffsets[10] (${names[10]}): <code>${bytes(afterOffsets[10], props.byteLength - afterOffsets[10], props)}</code></div>`);
-			addHTML(bottomProperties, `<div>Unknown: <code>?</code></div>`);
+			bottomProperties.appendChild(animationList);
+
+			addHTML(bottomProperties, `<div>Passive Animations:</div>`);
+			const passiveAnimationList = document.createElement('ul');
+			const { segments: passiveAnimationSegments } = unpackSegmented(0, props.passiveAnimations);
+			for (let i = 0; i < passiveAnimationSegments.length; ++i) {
+				addHTML(passiveAnimationList, `<li>${i}: <code>${bytes(0, passiveAnimationSegments[i].byteLength, passiveAnimationSegments[i])}</code></li>`);
+			}
+			bottomProperties.appendChild(passiveAnimationList);
+
+			addHTML(bottomProperties, `<div>unknown11: <code>${bytes(0, props.unknown11.byteLength, props.unknown11)}</code></div>`);
+			addHTML(bottomProperties, `<div>unknown12: <code>${bytes(0, props.unknown12.byteLength, props.unknown12)}</code></div>`);
+			addHTML(bottomProperties, `<div>unknown13: <code>${bytes(0, props.unknown13.byteLength, props.unknown13)}</code></div>`);
+			addHTML(bottomProperties, `<div>unknown16: <code>${bytes(0, props.unknown16.byteLength, props.unknown16)}</code></div>`);
+			addHTML(bottomProperties, `<div>unknown17: <code>${bytes(0, props.unknown17.byteLength, props.unknown17)}</code></div>`);
 
 			updatePalettes = true;
 		};
 
 		roomPicker.addEventListener('input', update);
 		update();
+
+		// bitmap generation
+		const setPixel = (bitmap, pixel, rgb16) => {
+			if (rgb16 & 0x8000) rgb16 = 0xffff;
+			bitmap[pixel*4] = (rgb16 & 0x1f) << 3;
+			bitmap[pixel*4 + 1] = (rgb16 >> 5 & 0x1f) << 3;
+			bitmap[pixel*4 + 2] = (rgb16 >> 10 & 0x1f) << 3;
+			bitmap[pixel*4 + 3] = 255;
+		};
+
+		field.genPalette = paletteSegment => {
+			const bitmap = new Uint8ClampedArray(256 * 4);
+			for (let i = 0; i < 256; ++i) setPixel(bitmap, i, paletteSegment.getUint16(i*2, true));
+			return new ImageData(bitmap, 16);
+		};
+
+		field.genTiles = (paletteSegment, mapSegment, layer, layerId, paletteShift) => {
+			const mapFlags = mapSegment.getUint8(5);
+
+			let o = 0;
+			const bitmap = new Uint8ClampedArray(256 * 256 * 4);
+			if (mapFlags & (1 << layerId)) { // 256 color
+				for (let i = 0; o < layer.byteLength; ++i) {
+					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+					for (let j = 0; j < 64 && o < layer.byteLength; ++j) { // 8x8
+						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+						const paletteIndex = layer.getUint8(o++);
+						const rgb16 = paletteSegment.getUint16(paletteIndex*2, true);
+						setPixel(bitmap, pos, rgb16);
+					}
+				}
+			} else { // 16 color
+				for (let i = 0; o < layer.byteLength; ++i) {
+					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+					for (let j = 0; j < 64 && o < layer.byteLength; j += 2) { // 8x8 still
+						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+						const composite = layer.getUint8(o++);
+						setPixel(bitmap, pos, paletteSegment.getUint16((paletteShift << 4 | (composite & 0xf))*2, true));
+						setPixel(bitmap, pos | 1, paletteSegment.getUint16((paletteShift << 4 | composite >> 4)*2, true));
+					}
+				}
+			}
+
+			return new ImageData(bitmap, 256);
+		};
+
+		field.genMap = (props, layers, animations) => {
+			const mapWidth = props.map.getUint16(0, true);
+			const mapHeight = props.map.getUint16(2, true);
+			const mapFlags = props.map.getUint8(5);
+
+			const bitmaps = [];
+			for (let i = 2; i >= 0; --i) {
+				if (!layers[i]) {
+					bitmaps[i] = undefined;
+					continue;
+				}
+
+				bitmaps[i] = new Uint8ClampedArray(mapWidth * mapHeight * 64 * 4);
+				let o = 0;
+				for (let j = 0; j < mapHeight * mapWidth && o + 1 < props.tiles[i].byteLength; ++j) {
+					const x = j % mapWidth;
+					const y = (j / mapWidth) | 0;
+					let tile = props.tiles[i].getUint16(o, true);
+					o += 2;
+
+					for (const { override, tiles } of animations) {
+						const ox = override.getInt16(0, true);
+						const oy = override.getInt16(2, true);
+						const ow = override.getInt16(4, true);
+						const oh = override.getInt16(6, true);
+						if (ox <= x && x < ox + ow && oy <= y && y < oy + oh) {
+							const overrideIndex = (y - oy) * ow + (x - ox);
+							const overrideTile = override.getUint16(8 + (ow*oh*i + overrideIndex)*2, true);
+							if (overrideTile === 0x3ff) continue;
+							tile = overrideTile;
+						}
+					}
+
+					if (mapFlags & (1 << i)) { // 256 color
+						for (let k = 0; k < 64; ++k) {
+							const xx = (tile & 0x400) ? 7 - (k & 7) : k & 7;
+							const yy = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
+							const loc = (tile & 0x3ff) << 6 | k;
+							if (loc >= layers[i].byteLength) continue;
+
+							const paletteIndex = layers[i].getUint8(loc);
+							if (!paletteIndex) continue;
+
+							const rgb16 = props.palettes[i].getUint16(paletteIndex*2, true);
+							setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx, rgb16);
+						}
+					} else { // 16 color
+						for (let k = 0; k < 64; k += 2) {
+							const xx = (tile & 0x400) ? 7 - (k & 7) : k & 7;
+							const yy = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
+							const loc = ((tile & 0x3ff) << 6 | k) >> 1;
+							if (loc >= layers[i].byteLength) continue;
+
+							const paletteComposite = layers[i].getUint8(loc);
+							const paletteRow = tile >> 12;
+							if (paletteComposite & 0xf) {
+								const rgb16 = props.palettes[i].getUint16((paletteRow << 4 | (paletteComposite & 0xf))*2, true);
+								setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx, rgb16);
+							}
+							if (paletteComposite >> 4) {
+								const rgb16 = props.palettes[i].getUint16((paletteRow << 4 | paletteComposite >> 4)*2, true);
+								setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx + ((tile & 0x400) ? -1 : 1), rgb16);
+							}
+						}
+					}
+				}
+			}
+
+			return bitmaps.map(x => x && new ImageData(x, mapWidth * 8, mapHeight * 8));
+		};
 
 		// rendering
 		const shades = [];
@@ -1003,28 +1057,26 @@
 				console.log('updatePalettes');
 				for (let i = 0; i < 3; ++i) {
 					const ctx = paletteCanvases[i].getContext('2d');
-					if (layers[i]) ctx.putImageData(field.genPalette(props, i), 0, 0);
+					if (layers[i]) ctx.putImageData(field.genPalette(props.palettes[i], i), 0, 0);
 					else ctx.clearRect(0, 0, 16, 16);
 				}
 			}
 
-			const mapPropertiesOffset = props.getUint32(0x18, true);
-			const mapFlags = props.getUint8(mapPropertiesOffset + 5);
 			if (updateTiles || updatePalettes) { // tiles
 				console.log('updateTiles');
 				for (let i = 0; i < 3; ++i) {
 					const ctx = tileCanvases[i].getContext('2d');
-					if (layers[i]) ctx.putImageData(field.genTiles(props, layers[i], i, 0), 0, 0);
+					if (layers[i]) ctx.putImageData(field.genTiles(props.palettes[i], props.map, layers[i], i, 0), 0, 0);
 					else ctx.clearRect(0, 0, 256, 256);
 				}
 			}
 
-			const mapWidth = props.getUint16(mapPropertiesOffset, true);
-			const mapHeight = props.getUint16(mapPropertiesOffset + 2, true);
+			const mapWidth = props.map.getUint16(0, true);
+			const mapHeight = props.map.getUint16(2, true);
 			if (updateMaps || updateTiles || updatePalettes) {
 				console.log('updateMaps');
 				const ctx = mapCanvas.getContext('2d');
-				const bitmaps = field.genMap(props, layers.map((x, i) => layerCheckboxes[i].checked && x));
+				const bitmaps = field.genMap(props, layers.map((x, i) => layerCheckboxes[i].checked && x), mapAnimations);
 				Promise.all(bitmaps.map(x => x && createImageBitmap(x))).then(images => {
 					mapCanvas.width = mapWidth * 8 - (showExtensions.checked ? 0 : 32); // setting .width or .height clears the canvas
 					mapCanvas.height = mapHeight * 8 - (showExtensions.checked ? 0 : 32);
@@ -1039,21 +1091,39 @@
 
 					ctx.globalAlpha = 0.5;
 
-					const entityOffset = props.getUint32(0x1c + 8*4, true);
-					if (showMystery.checked && entityOffset !== props.getUint32(0x1c + 9*4, true)) {
-						const numEntities = props.getUint32(entityOffset, true);
-						for (let o = entityOffset + 4, i = 0; i < numEntities; ++i, o += 12) {
-							const x1 = props.getInt16(o + 4, true);
-							const x2 = props.getInt16(o + 6, true);
-							const y1 = props.getInt16(o + 8, true);
-							const y2 = props.getInt16(o + 10, true);
-							ctx.fillStyle = '#fff';
+					if (showDepth.checked && props.depth.byteLength > 0) {
+						const { depth } = props;
+						const numDepths = depth.getUint32(0, true);
+						for (let o = 4, i = 0; i < numDepths; ++i, o += 12) {
+							const data = depth.getUint16(o, true);
+							const flags = depth.getInt16(o + 2, true);
+							const x1 = depth.getInt16(o + 4, true);
+							const x2 = depth.getInt16(o + 6, true);
+							const y1 = depth.getInt16(o + 8, true);
+							const y2 = depth.getInt16(o + 10, true);
+							ctx.fillStyle = `#${[flags & 1, flags & 2, flags & 4].map(x => x ? 'f' : '9').join('')}`;
 							ctx.strokeStyle = '#000';
 							ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 							ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
-							ctx.fillText(str16(props.getUint16(o, true)) + ' ' + str16(props.getUint16(o + 2, true)), x1, y1 + 20);
-							ctx.strokeText(str16(props.getUint16(o, true)) + ' ' + str16(props.getUint16(o + 2, true)), x1, y1 + 20);
+							ctx.fillText(str16(data), x1 + 10, y1 + 20);
+							ctx.strokeText(str16(data), x1 + 10, y1 + 20);
+						}
+					}
+
+					if (showAnimations.checked && props.animations.byteLength > 0) {
+						const { segments } = unpackSegmented(0, props.animations);
+
+						for (let i = 1; i < segments.length; ++i) {
+							if (segments[i].byteLength < 8) continue;
+							const x = segments[i].getInt16(0, true);
+							const y = segments[i].getInt16(2, true);
+							const w = segments[i].getInt16(4, true);
+							const h = segments[i].getInt16(6, true);
+							console.log(x,y,w,h);
+							ctx.fillStyle = '#fff';
+							ctx.fillRect(x * 8, y * 8, w * 8, h * 8);
+							ctx.strokeRect(x * 8, y * 8, w * 8, h * 8);
 						}
 					}
 
@@ -1124,21 +1194,20 @@
 					};
 
 					if (showLoadingZones.checked) {
+						const { loadingZones } = props;
 						const selectedIndex = parseInt(loadingZonesSelect.value);
 
-						const loadingZonesOffset = props.getUint32(0x1c, true);
-						const endOffset = props.getUint32(0x20, true);
-						for (let i = 0, o = loadingZonesOffset; o < endOffset; ++i, o += 24) {
-							const x1 = props.getInt16(o + 4, true);
-							const y1 = props.getInt16(o + 6, true);
-							const z1 = props.getInt16(o + 8, true);
-							const x2 = props.getInt16(o + 10, true);
-							const y2 = props.getInt16(o + 12, true);
-							const z2 = props.getInt16(o + 14, true);
+						for (let i = 0, o = 0; o < loadingZones.byteLength; ++i, o += 24) {
+							const x1 = loadingZones.getInt16(o + 4, true);
+							const y1 = loadingZones.getInt16(o + 6, true);
+							const z1 = loadingZones.getInt16(o + 8, true);
+							const x2 = loadingZones.getInt16(o + 10, true);
+							const y2 = loadingZones.getInt16(o + 12, true);
+							const z2 = loadingZones.getInt16(o + 14, true);
 
 							const selected = i === selectedIndex;
 
-							const flags = props.getUint16(o, true);
+							const flags = loadingZones.getUint16(o, true);
 							const colors = selected
 								? [[.9,.9,.9], [.9,.9,.9], [.9,.9,.9], [.9,.9,.9], [.9,.9,.9], [.9,.9,.9]]
 								: [[1,0,1], [1,0,1], [1,0,1], [1,0,1], [1,0,1], [1,0,1]];
@@ -1157,22 +1226,22 @@
 						}
 					}
 
-					const collisionOffset = props.getUint32(0x38, true);
-					const collisionEndOffset = props.getUint32(0x3c, true);
-					if (showCollision.checked && collisionOffset !== collisionEndOffset) {
-						const numBoxes = props.getUint32(collisionOffset, true);
-						const numOtherBoxes = props.getUint32(collisionOffset + 4, true);
+					if (showCollision.checked && props.collision.byteLength > 0) {
+						const { collision } = props;
+						const numBoxes = collision.getUint32(0, true);
+						const numOtherBoxes = collision.getUint32(4, true);
 						const selectedIndex = parseInt(collisionSelect.value);
-						for (let o = collisionOffset + 8, i = 0; i < numBoxes; ++i, o += 40) {
-							const flags = props.getInt16(o + 4, true);
+
+						for (let o = 8, i = 0; i < numBoxes; ++i, o += 40) {
+							const flags = collision.getInt16(o + 4, true);
 							// if (flags !== -1) continue;
 							const p = [];
 							for (let j = 0; j < 4; ++j) {
-								const x = props.getInt16(o + 8 + j*8, true);
-								const y = props.getInt16(o + 8 + j*8 + 2, true);
-								const z = props.getInt16(o + 8 + j*8 + 4, true);
-								const w = props.getInt16(o + 8 + j*8 + 6, true);
-								p.push([x,y,z,w]);
+								const x = collision.getInt16(o + 8 + j*8, true);
+								const y = collision.getInt16(o + 8 + j*8 + 2, true);
+								const z1 = collision.getInt16(o + 8 + j*8 + 4, true);
+								const z2 = collision.getInt16(o + 8 + j*8 + 6, true);
+								p.push([ x, y, z1, z2 ]);
 							}
 
 							const flat = p[0][2] === p[0][3] && p[1][2] === p[1][3] && p[2][2] === p[2][3] && p[3][2] === p[3][3];
@@ -1206,21 +1275,6 @@
 									);
 								}
 							}
-						}
-
-						for (let o = collisionOffset + 8 + numBoxes*40, i = 0; i < numOtherBoxes; ++i, o += 24) {
-							const x1 = props.getInt16(o + 4, true);
-							const y1 = props.getInt16(o + 6, true);
-							const z1 = props.getInt16(o + 8, true);
-
-							let colors = [[1,1,0], [.7,.7,0], [.5,.5,0]];
-							if (i + numBoxes === selectedIndex) colors = [[1,1,1], [.7,.7,.7], [.5,.5,.5]];
-
-							pushCube(
-								[x1-5, y1-5, z1-5], [x1+5, y1-5, z1-5], [x1-5, y1+5, z1-5], [x1+5, y1+5, z1-5],
-								[x1-5, y1-5, z1+5], [x1+5, y1-5, z1+5], [x1-5, y1+5, z1+5], [x1+5, y1+5, z1+5],
-								colors[0], colors[1], colors[1], colors[1], colors[1], colors[2],
-							);
 						}
 					}
 
@@ -1260,5 +1314,89 @@
 		};
 
 		return field;
+	});
+
+	// #5 : field data
+	const fieldData = window.fieldData = await createSectionWrapped('Field Data', async section => {
+		const fieldFile = fs.get('/FMap/FMapData.dat');
+
+		const select = document.createElement('select');
+		for (let i = 0; i < field.unknownIndices[0]; ++i) addHTML(select, `<option value="${i}">FMapData ${i.toString(16)}</option>`);
+		for (let i = 0; i < field.unknownIndices.length; ++i) {
+			addHTML(select, `<option value="${field.unknownIndices[i]}">FMapData ${field.unknownIndices[i].toString(16)} (${i.toString(16)})</option>`);
+		}
+
+		section.appendChild(select);
+
+		const dump = document.createElement('button');
+		dump.textContent = 'Dump';
+		dump.addEventListener('click', () => {
+			const index = parseInt(select.value);
+			const data = lz77ish(fieldFile.start + field.fmapdataOffsets[index], file);
+			download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data);
+		});
+		section.appendChild(dump);
+
+		const tileCanvas256 = document.createElement('canvas');
+		tileCanvas256.width = tileCanvas256.height = 256;
+		tileCanvas256.style.width = tileCanvas256.style.height = '256px';
+		section.appendChild(tileCanvas256);
+
+		const tileCanvas16 = document.createElement('canvas');
+		tileCanvas16.width = tileCanvas16.height = 256;
+		tileCanvas16.style.width = tileCanvas16.style.height = '256px';
+		section.appendChild(tileCanvas16);
+
+		// make a rainbow palette
+		const globalPalette256 = [[0,0,0]];
+		for (let i = 0; i < 32; ++i) globalPalette256.push([31 << 3, i << 3, 0]);
+		for (let i = 0; i < 32; ++i) globalPalette256.push([(31 - i) << 3, 31 << 3, 0]);
+		for (let i = 0; i < 32; ++i) globalPalette256.push([0, 31 << 3, i << 3]);
+		for (let i = 0; i < 32; ++i) globalPalette256.push([0, (31 - i) << 3, 31 << 3]);
+		for (let i = 0; i < 32; ++i) globalPalette256.push([31 << 1, i << 1, 0]);
+		for (let i = 0; i < 32; ++i) globalPalette256.push([(31 - i) << 1, 31 << 1, 0]);
+		for (let i = 0; i < 32; ++i) globalPalette256.push([0, 31 << 1, i << 1]);
+		for (let i = 0; i < 32; ++i) globalPalette256.push([0, (31 - i) << 1, 31 << 1]);
+
+		const globalPalette16 = [
+			[0,0,0], [255,0,0], [255,64,0], [255,128,0], [255,192,0], [255,255,0], [192,255,0], [128,255,0], [64,255,0], [0,255,0],
+			[0,255,64], [0,255,128], [0,255,192], [0,255,255], [0,192,255], [0,128,255],
+		];
+
+		const render = () => {
+			const index = parseInt(select.value);
+			const data = lz77ish(fieldFile.start + field.fmapdataOffsets[index], file);
+
+			const bitmap256 = new Uint8ClampedArray(256 * 256 * 4);
+			let o = 0;
+			for (let i = 0; o < data.byteLength; ++i) {
+				const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+				for (let j = 0; j < 64 && o < data.byteLength; ++j) {
+					const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+					const paletteIndex = data[o++];
+					([bitmap256[pos*4], bitmap256[pos*4 + 1], bitmap256[pos*4 + 2]] = globalPalette256[paletteIndex]);
+					bitmap256[pos*4 + 3] = 255;
+				}
+			}
+
+			const bitmap16 = new Uint8ClampedArray(256 * 256 * 4);
+			o = 0;
+			for (let i = 0; o < data.byteLength; ++i) {
+				const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+				for (let j = 0; j < 64 && o < data.byteLength; j += 2) {
+					const pos1 = basePos | (j >> 3) << 8 | (j & 0x7);
+					const pos2 = pos1 | 1;
+					const composite = data[o++];
+					([bitmap16[pos1*4], bitmap16[pos1*4 + 1], bitmap16[pos1*4 + 2]] = globalPalette16[composite & 0xf]);
+					([bitmap16[pos2*4], bitmap16[pos2*4 + 1], bitmap16[pos2*4 + 2]] = globalPalette16[composite >> 4]);
+					bitmap16[pos1*4 + 3] = bitmap16[pos2*4 + 3] = 255;
+				}
+			}
+
+			tileCanvas256.getContext('2d').putImageData(new ImageData(bitmap256, 256, 256), 0, 0);
+			tileCanvas16.getContext('2d').putImageData(new ImageData(bitmap16, 256, 256), 0, 0);
+		};
+		select.addEventListener('change', render);
+		render();
 	});
 })();
