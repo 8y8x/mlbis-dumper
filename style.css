@@ -12,7 +12,8 @@
 
 body { background: #111; color: #999; font-family: "Red Hat Text"; overflow-x: hidden; }
 
-#file-input { position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, -50%); }
+#title { padding-bottom: 10px; position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, -100%); }
+#file-input { padding-top: 10px; position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, 0); }
 
 button {
 	background: #012; border: 1px solid #09f; color: #09f; font: inherit; font-size: 0.9rem; height: 1.4em;

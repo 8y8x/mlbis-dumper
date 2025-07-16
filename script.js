@@ -17,6 +17,7 @@
 	}));
 
 	document.querySelector('#file-input').remove();
+	document.querySelector('#title').remove();
 
 	const settings = JSON.parse(localStorage.getItem('settings') || '{}');
 
@@ -1547,91 +1548,155 @@
 
 		const bmaps = battle.bmaps = [];
 		for (let i = 0; i < bmap.segments.length; i += 8) {
-
+			bmaps.push({
+				unknown0: bmap.segments[i],
+				tileset: bmap.segments[i + 1],
+				palette: bmap.segments[i + 2],
+				layer1: bmap.segments[i + 3],
+				layer2: bmap.segments[i + 4],
+				layer3: bmap.segments[i + 5],
+				unknown6: bmap.segments[i + 6],
+				unknown7: bmap.segments[i + 7],
+			});
 		}
 
-		const tilesetOptions = [];
-		const paletteOptions = [];
-		for (let i = 0; i < bmap.segments.length; ++i) {
-			const segment = bmap.segments[i];
-			if (segment.byteLength === 512) paletteOptions.push(i);
-			else if (segment.byteLength > 0) tilesetOptions.push(i);
-		}
+		const bmapSelect = dropdown(bmaps.map((_, i) => `BMap 0x${i.toString(16)}`), 0, () => render());
+		section.appendChild(bmapSelect);
 
-		const tilesetSelect = dropdown(tilesetOptions.map(x => `Tileset 0x${x.toString(16)}`), 0, () => render());
-		section.appendChild(tilesetSelect);
-		const dumpTileset = document.createElement('button');
-		dumpTileset.textContent = 'Dump';
-		section.appendChild(dumpTileset);
+		const bg1Check = checkbox('BG1', true, () => render());
+		section.appendChild(bg1Check);
+		const bg2Check = checkbox('BG2', true, () => render());
+		section.appendChild(bg2Check);
+		const bg3Check = checkbox('BG3', true, () => render());
+		section.appendChild(bg3Check);
+		const reverseLayers = checkbox('Reverse Layers', false, () => render());
+		section.appendChild(reverseLayers);
 
-		const paletteSelect = dropdown(paletteOptions.map(x => `Palette 0x${x.toString(16)}`), 0, () => render());
-		section.appendChild(paletteSelect);
-
-		dumpTileset.addEventListener('mousedown', () => {
-			const index = tilesetOptions[parseInt(tilesetSelect.value)];
-			const tileset = bmap.segments[index];
-			download(`BMap-Tileset${str8(index)}.bin`, 'application/octet-stream', tileset);
-		});
+		const mapCanvas = document.createElement('canvas');
+		mapCanvas.style.cssText = 'width: 512px; height: 256px;';
+		mapCanvas.width = 512;
+		mapCanvas.height = 256;
+		section.appendChild(mapCanvas);
 
 		const rawPreview = document.createElement('div');
 		rawPreview.style.cssText = 'height: 256px; position: relative;';
 		section.appendChild(rawPreview);
 
-		const tileset256Canvas = document.createElement('canvas');
-		tileset256Canvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0px; left: 0px;';
-		tileset256Canvas.width = tileset256Canvas.height = 256;
-		rawPreview.appendChild(tileset256Canvas);
+		const tilesetCanvas = document.createElement('canvas');
+		tilesetCanvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0px; left: 0px;';
+		tilesetCanvas.width = tilesetCanvas.height = 256;
+		rawPreview.appendChild(tilesetCanvas);
 
-		const tileset16Canvas = document.createElement('canvas');
-		tileset16Canvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0px; left: 256px;';
-		tileset16Canvas.width = tileset16Canvas.height = 256;
-		rawPreview.appendChild(tileset16Canvas);
+		const unknown0Canvas = document.createElement('canvas');
+		unknown0Canvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0; left: 256px;';
+		unknown0Canvas.width = unknown0Canvas.height = 256;
+		rawPreview.appendChild(unknown0Canvas);
 
 		const paletteCanvas = document.createElement('canvas');
 		paletteCanvas.style.cssText = 'height: 128px; width: 128px; position: absolute; top: 0px; left: 512px;';
 		paletteCanvas.width = paletteCanvas.height = 16;
 		rawPreview.appendChild(paletteCanvas);
 
+		const metaPreview = document.createElement('div');
+		section.appendChild(metaPreview);
+
 		const render = () => {
-			let tileset = bmap.segments[tilesetOptions[parseInt(tilesetSelect.value)]];
-			tileset = lz77ish(tileset);
-			const palette = bmap.segments[paletteOptions[parseInt(paletteSelect.value)]];
+			const room = bmaps[parseInt(bmapSelect.value)];
 
-			const paletteBitmap = new Uint8ClampedArray(256 * 4);
-			for (let i = 0; i < 256; ++i) {
-				const rgb16 = palette.getUint16(i * 2, true);
-				writeRgba16(paletteBitmap, i, palette.getUint16(i * 2, true));
-			}
-
+			// palette
+			const palette = room.palette?.byteLength && room.palette;
 			const paletteCtx = paletteCanvas.getContext('2d');
-			paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
-
-			const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
-			const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
-			let o = 0;
-			for (let i = 0; o < tileset.byteLength; ++i) {
-				const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
-				// 256-color
-				for (let j = 0; j < 64 && o < tileset.byteLength; ++j) {
-					const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-					const paletteIndex = tileset.getUint8(o++);
-					writeRgba16(tileset256Bitmap, pos, palette.getUint16(paletteIndex * 2, true));
+			if (palette) {
+				const paletteBitmap = new Uint8ClampedArray(256 * 4);
+				for (let i = 0; i < 256; ++i) {
+					const rgb16 = palette.getUint16(i * 2, true);
+					writeRgba16(paletteBitmap, i, palette.getUint16(i * 2, true));
 				}
-
-				// 16-color
-				for (let j = 0; j < 64 && o < tileset.byteLength; j += 2) {
-					const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-					const composite = tileset.getUint8(o++);
-					writeRgba16(tileset16Bitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
-					writeRgba16(tileset16Bitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
-				}
+				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
+			} else {
+				paletteCtx.clearRect(0, 0, 16, 16);
 			}
 
-			const tileset256Ctx = tileset256Canvas.getContext('2d');
-			tileset256Ctx.putImageData(new ImageData(tileset256Bitmap, 256, 256), 0, 0);
+			// tileset
+			const tileset = room.tileset?.byteLength && lz77ish(room.tileset);
+			const tilesetCtx = tilesetCanvas.getContext('2d');
+			if (tileset) {
+				const tilesetBitmap = new Uint8ClampedArray(256 * 256 * 4);
+				let o = 0;
+				for (let i = 0; o < tileset.byteLength; ++i) {
+					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+					// 16-color
+					for (let j = 0; j < 64 && o < tileset.byteLength; j += 2) {
+						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+						const composite = tileset.getUint8(o++);
+						writeRgba16(tilesetBitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
+						writeRgba16(tilesetBitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
+					}
+				}
+				tilesetCtx.putImageData(new ImageData(tilesetBitmap, 256, 256), 0, 0);
+			} else {
+				tilesetCtx.clearRect(0, 0, 256, 256);
+			}
 
-			const tileset16Ctx = tileset16Canvas.getContext('2d');
-			tileset16Ctx.putImageData(new ImageData(tileset16Bitmap, 256, 256), 0, 0);
+			// unknown0
+			const unknown0 = room.unknown0?.byteLength && lz77ish(room.unknown0);
+			const unknown0Ctx = unknown0Canvas.getContext('2d');
+			if (unknown0) {
+				const unknown0Bitmap = new Uint8ClampedArray(256 * 256 * 4);
+				let o = 0;
+				for (let i = 0; o < unknown0.byteLength; ++i) {
+					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+					// 16-color
+					for (let j = 0; j < 64 && o < unknown0.byteLength; j += 2) {
+						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+						const composite = unknown0.getUint8(o++);
+						writeRgba16(unknown0Bitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
+						writeRgba16(unknown0Bitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
+					}
+				}
+				unknown0Ctx.putImageData(new ImageData(unknown0Bitmap, 256, 256), 0, 0);
+			} else {
+				unknown0Ctx.clearRect(0, 0, 256, 256);
+			}
+
+			// map
+			const mapCtx = mapCanvas.getContext('2d');
+			if (palette && tileset) {
+				const mapBitmap = new Uint8ClampedArray(512 * 256 * 4);
+				for (const layerIndex of (reversedOrder.checked ? [0, 1, 2] : [2, 1, 0])) {
+					if (![bg1Check, bg2Check, bg3Check][layerIndex].checked) continue;
+					const layer = [room.layer1, room.layer2, room.layer3][layerIndex];
+					for (let i = 0; i*2 + 1 < (layer?.byteLength ?? 0); ++i) {
+						const tile = layer.getUint16(i * 2, true);
+						const paletteRow = tile >> 12;
+						const tileOffset = (tile & 0x3ff) * 32;
+						const basePos = (i >> 6) << 12 | (i & 0x3f) << 3; // y = i >> 6, x = i & 0x3f
+						for (let j = 0; j < 32 && tileOffset + j < tileset.byteLength; ++j) {
+							let pos = basePos | (j >> 2) << 9 | (j & 0x3) << 1;
+							if (tile & 0x400) pos ^= 0x7; // horizontal flip
+							if (tile & 0x800) pos ^= 0x7 << 9; // vertical flip
+							const composite = tileset.getUint8(tileOffset + j);
+							if (composite & 0xf) writeRgba16(mapBitmap, pos, palette.getUint16((paletteRow << 4 | (composite & 0xf)) * 2, true));
+							if (composite >> 4) writeRgba16(mapBitmap, pos ^ 1, palette.getUint16((paletteRow << 4 | composite >> 4) * 2, true));
+						}
+					}
+				}
+				mapCtx.putImageData(new ImageData(mapBitmap, 512, 256), 0, 0);
+			} else {
+				mapCtx.clearRect(0, 0, 512, 256);
+			}
+
+			// metadata below
+			metaPreview.innerHTML = '';
+			try {
+				const decompressed = lz77ish(room.unknown0);
+				addHTML(metaPreview, `<div>unknown0 decompressed: <code>${bytes(0, decompressed.byteLength, decompressed)}</code></div>`);
+			} catch (err) {
+				addHTML(metaPreview, `<div>unknown0: <code>${bytes(0, room.unknown0.byteLength, room.unknown0)}</code></div>`);
+			}
+			addHTML(metaPreview, `<div>layer sizes: ${room.layer1?.byteLength}, ${room.layer2?.byteLength}, ${room.layer3?.byteLength}</div>`);
+			if (room.unknown6) addHTML(metaPreview, `<div>unknown6: <code>${bytes(0, room.unknown6.byteLength, room.unknown6)}</code></div>`);
+			if (room.unknown7) addHTML(metaPreview, `<div>unknown7: <code>${bytes(0, room.unknown7.byteLength, room.unknown7)}</code></div>`);
 		};
 		render();
 
