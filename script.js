@@ -1663,7 +1663,7 @@
 			const mapCtx = mapCanvas.getContext('2d');
 			if (palette && tileset) {
 				const mapBitmap = new Uint8ClampedArray(512 * 256 * 4);
-				for (const layerIndex of (reversedOrder.checked ? [0, 1, 2] : [2, 1, 0])) {
+				for (const layerIndex of (reverseLayers.checked ? [0, 1, 2] : [2, 1, 0])) {
 					if (![bg1Check, bg2Check, bg3Check][layerIndex].checked) continue;
 					const layer = [room.layer1, room.layer2, room.layer3][layerIndex];
 					for (let i = 0; i*2 + 1 < (layer?.byteLength ?? 0); ++i) {
