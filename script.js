@@ -558,6 +558,8 @@
 				segments.push(sliceDataView(segmentsDat, offsets[offsets.length - 2], offsets[offsets.length - 1]));
 			}
 
+			if (segmentsDat) segments.push(sliceDataView(segmentsDat, offsets[offsets.length - 1], segmentsDat.byteLength));
+
 			return { offsets, segments };
 		};
 
@@ -580,7 +582,7 @@
 			// two more tables of chunk length 0xc, that i can't be bothered to try and guess
 			fsext.bofxtex = varLengthSegments(0x7c90, overlay0e); // tile data is probably right next to it, again
 			fsext.bofxpal = varLengthSegments(0x7ca8, overlay0e); // seems like palette data
-			fsext.bmapg = varLengthSegments(0x7cc0, overlay0e, fs.get('/BMapG/BMapG.dat')); // might be BMes_cf.dat or BDataMap.dat
+			fsext.bmapg = varLengthSegments(0x7cc0, overlay0e, fs.get('/BMapG/BMapG.dat'));
 			fsext.bdfxtex = varLengthSegments(0x7cd8, overlay0e); // might be BDfxGAll.dat instead
 			fsext.bdfxpal = varLengthSegments(0x7d0c, overlay0e); // all segments seem to be 514 in length, so probably palettes
 			fsext.bai_atk_yy = varLengthSegments(0x7d40, overlay0e); // *might* be /BAI/BMes_ji.dat
@@ -1701,6 +1703,128 @@
 		render();
 
 		return battle;
+	});
+
+	const battleGiant = window.battleGiant = await createSectionWrapped('Giant Battle Maps', async section => {
+		const battleGiant = {};
+
+		const selectOptions = [];
+		for (let i = 0; i < fsext.bmapg.segments.length; ++i) selectOptions.push(`BMapG 0x${i.toString(16)}`);
+		const bmapgSelect = dropdown(selectOptions, 0, () => render());
+		section.appendChild(bmapgSelect);
+
+		const bg1Check = checkbox('BG1', true, () => render());
+		section.appendChild(bg1Check);
+		const bg2Check = checkbox('BG2', true, () => render());
+		section.appendChild(bg2Check);
+		const bg3Check = checkbox('BG3', true, () => render());
+		section.appendChild(bg3Check);
+
+		const mapCanvas = document.createElement('canvas');
+		mapCanvas.style.cssText = 'width: 2048px; height: 512px;';
+		mapCanvas.width = 2048;
+		mapCanvas.height = 512;
+		section.appendChild(mapCanvas);
+
+		const componentPreview = document.createElement('div');
+		componentPreview.style.cssText = 'height: 256px; position: relative;';
+		section.appendChild(componentPreview);
+
+		const tilesetCanvas = document.createElement('canvas');
+		tilesetCanvas.style.cssText = 'position: absolute; top: 0px; left: 0px; width: 256px; height: 256px;';
+		tilesetCanvas.width = tilesetCanvas.height = 256;
+		componentPreview.appendChild(tilesetCanvas);
+
+		const paletteCanvas = document.createElement('canvas');
+		paletteCanvas.style.cssText = 'position: absolute; top: 0px; left: 256px; width: 128px; height: 128px;';
+		paletteCanvas.width = paletteCanvas.height = 16;
+		componentPreview.appendChild(paletteCanvas);
+
+		const metaPreview = document.createElement('div');
+		section.appendChild(metaPreview);
+
+		const render = () => {
+			const index = parseInt(bmapgSelect.value);
+			const room = unpackSegmented(lz77ish(fsext.bmapg.segments[index]));
+			const [palette, tileset, layer1, layer2, layer3, unknown5, unknown6] = room.segments;
+
+			// palette
+			const paletteCtx = paletteCanvas.getContext('2d');
+			if (palette?.byteLength) {
+				const paletteBitmap = new Uint8ClampedArray(256 * 4);
+				for (let i = 0; i*2 + 1 < palette.byteLength; ++i) {
+					writeRgba16(paletteBitmap, i, palette.getUint16(i * 2, true));
+				}
+				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
+			} else {
+				paletteCtx.clearRect(0, 0, 16, 16);
+			}
+
+			// tileset
+			const tilesetCtx = tilesetCanvas.getContext('2d');
+			if (palette?.byteLength && tileset?.byteLength) {
+				const tilesetBitmap = new Uint8ClampedArray(256 * 256 * 4);
+				let o = 0;
+				for (let i = 0; o < tileset.byteLength; ++i) {
+					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+					// 256-color
+					for (let j = 0; j < 64 && o < tileset.byteLength; ++j) {
+						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+						const paletteIndex = tileset.getUint8(o++);
+						writeRgba16(tilesetBitmap, pos, palette.getUint16(paletteIndex * 2, true));
+					}
+				}
+				tilesetCtx.putImageData(new ImageData(tilesetBitmap, 256, 256), 0, 0);
+			} else {
+				tilesetCtx.clearRect(0, 0, 256, 256);
+			}
+
+			// map
+			const mapCtx = mapCanvas.getContext('2d');
+			if (palette?.byteLength && tileset?.byteLength) {
+				const mapBitmap = new Uint8ClampedArray(2048 * 512 * 4);
+				let o = 0;
+				for (const layerIndex of [2, 1, 0]) {
+					const layer = [layer1, layer2, layer3][layerIndex];
+					if (!layer?.byteLength) continue;
+					if (![bg1Check, bg2Check, bg3Check][layerIndex].checked) continue;
+
+					for (let i = 0; i*2 + 1 < layer.byteLength; ++i) {
+						const tile = layer.getUint16(i * 2, true);
+						if (!(tile & 0x3ff)) continue;
+
+						// 256-color
+						const basePos = (i >> 7) << 14 | (i & 0x7f) << 3; // y = i >> 6, x = i & 0x3f
+						const tileOffset = (tile & 0x3ff) * 64;
+						for (let j = 0; j < 64 && tileOffset + j < tileset.byteLength; ++j) {
+							let pos = basePos | (j >> 3) << 11 | (j & 0x7);
+							if (tile & 0x400) pos ^= 0x7; // horizontal flip
+							if (tile & 0x800) pos ^= 0x7 << 11; // vertical flip
+
+							const paletteIndex = tileset.getUint8(tileOffset + j);
+							if (!paletteIndex) continue;
+
+							writeRgba16(mapBitmap, pos, palette.getUint16(paletteIndex * 2, true));
+						}
+					}
+				}
+				mapCtx.putImageData(new ImageData(mapBitmap, 2048, 512), 0, 0);
+			} else {
+				mapCtx.clearRect(0, 0, 2048, 512);
+			}
+
+			// metadata below
+			metaPreview.innerHTML = '';
+
+			addHTML(metaPreview, `<div>Layer sizes: ${layer1?.byteLength}, ${layer2?.byteLength}, ${layer3?.byteLength}</div>`);
+			addHTML(metaPreview, `<div>unknown5 size: ${unknown5?.byteLength}</div>`);
+			if (unknown5?.byteLength) addHTML(metaPreview, `<div>unknown5 preview: <code>${bytes(0, 256, unknown5)}</code></div>`);
+			addHTML(metaPreview, `<div>unknown6 size: ${unknown6?.byteLength}</div>`);
+			if (unknown6?.byteLength) addHTML(metaPreview, `<div>unknown6 preview: <code>${bytes(0, 256, unknown6)}</code></div>`);
+		};
+		render();
+
+		return battleGiant;
 	});
 
 	// add spacing to the bottom of the page, for better scrolling
