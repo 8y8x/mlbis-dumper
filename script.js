@@ -32,7 +32,7 @@
 		const section = document.createElement('section');
 		const reveal = document.createElement('div');
 		reveal.className = 'reveal';
-		reveal.innerHTML = `<span style="font-family: 'Red Hat Mono'">[-]</span> ${title}`;
+		reveal.innerHTML = `<code>[-]</code> ${title}`;
 		section.appendChild(reveal);
 
 		const content = document.createElement('div');
@@ -47,7 +47,7 @@
 			localStorage.setItem('settings', JSON.stringify(settings));
 
 			content.style.display = visible ? '' : 'none';
-			reveal.innerHTML = `<span style="font-family: 'Red Hat Mono'">${visible ? '[-]' : '[+]'}</span> ${title}`;
+			reveal.innerHTML = `<code>${visible ? '[-]' : '[+]'}</code> ${title}`;
 
 			section.style.height = visible ? '' : '32px';
 		};
@@ -71,6 +71,141 @@
 			section.innerHTML = `<span style="color: #f99;">${sanitize(err.name)}: ${sanitize(err.message)}<br>
 				${sanitize(err.stack).replace('\n', '<br>')}</span>`;
 		}
+	};
+
+	//////////////////// Components ////////////////////////////////////////////////////////////////////
+
+	const dropdown = (values, initialIndex, onchange, hideArrows) => {
+		const container = document.getElementById('dropdown').content.cloneNode(true);
+		const dropdown = container.querySelector('.dropdown');
+		const left = dropdown.querySelector('.left');
+		const selection = dropdown.querySelector('.selection');
+		const vee = dropdown.querySelector('.vee');
+		const right = dropdown.querySelector('.right');
+		const options = dropdown.querySelector('.options');
+		const optionBase = dropdown.querySelector('.option');
+
+		const optionElements = [];
+		let docListener;
+		let open = false;
+		let selected = initialIndex;
+		const hide = () => {
+			if (!open) return;
+			if (docListener) removeEventListener('mousedown', docListener);
+			options.style.visibility = 'hidden';
+			open = false;
+			docListener = undefined;
+		};
+		const select = (i, silent) => {
+			optionElements[selected].style.color = '';
+			optionElements[i].style.color = '#76f';
+			selected = i;
+			dropdown.value = String(i);
+			selection.innerHTML = values[i];
+			if (!silent) onchange();
+		};
+
+		for (let i = 0; i < values.length; ++i) {
+			const value = values[i];
+			const option = optionBase.cloneNode();
+			option.innerHTML = value;
+			options.appendChild(option);
+			optionElements.push(option);
+
+			option.addEventListener('mouseup', () => {
+				hide();
+				select(i);
+			});
+		}
+		optionBase.remove();
+
+		select(initialIndex, true);
+
+		left.addEventListener('mousedown', () => {
+			if (selected <= 0) return;
+			select(selected - 1);
+		});
+
+		right.addEventListener('mousedown', () => {
+			if (selected >= values.length - 1) return;
+			select(selected + 1);
+		});
+
+		// not really a better way to do this
+		let interval;
+		interval = setInterval(() => {
+			const box = options.getBoundingClientRect();
+			if (box.width <= 0) return;
+			clearInterval(interval);
+
+			selection.style.width = `calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '3em'})`;
+		});
+
+		if (hideArrows) {
+			left.style.display = right.style.display = 'none';
+			options.style.padding = '0 2em 0 0.5em';
+			vee.style.display = 'inline-block';
+		}
+
+		selection.addEventListener('mousedown', e => {
+			if (open) {
+				hide();
+				return;
+			}
+
+			const box = selection.getBoundingClientRect();
+			let height;
+			if (box.y > innerHeight / 2) { // top side has more space
+				options.style.top = '';
+				options.style.bottom = 'calc(1.4em - 1px)';
+				height = box.y - 32;
+				options.style.maxHeight = `${height}px`;
+			} else { // bottom side has more space
+				options.style.top = 'calc(1.4em - 1px)';
+				options.style.bottom = '';
+				height = innerHeight - box.y - 32;
+				options.style.maxHeight = `calc(${height}px - 1.4em)`;
+			}
+			options.style.visibility = '';
+			open = true;
+
+			options.scroll(0, optionElements[selected].offsetTop + optionElements[selected].offsetHeight / 2 - height / 2);
+
+			if (docListener) return;
+			docListener = e => {
+				if (options.contains(e.target)) return;
+				hide();
+			};
+			setTimeout(() => addEventListener('mousedown', docListener));
+		});
+
+		return dropdown;
+	};
+
+	const checkbox = (name, checked, onchange) => {
+		const container = document.getElementById('checkbox').content.cloneNode(true);
+		const checkbox = container.querySelector('.checkbox');
+		const check = checkbox.querySelector('.check');
+		const label = checkbox.querySelector('.label');
+
+		label.innerHTML = name;
+		if (name === '') {
+			checkbox.style.padding = '0';
+			label.remove();
+		}
+
+		const set = (newChecked, silent) => {
+			checked = newChecked;
+			checkbox.checked = checked;
+			if (checked) checkbox.classList.add('checked');
+			else checkbox.classList.remove('checked');
+			if (!silent) onchange();
+		};
+
+		set(checked, true);
+		checkbox.addEventListener('mousedown', () => set(!checked));
+
+		return checkbox;
 	};
 
 	//////////////////// Quick data display functions ////////////////////////////////////////////////////////////
@@ -115,6 +250,13 @@
 	const str16 = x => x.toString(16).padStart(4, '0');
 	const str32 = x => x.toString(16).padStart(8, '0');
 
+	const writeRgba16 = (bitmap, pixel, rgb16) => {
+		bitmap[pixel*4] = (rgb16 & 0x1f) << 3;
+		bitmap[pixel*4 + 1] = (rgb16 >> 5 & 0x1f) << 3;
+		bitmap[pixel*4 + 2] = (rgb16 >> 10 & 0x1f) << 3;
+		bitmap[pixel*4 + 3] = 255;
+	};
+
 	Object.assign(window, { file, readString, bytes });
 
 	//////////////////// Decompression/Unpacking ////////////////////////////////////////////////////////////////////
@@ -125,7 +267,7 @@
 		const length1 = composite & 0xffffff; // the length of the input file
 		const length2 = indat.getUint32(end - 4, true); // the extra length from decompression
 	
-		if ((inputLen && inputLen !== length1) || length1 >= end || offset < 8) {
+		if (length1 + length2 >= inputLen * 10 || offset < 8) {
 			console.log(`offset: ${offset}, length1: ${length1}, length2: ${length2}`);
 			return;
 		}
@@ -154,10 +296,11 @@
 			}
 		}
 
-		return outbuf;
+		return new DataView(outbuf.buffer);
 	};
 
-	const lz77ish = (inoff, indat) => {
+	const lz77ish = indat => {
+		let inoff = 0;
 		const readFunnyU24 = () => {
 			const composite = indat.getUint8(inoff++);
 			const blen = composite >> 6;
@@ -176,7 +319,7 @@
 			const blockLength = indat.getUint16(inoff, true);
 			inoff += 2;
 			block: for (let target = inoff + blockLength; inoff < target;) {
-				let byte = file.getUint8(inoff++);
+				let byte = indat.getUint8(inoff++);
 				for (let j = 0; j < 4; ++j, byte >>= 2) {
 					switch (byte & 3) {
 					case 0:
@@ -205,27 +348,28 @@
 			}
 		}
 
-		return outbuf;
+		return new DataView(outbuf.buffer);
 	};
 
-	const unpackSegmented = (start, dat) => {
+	const unpackSegmented = dat => {
 		if (dat.byteLength < 4) return { offsets: [], segments: [] };
-		const offsets = [dat.getUint32(start, true)];
+		const offsets = [dat.getUint32(0, true)];
 		const segments = [];
-		console.log(':', dat, start);
 		for (let o = 4; o < offsets[0]; o += 4) {
 			const lastSplit = offsets[offsets.length - 1];
 			const split = dat.getUint32(o, true);
 			offsets.push(split);
-			segments.push(new DataView(dat.buffer, dat.byteOffset + start + lastSplit, split - lastSplit));
+			segments.push(sliceDataView(dat, lastSplit, split));
 		}
 
-		segments.push(new DataView(dat.buffer, dat.byteOffset + start + offsets[offsets.length - 1], dat.byteLength - offsets[offsets.length - 1]));
+		segments.push(sliceDataView(dat, offsets[offsets.length - 1], dat.byteLength));
 
 		return { offsets, segments };
 	};
 
-	Object.assign(window, { lzssBackwards, lz77ish, unpackSegmented });
+	const sliceDataView = (dat, start, end) => new DataView(dat.buffer, dat.byteOffset + start, end - start);
+
+	Object.assign(window, { lzssBackwards, lz77ish, sliceDataView, unpackSegmented });
 
 	//////////////////// Misc ////////////////////////////////////////////////////////////////////////////////
 
@@ -242,7 +386,6 @@
 
 	//////////////////// Sections ////////////////////////////////////////////////////////////////////////////////
 
-	// #1 : read off basic rom headers
 	const headers = window.headers = await createSectionWrapped('ROM Headers', async section => {
 		const fields = [];
 		const headers = {};
@@ -273,13 +416,12 @@
 		fields.push(['ARM7', `0x${str32(headers.arm7offset)}, len 0x${headers.arm7size.toString(16)}`]);
 
 		for (const [name, value] of fields) {
-			addHTML(section, `<div style="font-family: 'Red Hat Mono';">${name}: ${value}</div>`);
+			addHTML(section, `<div><code>${name}: ${value}</code></div>`);
 		}
 
 		return headers;
 	});
 
-	// #2 : parse file structure
 	const fs = window.fs = await createSectionWrapped('File System', async section => {
 		const parseSubtable = (o, fileId) => {
 			const entries = [];
@@ -317,7 +459,7 @@
 		for (let i = 0; i < headers.fatLength / 8; ++i) {
 			const start = file.getUint32(headers.fatOffset + i*8, true);
 			const end = file.getUint32(headers.fatOffset + i*8 + 4, true);
-			fs.set(i, { path: '<overlay?>', name: `overlay${str8(i)}.bin`, start, end });
+			fs.set(i, { index: i, path: '<overlay?>', name: `overlay${str8(i)}.bin`, start, end });
 		}
 
 		const recurseDirectory = (subtable, prefix) => {
@@ -336,38 +478,37 @@
 		};
 		recurseDirectory(subtables.get(0xf000), '/');
 
-		for (let i = 0; i < headers.fatLength / 8; ++i) {
-			const fsentry = fs.get(i);
-			addHTML(section, `<div><code>${str8(i)}. 0x${str32(fsentry.start)} - 0x${str32(fsentry.end)}
-				(len 0x${(fsentry.end - fsentry.start).toString(16)})</code> ${sanitize(fsentry.path)}</div>`);
+		for (const [key, fsentry] of fs) {
+			const dat = new DataView(file.buffer, fsentry.start, fsentry.end - fsentry.start);
+			Object.assign(dat, fsentry);
+			fs.set(key, dat);
 		}
 
-		const fileSelect = document.createElement('select');
+		const fileSelectEntries = [];
 		for (let i = 0; i < headers.fatLength / 8; ++i) {
 			const fsentry = fs.get(i);
-			addHTML(fileSelect, `<option value="${i}">${str8(i)}. (len 0x${(fsentry.end - fsentry.start).toString(16)}) ${sanitize(fsentry.path)}</option>`);
+			fileSelectEntries.push(`${str8(i)}. (len 0x${(fsentry.end - fsentry.start).toString(16)}) ${sanitize(fsentry.path)}`);
 		}
+		const fileSelect = dropdown(fileSelectEntries, 0, () => {});
 		section.appendChild(fileSelect);
 
-		const decompression = document.createElement('select');
-		addHTML(decompression, '<option value="none">No decompression</option>');
-		addHTML(decompression, '<option value="lzssBackwards">Backwards LZSS</option>');
+		const decompression = dropdown(['No decompression', 'Backwards LZSS'], 0, () => {}, true);
 		section.appendChild(decompression);
 
-		const download = document.createElement('button');
-		download.textContent = 'Dump';
-		section.appendChild(download);
+		const dump = document.createElement('button');
+		dump.textContent = 'Dump';
+		section.appendChild(dump);
 
 		const downloadOutput = document.createElement('div');
 		section.appendChild(downloadOutput);
 
-		download.addEventListener('click', () => {
+		dump.addEventListener('mousedown', () => {
 			const fsentry = fs.get(parseInt(fileSelect.value));
-			const decompressionType = decompression.value;
+			const decompressionType = parseInt(decompression.value);
 
 			let output;
-			if (decompressionType === 'none') output = file.buffer.slice(fsentry.start, fsentry.end);
-			else if (decompressionType === 'lzssBackwards') output = lzssBackwards(fsentry.end, file, fsentry.end - fsentry.start);
+			if (decompressionType === 0) output = file.buffer.slice(fsentry.start, fsentry.end);
+			else if (decompressionType === 1) output = lzssBackwards(fsentry.end, file, fsentry.end - fsentry.start);
 
 			if (!output) {
 				downloadOutput.textContent = 'Failed to load/decompress';
@@ -378,32 +519,137 @@
 			download(fsentry.name, 'application/octet-stream', output);
 		});
 
+		const fsList = [];
+		for (let i = 0; i < headers.fatLength / 8; ++i) fsList.push(fs.get(i));
+
+		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => resort(), true);
+		section.appendChild(sorting);
+		const sorted = document.createElement('div');
+		section.appendChild(sorted);
+		const resort = () => {
+			if (sorting.value === '0') fsList.sort((a, b) => a.index - b.index); // sort by index
+			else if (sorting.value === '1') fsList.sort((a, b) => (a.end - a.start) - (b.end - b.start)); // sort by length
+
+			sorted.innerHTML = '';
+			for (const fsentry of fsList) {
+				addHTML(sorted, `<div><code>${str8(fsentry.index)}. 0x${str32(fsentry.start)} - 0x${str32(fsentry.end)}
+					(len 0x${(fsentry.end - fsentry.start).toString(16)})</code> ${sanitize(fsentry.path)}</div>`);
+			}
+		}
+		resort();
+
 		return fs;
 	});
 
-	// #3 : dump font data
+	const fsext = window.fsext = await createSectionWrapped('File System (Extended)', async section => {
+		const fsext = {};
+
+		// JP and demo versions don't compress their overlays, but the other versions do
+		const decompressOverlay = dat => lzssBackwards(dat.byteLength, dat, dat.byteLength) || dat;
+
+		const varLengthSegments = (start, dat, segmentsDat) => {
+			const chunkLength = dat.getUint32(start, true);
+			const offsets = [];
+			const segments = [];
+			for (let o = 4; o < chunkLength; o += 4) {
+				offsets.push(dat.getInt32(start + o, true));
+				if (!segmentsDat || offsets.length < 2) continue;
+				segments.push(sliceDataView(segmentsDat, offsets[offsets.length - 2], offsets[offsets.length - 1]));
+			}
+
+			return { offsets, segments };
+		};
+
+		const fixedIndices = (o, end, dat) => {
+			const indices = [];
+			for (; o < end; o += 4) indices.push(dat.getInt32(o, true));
+			return indices;
+		};
+
+		const overlay03 = decompressOverlay(fs.get(0x03)); // mostly field map references
+		const overlay0e = decompressOverlay(fs.get(0x0e)); // mostly battle map references
+		const fmapdata = fs.get('/FMap/FMapData.dat');
+
+		// i'm not sure how these file structures work, but this should cover all versions of MLBIS
+		// you can find these offsets yourself by going through overlay 0x03, which has lists of increasing
+		// pointers into each file. these pointers stop right before the end of the file length, so it's easy to tell
+		// which pointer list belongs to which file
+		// (for example, in US /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
+		if (headers.gamecode === 'CLJE') { // US/AU
+			// two more tables of chunk length 0xc, that i can't be bothered to try and guess
+			fsext.bofxtex = varLengthSegments(0x7c90, overlay0e); // tile data is probably right next to it, again
+			fsext.bofxpal = varLengthSegments(0x7ca8, overlay0e); // seems like palette data
+			fsext.bmapg = varLengthSegments(0x7cc0, overlay0e, fs.get('/BMapG/BMapG.dat')); // might be BMes_cf.dat or BDataMap.dat
+			fsext.bdfxtex = varLengthSegments(0x7cd8, overlay0e); // might be BDfxGAll.dat instead
+			fsext.bdfxpal = varLengthSegments(0x7d0c, overlay0e); // all segments seem to be 514 in length, so probably palettes
+			fsext.bai_atk_yy = varLengthSegments(0x7d40, overlay0e); // *might* be /BAI/BMes_ji.dat
+			fsext.bai_mon_cf = varLengthSegments(0x7d7c, overlay0e);
+			fsext.bai_mon_yo = varLengthSegments(0x8210, overlay0e);
+			fsext.bai_scn_ji = varLengthSegments(0x82a4, overlay0e);
+			fsext.bai_atk_nh = varLengthSegments(0x834c, overlay0e);
+			fsext.bai_mon_ji = varLengthSegments(0x8480, overlay0e);
+			fsext.bobjmap = varLengthSegments(0x859c, overlay0e);
+			fsext.bai_atk_hk = varLengthSegments(0x875c, overlay0e);
+			fsext.bai_scn_yo = varLengthSegments(0x8998, overlay0e);
+			fsext.bobjpc = varLengthSegments(0x8c1c, overlay0e);
+			fsext.bobjui = varLengthSegments(0x91c0, overlay0e);
+			fsext.bobjmon = varLengthSegments(0x9c18, overlay0e);
+
+			fsext.fevent = varLengthSegments(0xc8ac, overlay03);
+			fsext.fmapdata = varLengthSegments(0x11310, overlay03, fmapdata);
+			fsext.fobj = varLengthSegments(0xe8a0, overlay03);
+			fsext.fobjmon = varLengthSegments(0xba3c, overlay03);
+			fsext.fobjpc = varLengthSegments(0xbdb0, overlay03);
+			fsext.fpaf = varLengthSegments(0xb8a0, overlay03);
+			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, overlay03);
+			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, overlay03);
+		} else if (headers.gamecode === 'CLJK') { // KO
+			fsext.fmapdata = varLengthSegments(0x11310, overlay03, fmapdata);
+			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, overlay03);
+			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, overlay03);
+		} else if (headers.gamecode === 'CLJJ') { // JP
+			fsext.fmapdata = varLengthSegments(0x11544, overlay03, fmapdata);
+			fsext.fieldAnimeIndices = fixedIndices(0x19710, 0x1a85c, overlay03);
+			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, overlay03);
+		} else if (headers.gamecode === 'CLJP') { // EU
+			fsext.fmapdata = varLengthSegments(0x11310, overlay03, fmapdata);
+			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, overlay03);
+			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, overlay03);
+		} else if (headers.gamecode === 'Y6PP') { // EU Demo
+			fsext.fmapdata = varLengthSegments(0x9a3c, overlay03, fmapdata);
+			fsext.fobj = varLengthSegments(0x9cb0, overlay03);
+			fsext.fieldAnimeIndices = fixedIndices(0xe220, 0xe318, overlay03);
+			fsext.fieldRoomIndices = fixedIndices(0xe498, 0xe72c, overlay03);
+		} else if (headers.gamecode === 'Y6PE') { // US Demo
+			fsext.fmapdata = varLengthSegments(0x9a3c, overlay03, fmapdata);
+			fsext.fobj = varLengthSegments(0x9cb0, overlay03);
+			fsext.fieldAnimeIndices = fixedIndices(0xe164, 0xe25c, overlay03);
+			fsext.fieldRoomIndices = fixedIndices(0xe3dc, 0xe670, overlay03);
+		} else {
+			addHTML(section, `<b style="color: #f99">Unknown gamecode ${headers.gamecode}</b>`);
+		}
+
+		return fsext;
+	});
+
 	const font = window.font = await createSectionWrapped('Font Data', async section => {
 		const fontFile = fs.get('/Font/StatFontSet.dat');
 
 		const locations = [];
 		for (let i = 0; i < 12; ++i) locations.push(file.getUint32(fontFile.start + i*4, true));
 		addHTML(section, `<li>Locations: ${locations.map(x => `0x${x.toString(16)}`).join(' ')}`);
+		const uniqueLocations = Array.from(new Set(locations));
 
-		const select = document.createElement('select');
-		const locationsSet = new Set(locations);
-		for (const loc of locationsSet) {
-			const option = document.createElement('option');
-			option.textContent = `0x${loc.toString(16)}`;
-			option.value = loc;
-			select.appendChild(option);
-		}
+		const options = [];
+		for (const loc of uniqueLocations) options.push(`0x${loc.toString(16)}`);
+		const select = dropdown(options, 0, () => render());
 		section.appendChild(select);
 
 		const preview = document.createElement('div');
 		const render = () => {
 			preview.innerHTML = '';
 
-			const o = parseInt(select.value);
+			const o = uniqueLocations[parseInt(select.value)];
 			const firstLength = file.getUint32(fontFile.start + o, true);
 			const secondLength = file.getUint32(fontFile.start + o + 4, true);
 			const headerLength = file.getUint32(fontFile.start + o + 8, true); // usually 12, but can be more
@@ -438,86 +684,25 @@
 			addHTML(preview, `<li>Second part: <br><code>${bytes(fontFile.start + o + firstLength, secondLength)}</code>`);
 		};
 		render();
-		select.addEventListener('change', render);
 		section.appendChild(preview);
 	});
 
-	// #4 : field maps
 	const field = window.field = await createSectionWrapped('Field Maps', async section => {
 		const field = {};
-
-		const fieldFile = fs.get('/FMap/FMapData.dat');
-		const layoutFile = fs.get(3);
 
 		const layoutPreview = document.createElement('div');
 		section.appendChild(layoutPreview);
 
-		// JP and DEMO versions don't need decompression, but other versions do
-		const layoutData = new DataView(lzssBackwards(layoutFile.end, file, layoutFile.end - layoutFile.start)?.buffer || file.buffer.slice(layoutFile.start, layoutFile.end));
-
-		console.log(layoutData);
-		// i'm not sure how this file structure works, but this should cover all versions of MLBIS
-		// you can find these offsets yourself by going through overlay 0x03, which has lists of increasing
-		// pointers into each file. these pointers stop right before the end of the file length, so it's easy to tell
-		// which pointer list belongs to which file
-		// (for example, in US /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
-		let feventOffsets, fmapdataOffsets, fobjOffsets, fobjmapOffsets, fobjmonOffsets, fobjpcOffsets, fpafOffsets;
-		let roomIndices, unknownIndices;
-		const indices = at => {
-			const chunkLength = layoutData.getUint32(at, true);
-			const indices = [];
-			for (let o = 4; o < chunkLength; o += 4) indices.push(layoutData.getUint32(at + o, true));
-			return indices;
-		};
-		const fixedIndices = (at, until) => {
-			const indices = [];
-			for (let i = 0, o = at; o < until; ++i, o += 4) indices.push(layoutData.getInt32(o, true));
-			return indices;
-		};
-
-		if (headers.gamecode === 'CLJE') { // US/AU
-			feventOffsets = indices(0xc8ac);
-			fmapdataOffsets = indices(0x11310);
-			fobjOffsets = indices(0xe8a0);
-			fobjmonOffsets = indices(0xba3c);
-			fobjpcOffsets = indices(0xbdb0);
-			fpafOffsets = indices(0xb8a0);
-			roomIndices = fixedIndices(0x19fd0, 0x1d504);
-			unknownIndices = fixedIndices(0x18e84, 0x19fd0);
-		} else if (headers.gamecode === 'CLJK') { // KO
-			fmapdataOffsets = indices(0x11310);
-			roomIndices = fixedIndices(0x19fd0, 0x1d504);
-			unknownIndices = fixedIndices(0x18e84, 0x19fd0);
-		} else if (headers.gamecode === 'CLJJ') { // JP
-			fmapdataOffsets = indices(0x11544);
-			roomIndices = fixedIndices(0x1a85c, 0x1dd90);
-			unknownIndices = fixedIndices(0x19710, 0x1a85c);
-		} else if (headers.gamecode === 'CLJP') { // EU
-			fmapdataOffsets = indices(0x11310);
-			roomIndices = fixedIndices(0x19fd0, 0x1d504);
-			unknownIndices = fixedIndices(0x18e84, 0x19fd0);
-		} else if (headers.gamecode === 'Y6PP') { // EU Demo
-			fmapdataOffsets = indices(0x9a3c);
-			fobjOffsets = indices(0x9cb0);
-			roomIndices = fixedIndices(0xe498, 0xe72c);
-			unknownIndices = fixedIndices(0xe220, 0xe318);
-		} else if (headers.gamecode === 'Y6PE') { // US Demo
-			fmapdataOffsets = indices(0x9a3c);
-			fobjOffsets = indices(0x9cb0);
-			roomIndices = fixedIndices(0xe3dc, 0xe670);
-			unknownIndices = fixedIndices(0xe164, 0xe25c);
-		} else {
-			throw new Error(`unknown gamecode ${headers.gamecode}`);
+		field.rooms = [];
+		for (let i = 0, j = 0; i < fsext.fieldRoomIndices.length; i += 5, ++j) {
+			field.rooms[j] = {
+				l1: fsext.fieldRoomIndices[i],
+				l2: fsext.fieldRoomIndices[i + 1],
+				l3: fsext.fieldRoomIndices[i + 2],
+				props: fsext.fieldRoomIndices[i + 3],
+				unknown: fsext.fieldRoomIndices[i + 4],
+			};
 		}
-
-		field.roomOffsets = [];
-		for (let i = 0, j = 0; i < roomIndices.length; i += 5, ++j) {
-			field.roomOffsets[j] = { l1: roomIndices[i], l2: roomIndices[i + 1], l3: roomIndices[i + 2], props: roomIndices[i + 3], unknown: roomIndices[i + 4] };
-		}
-
-		Object.assign(field, {
-			feventOffsets, fmapdataOffsets, fobjOffsets, fobjmonOffsets, fobjpcOffsets, fpafOffsets, roomIndices, unknownIndices,
-		});
 
 		let updatePalettes = true;
 		let updateTiles = true;
@@ -525,35 +710,31 @@
 		let updateOverlay = true;
 		let updateOverlayTriangles = true;
 
+		// define UI
 		const options = document.createElement('div');
 
-		const roomPicker = document.createElement('select');
-		for (let i = 0; i < field.roomOffsets.length; ++i) {
-			addHTML(roomPicker, `<option value="${i}">Room 0x${i.toString(16)}</option>`);
-		}
+		const roomPicker = dropdown(field.rooms.map((_, i) => `Room 0x${i.toString(16)}`), 0, () => roomPicked());
 		options.appendChild(roomPicker);
 
-		const optionCheckbox = (label, checked, onchange) => {
-			const checkbox = document.createElement('input');
-			checkbox.type = 'checkbox';
-			checkbox.id = uniqueId();
-			checkbox.checked = checked;
-
-			checkbox.addEventListener('change', onchange);
-
-			options.appendChild(checkbox);
-			addHTML(options, `<label for="${checkbox.id}">${label}</label>`);
-			return checkbox;
-		};
-
-		const layerCheckboxes = ['BG1', 'BG2', 'BG3'].map(name => optionCheckbox(name, true, () => { updateMaps = true; }));
-		const showPalettes = optionCheckbox('Palettes', true, () => {});
-		const showTiles = optionCheckbox('Tiles', true, () => {});
-		const showExtensions = optionCheckbox('Room Extensions', true, () => { updateMaps = true; });
-		const showCollision = optionCheckbox('Collision', false, () => { updateOverlayTriangles = true; });
-		const showLoadingZones = optionCheckbox('Loading Zones', false, () => { updateOverlayTriangles = true; });
-		const showDepth = optionCheckbox('Depth', false, () => { updateMaps = true; });
-		const showAnimations = optionCheckbox('Animations', false, () => { updateMaps = true; });
+		const layerCheckboxes = ['BG1', 'BG2', 'BG3'].map(name => {
+			const check = checkbox(name, true, () => { updateMaps = true; });
+			options.appendChild(check);
+			return check;
+		});
+		const showPalettes = checkbox('Palettes', false, () => showPalettesChanged());
+		options.appendChild(showPalettes);
+		const showTiles = checkbox('Tiles', false, () => showTilesChanged());
+		options.appendChild(showTiles);
+		const showExtensions = checkbox('Room Extensions', true, () => { updateMaps = true; });
+		options.appendChild(showExtensions);
+		const showCollision = checkbox('Collision', false, () => { updateOverlayTriangles = true; });
+		options.appendChild(showCollision);
+		const showLoadingZones = checkbox('Loading Zones', false, () => { updateOverlayTriangles = true; });
+		options.appendChild(showLoadingZones);
+		const showDepth = checkbox('Depth', false, () => { updateMaps = true; });
+		options.appendChild(showDepth);
+		const showAnimations = checkbox('Animations', false, () => { updateMaps = true; });
+		options.appendChild(showAnimations);
 
 		section.appendChild(options);
 		const mapContainer = document.createElement('div');
@@ -659,31 +840,31 @@
 		section.appendChild(sideProperties);
 
 		const componentContainer = document.createElement('div');
-		componentContainer.style.cssText = 'position: relative; height: 256px;';
+		componentContainer.style.cssText = 'position: relative; height: 0;';
 
 		const paletteCanvases = [];
-		const paletteStyles = ['top: 0px; left: 0px;', 'top: 0px; left: 128px;', 'top: 128px; left: 0px;'];
+		const paletteStyles = ['top: 0px; left: 0px;', 'top: 0px; left: 128px;', 'top: 0px; left: 256px;'];
 		for (let i = 0; i < 3; ++i) {
 			const canvas = document.createElement('canvas');
 			canvas.width = canvas.height = 16;
-			canvas.style.cssText = `position: absolute; ${paletteStyles[i]} width: 128px; height: 128px;`;
+			canvas.style.cssText = `display: none; position: absolute; ${paletteStyles[i]} width: 128px; height: 128px;`;
 			componentContainer.appendChild(canvas);
 			paletteCanvases.push(canvas);
 		}
 
 		const tileCanvases = [];
-		const tileStyles = ['top: 0px; left: 256px;', 'top: 0px; left: 512px;', 'top: 0px; left: 768px;'];
+		const tileStyles = ['top: 0px; left: 0px;', 'top: 0px; left: 256px;', 'top: 0px; left: 512px;'];
 		for (let i = 0; i < 3; ++i) {
 			const canvas = document.createElement('canvas');
 			canvas.width = canvas.height = 256;
-			canvas.style.cssText = `position: absolute; ${tileStyles[i]} width: 256px; height: 256px;`;
+			canvas.style.cssText = `display: none; position: absolute; ${tileStyles[i]} width: 256px; height: 256px;`;
 			componentContainer.appendChild(canvas);
 			tileCanvases.push(canvas);
 		}
 
 		section.appendChild(componentContainer);
 
-		showPalettes.addEventListener('change', () => {
+		const showPalettesChanged = () => {
 			if (showPalettes.checked) {
 				paletteCanvases[0].style.display = paletteCanvases[1].style.display = paletteCanvases[2].style.display = '';
 				tileCanvases[0].style.left = '256px';
@@ -697,9 +878,9 @@
 				tileCanvases[2].style.left = '512px';
 				componentContainer.style.height = showTiles.checked ? '256px' : '0px';
 			}
-		});
+		};
 
-		showTiles.addEventListener('change', () => {
+		const showTilesChanged = () => {
 			if (showTiles.checked) {
 				tileCanvases[0].style.display = tileCanvases[1].style.display = tileCanvases[2].style.display = '';
 				paletteCanvases[2].style.left = '0px';
@@ -711,19 +892,21 @@
 				paletteCanvases[2].style.top = '0px';
 				componentContainer.style.height = showPalettes.checked ? '128px' : '0px';
 			}
-		});
+		};
 
 		const bottomProperties = document.createElement('div');
 		section.appendChild(bottomProperties);
 
 		let collisionSelect, loadingZonesSelect, mapAnimations;
-		let layers, props, room, unknown;
-		const update = () => {
-			room = field.roomOffsets[parseInt(roomPicker.value)];
+		let layers, props, room;
+		const roomPicked = () => {
+			room = field.rooms[parseInt(roomPicker.value)];
 
-			const layer = index => lz77ish(fieldFile.start + fmapdataOffsets[index], file);
-			layers = [room.l1, room.l2, room.l3].map(l => l !== -1 && new DataView(layer(l).buffer));
-			props = unpackSegmented(0, new DataView(layer(room.props).buffer));
+			const layer = index => lz77ish(fsext.fmapdata.segments[index]);
+			layers = [room.l1, room.l2, room.l3].map(l => l !== -1 && layer(l));
+			console.log(room.props, layer(room.props));
+			window.EXP = layer(room.props);
+			props = unpackSegmented(layer(room.props));
 			Object.assign(props, {
 				tiles: [props.segments[0], props.segments[1], props.segments[2]],
 				palettes: [props.segments[3], props.segments[4], props.segments[5]],
@@ -740,7 +923,6 @@
 				unknown16: props.segments[16],
 				unknown17: props.segments[17],
 			});
-			console.log(props);
 
 			bottomProperties.innerHTML = sideProperties.innerHTML = '';
 
@@ -748,44 +930,45 @@
 
 			const mapWidth = props.map.getUint16(0, true);
 			const mapHeight = props.map.getUint16(2, true);
+			const mapActualHeight = Math.max(props.tiles[0].byteLength, props.tiles[1].byteLength, props.tiles[2].byteLength) / 2 / mapWidth;
 			const mapFlags = props.map.getUint16(4, true);
-			addHTML(sideProperties, `<div><code>${mapWidth}x${mapHeight} tiles,
-				(${mapWidth * 8}x${mapHeight * 8} px), ${(mapFlags & 0x1000) ? 'field' : 'map'}
+			addHTML(sideProperties, `<div><code>${mapWidth}x${mapHeight} tiles (${mapWidth}x${mapActualHeight} actual),
+				(${mapWidth * 8}x${mapHeight * 8} px)
 			</code></div>`);
 			addHTML(sideProperties, `<div>Other props: <code>${bytes(4, 8, props.map)}</code></div>`);
 
 			{
 				const { loadingZones } = props;
-				loadingZonesSelect = document.createElement('select');
-				loadingZonesSelect.style.display = 'block';
-				addHTML(loadingZonesSelect, `<option value="">${loadingZones.byteLength / 24} loading zones</option><hr>`);
-				sideProperties.appendChild(loadingZonesSelect);
+				const loadingZonesPlaceholder = document.createElement('div');
+				sideProperties.appendChild(loadingZonesPlaceholder);
 
 				const loadingZoneData = document.createElement('div');
 				sideProperties.appendChild(loadingZoneData);
 
-				loadingZonesSelect.addEventListener('change', () => {
+				const options = [`${loadingZones.byteLength / 24} loading zones`];
+				for (let i = 0, o = 0; o < loadingZones.byteLength; ++i, o += 24) {
+					const flags = loadingZones.getUint16(o, true);
+					const room = loadingZones.getUint16(o + 2, true);
+					const direction = ('↑→↓←')[flags >> 2 & 3];
+					options.push(`[${i}] ${direction} ${room.toString(16)}`);
+				}
+
+				loadingZonesSelect = dropdown(options, 0, () => {
 					updateOverlayTriangles = true;
 
-					if (loadingZonesSelect.value === '') {
+					if (loadingZonesSelect.value === '0') {
 						loadingZoneData.innerHTML = '';
 						return;
 					}
 
-					const o = parseInt(loadingZonesSelect.value) * 24;
+					const o = (parseInt(loadingZonesSelect.value) - 1) * 24;
 					loadingZoneData.innerHTML = `<ul>
 						<li>Flags: <code>${loadingZones.getUint8(o).toString(2).padStart(8, '0')}
 							${loadingZones.getUint8(o + 1).toString(2).padStart(8, '0')}</code></li>
 						<li>Other data: <code>${bytes(o + 16, 8, loadingZones)}</code></li>
 					</ul>`;
 				});
-
-				for (let i = 0, o = 0; o < loadingZones.byteLength; ++i, o += 24) {
-					const flags = loadingZones.getUint16(o, true);
-					const room = loadingZones.getUint16(o + 2, true);
-					const direction = ('↑→↓←')[flags >> 2 & 3];
-					addHTML(loadingZonesSelect, `<option value="${i}">[${i}] ${direction} ${room.toString(16)}`);
-				}
+				loadingZonesPlaceholder.replaceWith(loadingZonesSelect);
 			}
 
 			{
@@ -795,17 +978,8 @@
 
 				const container = document.createElement('div');
 
-				const left = document.createElement('button');
-				left.textContent = '←';
-				container.appendChild(left);
-
-				collisionSelect = document.createElement('select');
-				addHTML(collisionSelect, `<option value="">${numBoxes} prisms, ${numOtherBoxes} specials</option> <hr>`);
-				container.appendChild(collisionSelect);
-
-				const right = document.createElement('button');
-				right.textContent = '→';
-				container.appendChild(right);
+				const collisionSelectPlaceholder = document.createElement('div');
+				container.appendChild(collisionSelectPlaceholder);
 
 				sideProperties.appendChild(container);
 
@@ -815,12 +989,12 @@
 				const changed = () => {
 					updateOverlayTriangles = true;
 
-					if (collisionSelect.value === '') {
+					if (collisionSelect.value === '0') {
 						collisionData.innerHTML = '';
 						return;
 					}
 
-					const index = parseInt(collisionSelect.value);
+					const index = parseInt(collisionSelect.value) - 1;
 					let o = 8;
 					o += Math.min(index, numBoxes) * 40; // first chunk of prisms
 					o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
@@ -846,28 +1020,17 @@
 					}
 				};
 
-				left.addEventListener('mousedown', () => {
-					if (collisionSelect.selectedIndex <= 0) return;
-					--collisionSelect.selectedIndex;
-					updateOverlayTriangles = true;
-					changed();
-				});
-				right.addEventListener('mousedown', () => {
-					if (collisionSelect.selectedIndex >= collisionSelect.children.length - 3) return;
-					++collisionSelect.selectedIndex;
-					updateOverlayTriangles = true;
-					changed();
-				});
-				collisionSelect.addEventListener('input', changed);
+				const options = [`${numBoxes} prisms, ${numOtherBoxes} specials`];
+				for (let i = 0; i < numBoxes; ++i) options.push(`[${i}] Prism`);
+				for (let i = 0; i < numOtherBoxes; ++i) options.push(`[${i}] Special`);
 
-				for (let i = 0; i < numBoxes; ++i) addHTML(collisionSelect, `<option value="${i}">[${i}] Prism</option>`);
-				addHTML(collisionSelect, '<hr>');
-				for (let i = 0; i < numOtherBoxes; ++i) addHTML(collisionSelect, `<option value="${i + numBoxes}">[${i}] Special</option>`);
+				collisionSelect = dropdown(options, 0, changed);
+				collisionSelectPlaceholder.replaceWith(collisionSelect);
 			}
 
 			{
 				const { animations } = props;
-				const { segments } = unpackSegmented(0, animations);
+				const { segments } = unpackSegmented(animations);
 				mapAnimations = new Set();
 
 				const div = document.createElement('div');
@@ -877,23 +1040,15 @@
 				for (let i = 1; i < segments.length; i += 3) {
 					if (segments[i].byteLength < 8) continue;
 
-					const checkbox = document.createElement('input');
-					checkbox.type = 'checkbox';
-					checkbox.checked = false;
-					div.appendChild(checkbox);
-
 					const tileIndex = segments[0].getInt16(j*4, true);
 					const flags = segments[0].getUint16(j*4 + 2, true);
-					const wrapped = {
-						override: segments[i],
-						tiles: tileIndex >= 0 ? lz77ish(fieldFile.start + field.fmapdataOffsets[field.unknownIndices[tileIndex]], file) : undefined,
-					};
 
-					checkbox.addEventListener('input', () => {
-						if (checkbox.checked) mapAnimations.add(wrapped);
-						else mapAnimations.delete(wrapped);
+					const check = checkbox('', false, () => {
+						if (check.checked) mapAnimations.add(segments[i]);
+						else mapAnimations.delete(segments[i]);
 						updateMaps = true;
 					});
+					div.appendChild(check);
 
 					++j;
 				}
@@ -905,7 +1060,7 @@
 
 			addHTML(bottomProperties, `<div>Animations:</div>`);
 			const animationList = document.createElement('ul');
-			const { segments: animationSegments } = unpackSegmented(0, props.animations);
+			const { segments: animationSegments } = unpackSegmented(props.animations);
 			for (let i = 0; i < animationSegments.length; ++i) {
 				addHTML(animationList, `<li>${i}: <code>${bytes(0, animationSegments[i].byteLength, animationSegments[i])}</code></li>`);
 			}
@@ -913,7 +1068,7 @@
 
 			addHTML(bottomProperties, `<div>Passive Animations:</div>`);
 			const passiveAnimationList = document.createElement('ul');
-			const { segments: passiveAnimationSegments } = unpackSegmented(0, props.passiveAnimations);
+			const { segments: passiveAnimationSegments } = unpackSegmented(props.passiveAnimations);
 			for (let i = 0; i < passiveAnimationSegments.length; ++i) {
 				addHTML(passiveAnimationList, `<li>${i}: <code>${bytes(0, passiveAnimationSegments[i].byteLength, passiveAnimationSegments[i])}</code></li>`);
 			}
@@ -927,9 +1082,7 @@
 
 			updatePalettes = true;
 		};
-
-		roomPicker.addEventListener('input', update);
-		update();
+		roomPicked();
 
 		// bitmap generation
 		const setPixel = (bitmap, pixel, rgb16) => {
@@ -996,7 +1149,7 @@
 					let tile = props.tiles[i].getUint16(o, true);
 					o += 2;
 
-					for (const { override, tiles } of animations) {
+					for (const override of animations) {
 						const ox = override.getInt16(0, true);
 						const oy = override.getInt16(2, true);
 						const ow = override.getInt16(4, true);
@@ -1112,7 +1265,7 @@
 					}
 
 					if (showAnimations.checked && props.animations.byteLength > 0) {
-						const { segments } = unpackSegmented(0, props.animations);
+						const { segments } = unpackSegmented(props.animations);
 
 						for (let i = 1; i < segments.length; ++i) {
 							if (segments[i].byteLength < 8) continue;
@@ -1120,7 +1273,6 @@
 							const y = segments[i].getInt16(2, true);
 							const w = segments[i].getInt16(4, true);
 							const h = segments[i].getInt16(6, true);
-							console.log(x,y,w,h);
 							ctx.fillStyle = '#fff';
 							ctx.fillRect(x * 8, y * 8, w * 8, h * 8);
 							ctx.strokeRect(x * 8, y * 8, w * 8, h * 8);
@@ -1195,7 +1347,7 @@
 
 					if (showLoadingZones.checked) {
 						const { loadingZones } = props;
-						const selectedIndex = parseInt(loadingZonesSelect.value);
+						const selectedIndex = parseInt(loadingZonesSelect.value) - 1;
 
 						for (let i = 0, o = 0; o < loadingZones.byteLength; ++i, o += 24) {
 							const x1 = loadingZones.getInt16(o + 4, true);
@@ -1230,10 +1382,11 @@
 						const { collision } = props;
 						const numBoxes = collision.getUint32(0, true);
 						const numOtherBoxes = collision.getUint32(4, true);
-						const selectedIndex = parseInt(collisionSelect.value);
+						const selectedIndex = parseInt(collisionSelect.value) - 1;
 
 						for (let o = 8, i = 0; i < numBoxes; ++i, o += 40) {
 							const flags = collision.getInt16(o + 4, true);
+							const flags4 = collision.getInt16(o + 6, true);
 							// if (flags !== -1) continue;
 							const p = [];
 							for (let j = 0; j < 4; ++j) {
@@ -1249,6 +1402,7 @@
 							const shade = genShade(i);
 
 							let colors = [[0,0,shade], [0,shade,0], [0,shade,0], [0,shade,0], [0,shade,0], [shade,0,0]];
+							if (flags4 & 1) colors[0] = [shade,0,0];
 							if (flags !== -1) colors = colors.map(([r,g,b]) => [0.5 + r/2, 0.5 + g/2, 0.5 + b/2]);
 							if (i === selectedIndex) colors = [[1,1,1], [.9,.9,.9], [.9,.9,.9], [.9,.9,.9], [.9,.9,.9], [.5,.5,.5]];
 
@@ -1300,31 +1454,16 @@
 		};
 		requestAnimationFrame(render); // RQA > interval?
 
-		field.properties = roomId => {
-			return lz77ish(fieldFile.start + fmapdataOffsets[field.roomOffsets[roomId].props], file);
-		}
-
-		field.data = roomId => {
-			const room = field.roomOffsets[parseInt(roomId)];
-			const layer = index => lz77ish(fieldFile.start + fmapdataOffsets[index], file);
-			layers = [room.l1, room.l2, room.l3].map(l => l !== -1 && new DataView(layer(l).buffer));
-			props = new DataView(layer(room.props).buffer);
-			unknown = new DataView(layer(room.unknown).buffer);
-			return { layers, props, unknown };
-		};
-
 		return field;
 	});
 
-	// #5 : field data
-	const fieldData = window.fieldData = await createSectionWrapped('Field Data', async section => {
+	const fmapdataTileViewer = window.fmapdataTileViewer = await createSectionWrapped('FMapData Tile Viewer', async section => {
 		const fieldFile = fs.get('/FMap/FMapData.dat');
 
-		const select = document.createElement('select');
-		for (let i = 0; i < field.unknownIndices[0]; ++i) addHTML(select, `<option value="${i}">FMapData ${i.toString(16)}</option>`);
-		for (let i = 0; i < field.unknownIndices.length; ++i) {
-			addHTML(select, `<option value="${field.unknownIndices[i]}">FMapData ${field.unknownIndices[i].toString(16)} (${i.toString(16)})</option>`);
-		}
+		const options = [];
+		for (let i = 0; i < fsext.fieldAnimeIndices[0]; ++i) options.push(`FMapData ${i.toString(16)}`);
+		for (let i = 0; i < fsext.fieldAnimeIndices.length; ++i) options.push(`FMapData ${fsext.fieldAnimeIndices[i].toString(16)} (${i.toString(16)})`);
+		const select = dropdown(options, 0, () => render());
 
 		section.appendChild(select);
 
@@ -1332,8 +1471,8 @@
 		dump.textContent = 'Dump';
 		dump.addEventListener('click', () => {
 			const index = parseInt(select.value);
-			const data = lz77ish(fieldFile.start + field.fmapdataOffsets[index], file);
-			download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data);
+			const data = lz77ish(fsext.fmapdata.segments[index]);
+			download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data.buffer);
 		});
 		section.appendChild(dump);
 
@@ -1365,7 +1504,7 @@
 
 		const render = () => {
 			const index = parseInt(select.value);
-			const data = lz77ish(fieldFile.start + field.fmapdataOffsets[index], file);
+			const data = lz77ish(fsext.fmapdata.segments[index]);
 
 			const bitmap256 = new Uint8ClampedArray(256 * 256 * 4);
 			let o = 0;
@@ -1373,7 +1512,7 @@
 				const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
 				for (let j = 0; j < 64 && o < data.byteLength; ++j) {
 					const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-					const paletteIndex = data[o++];
+					const paletteIndex = data.getUint8(o++);
 					([bitmap256[pos*4], bitmap256[pos*4 + 1], bitmap256[pos*4 + 2]] = globalPalette256[paletteIndex]);
 					bitmap256[pos*4 + 3] = 255;
 				}
@@ -1386,7 +1525,7 @@
 				for (let j = 0; j < 64 && o < data.byteLength; j += 2) {
 					const pos1 = basePos | (j >> 3) << 8 | (j & 0x7);
 					const pos2 = pos1 | 1;
-					const composite = data[o++];
+					const composite = data.getUint8(o++);
 					([bitmap16[pos1*4], bitmap16[pos1*4 + 1], bitmap16[pos1*4 + 2]] = globalPalette16[composite & 0xf]);
 					([bitmap16[pos2*4], bitmap16[pos2*4 + 1], bitmap16[pos2*4 + 2]] = globalPalette16[composite >> 4]);
 					bitmap16[pos1*4 + 3] = bitmap16[pos2*4 + 3] = 255;
@@ -1399,4 +1538,108 @@
 		select.addEventListener('change', render);
 		render();
 	});
+
+	const battle = window.battle = await createSectionWrapped('Battle Maps', section => {
+		const battle = {};
+
+		const bmapFile = fs.get('/BMap/BMap.dat');
+		const bmap = battle.bmap = unpackSegmented(bmapFile);
+
+		const bmaps = battle.bmaps = [];
+		for (let i = 0; i < bmap.segments.length; i += 8) {
+
+		}
+
+		const tilesetOptions = [];
+		const paletteOptions = [];
+		for (let i = 0; i < bmap.segments.length; ++i) {
+			const segment = bmap.segments[i];
+			if (segment.byteLength === 512) paletteOptions.push(i);
+			else if (segment.byteLength > 0) tilesetOptions.push(i);
+		}
+
+		const tilesetSelect = dropdown(tilesetOptions.map(x => `Tileset 0x${x.toString(16)}`), 0, () => render());
+		section.appendChild(tilesetSelect);
+		const dumpTileset = document.createElement('button');
+		dumpTileset.textContent = 'Dump';
+		section.appendChild(dumpTileset);
+
+		const paletteSelect = dropdown(paletteOptions.map(x => `Palette 0x${x.toString(16)}`), 0, () => render());
+		section.appendChild(paletteSelect);
+
+		dumpTileset.addEventListener('mousedown', () => {
+			const index = tilesetOptions[parseInt(tilesetSelect.value)];
+			const tileset = bmap.segments[index];
+			download(`BMap-Tileset${str8(index)}.bin`, 'application/octet-stream', tileset);
+		});
+
+		const rawPreview = document.createElement('div');
+		rawPreview.style.cssText = 'height: 256px; position: relative;';
+		section.appendChild(rawPreview);
+
+		const tileset256Canvas = document.createElement('canvas');
+		tileset256Canvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0px; left: 0px;';
+		tileset256Canvas.width = tileset256Canvas.height = 256;
+		rawPreview.appendChild(tileset256Canvas);
+
+		const tileset16Canvas = document.createElement('canvas');
+		tileset16Canvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0px; left: 256px;';
+		tileset16Canvas.width = tileset16Canvas.height = 256;
+		rawPreview.appendChild(tileset16Canvas);
+
+		const paletteCanvas = document.createElement('canvas');
+		paletteCanvas.style.cssText = 'height: 128px; width: 128px; position: absolute; top: 0px; left: 512px;';
+		paletteCanvas.width = paletteCanvas.height = 16;
+		rawPreview.appendChild(paletteCanvas);
+
+		const render = () => {
+			let tileset = bmap.segments[tilesetOptions[parseInt(tilesetSelect.value)]];
+			tileset = lz77ish(tileset);
+			const palette = bmap.segments[paletteOptions[parseInt(paletteSelect.value)]];
+
+			const paletteBitmap = new Uint8ClampedArray(256 * 4);
+			for (let i = 0; i < 256; ++i) {
+				const rgb16 = palette.getUint16(i * 2, true);
+				writeRgba16(paletteBitmap, i, palette.getUint16(i * 2, true));
+			}
+
+			const paletteCtx = paletteCanvas.getContext('2d');
+			paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
+
+			const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
+			const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
+			let o = 0;
+			for (let i = 0; o < tileset.byteLength; ++i) {
+				const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+				// 256-color
+				for (let j = 0; j < 64 && o < tileset.byteLength; ++j) {
+					const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+					const paletteIndex = tileset.getUint8(o++);
+					writeRgba16(tileset256Bitmap, pos, palette.getUint16(paletteIndex * 2, true));
+				}
+
+				// 16-color
+				for (let j = 0; j < 64 && o < tileset.byteLength; j += 2) {
+					const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+					const composite = tileset.getUint8(o++);
+					writeRgba16(tileset16Bitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
+					writeRgba16(tileset16Bitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
+				}
+			}
+
+			const tileset256Ctx = tileset256Canvas.getContext('2d');
+			tileset256Ctx.putImageData(new ImageData(tileset256Bitmap, 256, 256), 0, 0);
+
+			const tileset16Ctx = tileset16Canvas.getContext('2d');
+			tileset16Ctx.putImageData(new ImageData(tileset16Bitmap, 256, 256), 0, 0);
+		};
+		render();
+
+		return battle;
+	});
+
+	// add spacing to the bottom of the page, for better scrolling
+	const spacer = document.createElement('div');
+	spacer.style.height = '100vh';
+	document.body.appendChild(spacer);
 })();

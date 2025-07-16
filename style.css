@@ -14,13 +14,34 @@ body { background: #111; color: #999; font-family: "Red Hat Text"; overflow-x: h
 
 #file-input { position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, -50%); }
 
+button {
+	background: #012; border: 1px solid #09f; color: #09f; font: inherit; font-size: 0.9rem; height: 1.4em;
+	line-height: 1.4em; margin: 0 1px; max-height: unset; padding: 0 0.5em;
+}
+button:hover { color: #9cf; }
+
 canvas { display: block; image-rendering: pixelated; }
 
 section { border-bottom: 1px solid #666; position: relative; width: 100vw; }
 section .reveal { line-height: 32px; user-select: none; padding: 0 5px; }
-section .reveal:hover { color: #fffc; }
+section .reveal:hover { color: #ccc; }
 section .content { width: calc(100% - 32px); padding: 20px; padding-left: 52px; }
 
 label { padding: 0 5px; user-select: none; }
 
 code { font-family: "Red Hat Mono" }
+
+.dropdown * { user-select: none; }
+.dropdown .left:hover, .dropdown .selection:hover, .dropdown .right:hover { color: #cbf; }
+.dropdown:has(.selection:hover) .vee { color: #cbf; }
+.dropdown .option:hover { color: #cce; }
+
+.checkbox { border: 1px solid #191; user-select: none; }
+.checkbox * { color: #191; }
+.checkbox .check { opacity: 0; }
+.checkbox:hover * { color: #3f3; }
+.checkbox:not(.checked):hover .check { opacity: 0.2; }
+.checkbox.checked { border-color: #3f3; }
+.checkbox.checked .check { opacity: 1; }
+.checkbox.checked * { color: #3f3; }
+.checkbox.checked:hover * { color: #afa; }
