@@ -260,7 +260,7 @@
 
 	Object.assign(window, { file, readString, bytes });
 
-	//////////////////// Decompression/Unpacking ////////////////////////////////////////////////////////////////////
+	//////////////////// Compression/Packing ////////////////////////////////////////////////////////////////////
 
 	const lzssBackwards = (end, indat, inputLen) => {
 		const composite = indat.getUint32(end - 8, true);
@@ -368,14 +368,127 @@
 		return { offsets, segments };
 	};
 
+	/**
+	 * Creates an uncompressed .zip archive containing multiple files
+	 * @param {{ name: string, dat: DataView }[]} files
+	 * @returns {DataView}
+	 */
+	const zipStore = files => {
+		// https://pkware.cachefly.net/webdocs/APPNOTE/APPNOTE-1.0.txt
+		let expectedSize = 26; // end of central directory
+		for (const file of files) {
+			expectedSize += 30 + file.name.length; // local file header
+			expectedSize += file.dat.byteLength; // file data
+			expectedSize += 46 + file.name.length; // central directory header
+		}
+
+		const dat = new DataView(new ArrayBuffer(expectedSize));
+		const out8 = new Uint8Array(dat.buffer);
+		let o = 0;
+
+		// without specifying time (in MS-DOS format), files appear modified in 1979, which looks wrong
+		const now = new Date();
+		const date = now.getDate() | (now.getMonth() + 1) << 5 | (now.getFullYear() - 1980) << 9;
+		const time = now.getSeconds() >> 1 | now.getMinutes() << 5 | now.getHours() << 11;
+
+		// crc table (for speed)
+		// TARGET: BA 78 E8 55, or 0x55e878ba
+		// https://stackoverflow.com/questions/18638900/javascript-crc32
+		const crcTable = new Uint32Array(256);
+		for (let i = 0; i < 256; ++i) {
+			let r = i;
+			for (let j = 0; j < 8; ++j) {
+				if (r & 1) r = 0xedb88320 ^ (r >>> 1);
+				else r >>>= 1;
+			}
+			crcTable[i] = r;
+		}
+
+		// local files
+		const crc32s = [];
+		const localHeaders = [];
+		for (const { dat: fileDat, name } of files) {
+			// local file header
+			localHeaders.push(o);
+
+			dat.setUint32(o, 0x04034b50, true); o += 4; // local file header signature
+			dat.setUint16(o, 0, true); o += 2; // version needed to extract (0)
+			dat.setUint16(o, 0, true); o += 2; // general purpose bit flag (0)
+			dat.setUint16(o, 0, true); o += 2; // compression method (0 = no compression)
+			dat.setUint16(o, time, true); o += 2; // last mod file time (0)
+			dat.setUint16(o, date, true); o += 2; // last mod file date (0)
+			const crc32LocalOffset = o; o += 4; // write crc-32 later
+			dat.setUint32(o, fileDat.byteLength, true); o += 4; // compressed size (0 = no compression)
+			dat.setUint32(o, fileDat.byteLength, true); o += 4; // uncompressed size
+			dat.setUint16(o, name.length, true); o += 2; // file name length
+			dat.setUint16(o, 0, true); o += 2; // extra field length
+
+			// file name (part of local file header)
+			for (let i = 0; i < name.length; ++i) dat.setUint8(o++, name.charCodeAt(i));
+
+			// file data (in the meantime, calculate the crc32)
+			// https://stackoverflow.com/questions/18638900/javascript-crc32
+			let crc32 = 0xffffffff;
+			for (let i = 0; i < fileDat.byteLength; ++i) {
+				const byte = fileDat.getUint8(i);
+				crc32 = (crc32 >>> 8) ^ crcTable[(crc32 & 0xff) ^ byte];
+				out8[o++] = byte;
+			}
+
+			crc32 ^= 0xffffffff;
+			dat.setUint32(crc32LocalOffset, crc32, true);
+			crc32s.push(crc32);
+		}
+
+		// central directory
+		const centralDirOffset = o;
+		for (let i = 0; i < files.length; ++i) {
+			const { dat: fileDat, name } = files[i];
+			dat.setUint32(o, 0x02014b50, true); o += 4; // central file header signature
+			dat.setUint16(o, 0x031e, true); o += 2; // version made by (3 = unix)
+			dat.setUint16(o, 0, true); o += 2; // version needed to extract (0)
+			dat.setUint16(o, 0, true); o += 2; // general purpose bit flag
+			dat.setUint16(o, 0, true); o += 2; // compression method (0 = no compression)
+			dat.setUint16(o, time, true); o += 2; // last mod file time
+			dat.setUint16(o, date, true); o += 2; // last mod file date
+			dat.setUint32(o, crc32s[i], true); o += 4; // crc32
+			dat.setUint32(o, fileDat.byteLength, true); o += 4; // compressed size (no compression is done)
+			dat.setUint32(o, fileDat.byteLength, true); o += 4; // uncompressed size
+			dat.setUint16(o, name.length, true); o += 2; // file name length
+			dat.setUint16(o, 0, true); o += 2; // extra field length
+			dat.setUint16(o, 0, true); o += 2; // file comment length
+			dat.setUint16(o, 0, true); o += 2; // disk number start
+			dat.setUint16(o, 0, true); o += 2; // internal file attributes
+			dat.setUint32(o, 0, true); o += 4; // external file attributes
+			dat.setInt32(o, localHeaders[i], true); o += 4; // relative offset of local header
+
+			// file name
+			for (let i = 0; i < name.length; ++i) dat.setUint8(o++, name.charCodeAt(i));
+		}
+		const centralDirSize = o - centralDirOffset;
+
+		// end of central dir record
+		dat.setUint32(o, 0x06054b50, true); o += 4; // end of central dir signature
+		dat.setUint16(o, 0, true); o += 2; // number of this disk
+		dat.setUint16(o, 0, true); o += 2; // number of the disk...central directory
+		dat.setUint16(o, file.length, true); o += 2; // total number of entries...on this disk
+		dat.setUint16(o, file.length, true); o += 2; // total number of entries...central dir
+		dat.setUint32(o, centralDirSize, true); o += 4; // size of the central directory
+		dat.setInt32(o, centralDirOffset, true); o += 4; // offset of start of central directory...
+		dat.setUint32(o, 0, true); o += 4; // starting disk number
+		dat.setUint16(o, 0, true); o += 2; // zipfile comment length
+
+		return dat;
+	};
+
 	const sliceDataView = (dat, start, end) => new DataView(dat.buffer, dat.byteOffset + start, end - start);
 
-	Object.assign(window, { lzssBackwards, lz77ish, sliceDataView, unpackSegmented });
+	Object.assign(window, { lzssBackwards, lz77ish, sliceDataView, unpackSegmented, zipStore });
 
 	//////////////////// Misc ////////////////////////////////////////////////////////////////////////////////
 
-	const download = (name, mime, data) => {
-		const blob = new Blob([data], { type: mime });
+	const download = (name, mime, dat) => {
+		const blob = new Blob([dat], { type: mime });
 		const link = document.createElement('a');
 		link.href = URL.createObjectURL(blob);
 		link.download = name;
@@ -384,6 +497,8 @@
 		link.remove();
 		setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
 	};
+
+	Object.assign(window, { download });
 
 	//////////////////// Sections ////////////////////////////////////////////////////////////////////////////////
 
@@ -485,31 +600,34 @@
 			fs.set(key, dat);
 		}
 
+		const singleExport = document.createElement('div');
+		singleExport.textContent = 'File: ';
+		section.appendChild(singleExport);
+
 		const fileSelectEntries = [];
 		for (let i = 0; i < headers.fatLength / 8; ++i) {
 			const fsentry = fs.get(i);
 			fileSelectEntries.push(`${str8(i)}. (len 0x${(fsentry.end - fsentry.start).toString(16)}) ${sanitize(fsentry.path)}`);
 		}
 		const fileSelect = dropdown(fileSelectEntries, 0, () => {});
-		section.appendChild(fileSelect);
+		singleExport.appendChild(fileSelect);
 
-		const decompression = dropdown(['No decompression', 'Backwards LZSS'], 0, () => {}, true);
-		section.appendChild(decompression);
+		const singleDecompression = dropdown(['No decompression', 'Backwards LZSS'], 0, () => {}, true);
+		singleExport.appendChild(singleDecompression);
 
-		const dump = document.createElement('button');
-		dump.textContent = 'Dump';
-		section.appendChild(dump);
+		const singleDump = document.createElement('button');
+		singleDump.textContent = 'Dump';
+		singleExport.appendChild(singleDump);
 
 		const downloadOutput = document.createElement('div');
-		section.appendChild(downloadOutput);
+		singleExport.appendChild(downloadOutput);
 
-		dump.addEventListener('mousedown', () => {
+		singleDump.addEventListener('mousedown', () => {
 			const fsentry = fs.get(parseInt(fileSelect.value));
-			const decompressionType = parseInt(decompression.value);
 
 			let output;
-			if (decompressionType === 0) output = file.buffer.slice(fsentry.start, fsentry.end);
-			else if (decompressionType === 1) output = lzssBackwards(fsentry.end, file, fsentry.end - fsentry.start);
+			if (singleDecompression.value === '0') output = file.buffer.slice(fsentry.start, fsentry.end);
+			else if (singleDecompression.value === '1') output = lzssBackwards(fsentry.end, file, fsentry.end - fsentry.start);
 
 			if (!output) {
 				downloadOutput.textContent = 'Failed to load/decompress';
@@ -519,6 +637,43 @@
 			downloadOutput.textContent = '';
 			download(fsentry.name, 'application/octet-stream', output);
 		});
+
+		const multiExport = document.createElement('div');
+		multiExport.textContent = 'Everything: ';
+		section.appendChild(multiExport);
+
+		const multiDecompression = dropdown(['Backwards LZSS only on overlays', 'No decompression'], 0, () => {}, true);
+		multiExport.appendChild(multiDecompression);
+
+		const multiDump = document.createElement('button');
+		multiDump.textContent = 'Dump Everything';
+		multiExport.appendChild(multiDump);
+		
+		multiDump.addEventListener('mousedown', () => {
+			const files = [];
+			for (let i = 0; i < headers.fatLength / 8; ++i) {
+				const fsentry = fs.get(i);
+				let dat = fsentry;
+				let name = fsentry.name;
+				if (multiDecompression.value === '0' && fsentry.path === '<overlay?>') {
+					dat = lzssBackwards(dat.byteLength, dat, dat.byteLength);
+					if (dat) { // if decompression succeeded
+						// rename /dir/file.xyz => /dir/file-dec.xyz
+						const parts = name.split('.');
+						name = parts.pop();
+						name = `${parts.join('.')}-dec.${name}`;
+					} else {
+						dat = fsentry;
+					}
+				}
+				files.push({ name, dat });
+			}
+
+			const zip = zipStore(files);
+			download(`${headers.gamecode}.zip`, 'application/zip', zip);
+		});
+
+		addHTML(section, '<div style="height: 1em;"></div>'); // separator
 
 		const fsList = [];
 		for (let i = 0; i < headers.fatLength / 8; ++i) fsList.push(fs.get(i));
@@ -580,11 +735,11 @@
 		// (for example, in US /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
 		if (headers.gamecode === 'CLJE') { // US/AU
 			// two more tables of chunk length 0xc, that i can't be bothered to try and guess
-			fsext.bofxtex = varLengthSegments(0x7c90, overlay0e); // tile data is probably right next to it, again
-			fsext.bofxpal = varLengthSegments(0x7ca8, overlay0e); // seems like palette data
+			fsext.bofxtex = varLengthSegments(0x7c90, overlay0e, fs.get('/BRfx/BOfxTex.dat')); // tile data is probably right next to it, again
+			fsext.bofxpal = varLengthSegments(0x7ca8, overlay0e, fs.get('/BRfx/BOfxPal.dat')); // seems like palette data
 			fsext.bmapg = varLengthSegments(0x7cc0, overlay0e, fs.get('/BMapG/BMapG.dat'));
-			fsext.bdfxtex = varLengthSegments(0x7cd8, overlay0e); // might be BDfxGAll.dat instead
-			fsext.bdfxpal = varLengthSegments(0x7d0c, overlay0e); // all segments seem to be 514 in length, so probably palettes
+			fsext.bdfxtex = varLengthSegments(0x7cd8, overlay0e, fs.get('/BRfx/BDfxTex.dat')); // might be BDfxGAll.dat instead
+			fsext.bdfxpal = varLengthSegments(0x7d0c, overlay0e, fs.get('/BRfx/BDfxPal.dat')); // all segments seem to be 514 in length, so probably palettes
 			fsext.bai_atk_yy = varLengthSegments(0x7d40, overlay0e); // *might* be /BAI/BMes_ji.dat
 			fsext.bai_mon_cf = varLengthSegments(0x7d7c, overlay0e);
 			fsext.bai_mon_yo = varLengthSegments(0x8210, overlay0e);
@@ -1717,8 +1872,6 @@
 		section.appendChild(bg1Check);
 		const bg2Check = checkbox('BG2', true, () => render());
 		section.appendChild(bg2Check);
-		const bg3Check = checkbox('BG3', true, () => render());
-		section.appendChild(bg3Check);
 
 		const mapCanvas = document.createElement('canvas');
 		mapCanvas.style.cssText = 'width: 2048px; height: 512px;';
@@ -1746,7 +1899,7 @@
 		const render = () => {
 			const index = parseInt(bmapgSelect.value);
 			const room = unpackSegmented(lz77ish(fsext.bmapg.segments[index]));
-			const [palette, tileset, layer1, layer2, layer3, unknown5, unknown6] = room.segments;
+			const [palette, tileset, layer1, layer2, unknown4, unknown5, unknown6] = room.segments;
 
 			// palette
 			const paletteCtx = paletteCanvas.getContext('2d');
@@ -1784,17 +1937,16 @@
 			if (palette?.byteLength && tileset?.byteLength) {
 				const mapBitmap = new Uint8ClampedArray(2048 * 512 * 4);
 				let o = 0;
-				for (const layerIndex of [2, 1, 0]) {
-					const layer = [layer1, layer2, layer3][layerIndex];
-					if (!layer?.byteLength) continue;
-					if (![bg1Check, bg2Check, bg3Check][layerIndex].checked) continue;
+				// maybe there are more layers, so use an array
+				for (const [layer, check] of [[layer2, bg2Check], [layer1, bg1Check]]) {
+					if (!layer?.byteLength || !check.checked) continue;
 
 					for (let i = 0; i*2 + 1 < layer.byteLength; ++i) {
 						const tile = layer.getUint16(i * 2, true);
 						if (!(tile & 0x3ff)) continue;
 
 						// 256-color
-						const basePos = (i >> 7) << 14 | (i & 0x7f) << 3; // y = i >> 6, x = i & 0x3f
+						const basePos = (i >> 7) << 14 | (i & 0x7f) << 3; // y = i >> 7, x = i & 0x7f
 						const tileOffset = (tile & 0x3ff) * 64;
 						for (let j = 0; j < 64 && tileOffset + j < tileset.byteLength; ++j) {
 							let pos = basePos | (j >> 3) << 11 | (j & 0x7);
@@ -1808,6 +1960,7 @@
 						}
 					}
 				}
+
 				mapCtx.putImageData(new ImageData(mapBitmap, 2048, 512), 0, 0);
 			} else {
 				mapCtx.clearRect(0, 0, 2048, 512);
@@ -1816,7 +1969,8 @@
 			// metadata below
 			metaPreview.innerHTML = '';
 
-			addHTML(metaPreview, `<div>Layer sizes: ${layer1?.byteLength}, ${layer2?.byteLength}, ${layer3?.byteLength}</div>`);
+			addHTML(metaPreview, `<div>Layer sizes: ${layer1?.byteLength}, ${layer2?.byteLength}</div>`);
+			addHTML(metaPreview, `<div>unknown4 size: ${unknown4?.byteLength}</div>`);
 			addHTML(metaPreview, `<div>unknown5 size: ${unknown5?.byteLength}</div>`);
 			if (unknown5?.byteLength) addHTML(metaPreview, `<div>unknown5 preview: <code>${bytes(0, 256, unknown5)}</code></div>`);
 			addHTML(metaPreview, `<div>unknown6 size: ${unknown6?.byteLength}</div>`);
@@ -1825,6 +1979,105 @@
 		render();
 
 		return battleGiant;
+	});
+
+	const fx = window.fx = await createSectionWrapped('Fx', section => {
+		const options = [];
+		for (let i = 0; i < fsext.bdfxtex.segments.length; ++i) {
+			options.push({ name: `BDfx 0x${i.toString(16)}`, tex: fsext.bdfxtex.segments[i], pal: fsext.bdfxpal.segments[i] });
+		}
+		for (let i = 0; i < fsext.bofxtex.segments.length; ++i) {
+			options.push({ name: `BOfx 0x${i.toString(16)}`, tex: fsext.bofxtex.segments[i], pal: fsext.bofxpal.segments[i] });
+		}
+		/*for (let i = 0; i < fsext.fdfxtex.segments.length; ++i) {
+			options.push({ name: `FDfx 0x${i.toString(16)}`, tex: fsext.fdfxtex.segments[i], pal: fsext.fdfxpal.segments[i] });
+		}
+		for (let i = 0; i < fsext.fofxtex.segments.length; ++i) {
+			options.push({ name: `FOfx 0x${i.toString(16)}`, tex: fsext.fofxtex.segments[i], pal: fsext.fofxpal.segments[i] });
+		}
+		for (let i = 0; i < fsext.mdfxtex.segments.length; ++i) {
+			options.push({ name: `MDfx 0x${i.toString(16)}`, tex: fsext.mdfxtex.segments[i], pal: fsext.mdfxpal.segments[i] });
+		}
+		for (let i = 0; i < fsext.mofxtex.segments.length; ++i) {
+			options.push({ name: `MOfx 0x${i.toString(16)}`, tex: fsext.mofxtex.segments[i], pal: fsext.mofxpal.segments[i] });
+		}*/
+
+		const select = dropdown(options.map(x => x.name), 0, () => render());
+		section.appendChild(select);
+
+		const paletteShift = dropdown([0,1,2,3,4,5,6,7,8,9,0xa,0xb,0xc,0xd,0xe,0xf].map(x => `Palette Row 0x${x.toString(16)}`), 0, () => render());
+		section.appendChild(paletteShift);
+
+		const componentPreview = document.createElement('div');
+		componentPreview.style.cssText = 'height: 256px; position: relative;';
+		section.appendChild(componentPreview);
+
+		const tileset256Canvas = document.createElement('canvas');
+		tileset256Canvas.width = tileset256Canvas.height = 256;
+		tileset256Canvas.style.cssText = 'width: 256px; height: 256px; position: absolute; top: 0; left: 0;';
+		componentPreview.appendChild(tileset256Canvas);
+
+		const tileset16Canvas = document.createElement('canvas');
+		tileset16Canvas.width = tileset16Canvas.height = 256;
+		tileset16Canvas.style.cssText = 'width: 256px; height: 256px; position: absolute; top: 0; left: 256px;';
+		componentPreview.appendChild(tileset16Canvas);
+
+		const paletteCanvas = document.createElement('canvas');
+		paletteCanvas.width = paletteCanvas.height = 16;
+		paletteCanvas.style.cssText = 'width: 128px; height: 128px; position: absolute; top: 0; left: 512px;';
+		componentPreview.appendChild(paletteCanvas);
+
+		const render = () => {
+			const option = options[parseInt(select.value)];
+
+			const paletteCtx = paletteCanvas.getContext('2d');
+			if (option.pal.byteLength >= 516) {
+				const paletteBitmap = new Uint8ClampedArray(256 * 4);
+				for (let i = 0; i < 256; ++i) {
+					writeRgba16(paletteBitmap, i, option.pal.getUint16(4 + i*2, true));
+				}
+				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
+			} else {
+				paletteCtx.clearRect(0, 0, 16, 16);
+			}
+
+			const tileset256Ctx = tileset256Canvas.getContext('2d');
+			const tileset16Ctx = tileset16Canvas.getContext('2d');
+			if (option.pal.byteLength >= 516) {
+				const tileset = lz77ish(option.tex);
+				const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
+				const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
+
+				const paletteRow = parseInt(paletteShift.value) << 4;
+
+				let o256 = 0;
+				let o16 = 0;
+				for (let i = 0; o256 < tileset.byteLength || o16 < tileset.byteLength; ++i) {
+					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+					// 256-color
+					for (let j = 0; j < 64 && o256 < tileset.byteLength; ++j) {
+						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+						const paletteIndex = tileset.getUint8(o256++);
+						writeRgba16(tileset256Bitmap, pos, option.pal.getUint16(4 + paletteIndex * 2, true));
+					}
+
+					// 16-color
+					for (let j = 0; j < 64 && o16 < tileset.byteLength; j += 2) {
+						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
+						const composite = tileset.getUint8(o16++);
+						writeRgba16(tileset16Bitmap, pos, option.pal.getUint16(4 + (paletteRow | (composite & 0xf))*2, true));
+						writeRgba16(tileset16Bitmap, pos ^ 1, option.pal.getUint16(4 + (paletteRow | composite >> 4)*2, true));
+					}
+				}
+
+				tileset256Ctx.putImageData(new ImageData(tileset256Bitmap, 256, 256), 0, 0);
+				tileset16Ctx.putImageData(new ImageData(tileset16Bitmap, 256, 256), 0, 0);
+			} else {
+				tileset256Ctx.clearRect(0, 0, 256, 256);
+				tileset16Ctx.clearRect(0, 0, 256, 256);
+			}
+		};
+		render();
 	});
 
 	// add spacing to the bottom of the page, for better scrolling
