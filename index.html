@@ -2,8 +2,12 @@
 <html>
 <head>
 	<link href="style.css" rel="stylesheet" />
+	<link href="favicon.png" rel="icon" type="image/png" />
 
-	<link rel="icon" type="image/png" href="favicon.png" />
+	<!-- loaded through css, so preloading is nice to have -->
+	<link href="redhat/text.ttf" rel="preload" as="font" crossorigin />
+	<link href="redhat/mono.ttf" rel="preload" as="font" crossorigin />
+
 	<title>MLBIS Dumper</title>
 </head>
 <body>
@@ -13,7 +17,7 @@
 	<input id="file-input" type="file" accept=".nds" />
 
 	<template id="dropdown">
-		<div class="dropdown" style="display: inline-block; background: #07060f; border: 1px solid #76f; color: #76f; font-size: 0.9rem; height: 1.4em; line-height: 1.4em; width: fit-content; text-wrap: nowrap; position: relative; margin: 0 1px;"><!--
+		<div class="dropdown" style="display: inline-block; background: #121122; border: 1px solid #76f; color: #76f; font-size: 0.9rem; height: 1.4em; line-height: 1.4em; width: fit-content; text-wrap: nowrap; position: relative; margin: 0 1px;"><!--
 			--><span class="left" style="display: inline-block; text-align: center; width: 1.5em;">
 				<svg viewbox="0 0 16 16" style="width: 1.4em; height: 1.4em; vertical-align: bottom;">
 					<path stroke="currentColor" stroke-width="1" fill="none"

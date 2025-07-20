@@ -26,54 +26,6 @@
 		return () => `uniqueid-${counter++}`;
 	})();
 
-	//////////////////// Section creation //////////////////////////////////////////////////////////////////////
-
-	const sections = [];
-	const createSection = title => {
-		const section = document.createElement('section');
-		const reveal = document.createElement('div');
-		reveal.className = 'reveal';
-		reveal.innerHTML = `<code>[-]</code> ${title}`;
-		section.appendChild(reveal);
-
-		const content = document.createElement('div');
-		content.className = 'content';
-		section.appendChild(content);
-
-		let visible = true;
-		const toggleVisible = newVisible => {
-			if (newVisible === visible) return;
-			visible = newVisible;
-			settings[`section.${title}.visible`] = visible;
-			localStorage.setItem('settings', JSON.stringify(settings));
-
-			content.style.display = visible ? '' : 'none';
-			reveal.innerHTML = `<code>${visible ? '[-]' : '[+]'}</code> ${title}`;
-
-			section.style.height = visible ? '' : '32px';
-		};
-		reveal.addEventListener('mousedown', e => {
-			if (e.button === 0) toggleVisible(!visible);
-		});
-
-		sections.push({ section, content });
-		document.body.appendChild(section);
-
-		toggleVisible(settings[`section.${title}.visible`] ?? true);
-		return content;
-	};
-
-	const createSectionWrapped = async (name, cb) => {
-		const section = createSection(name);
-		try {
-			return await cb(section);
-		} catch (err) {
-			console.error(err);
-			section.innerHTML = `<span style="color: #f99;">${sanitize(err.name)}: ${sanitize(err.message)}<br>
-				${sanitize(err.stack).replace('\n', '<br>')}</span>`;
-		}
-	};
-
 	//////////////////// Components ////////////////////////////////////////////////////////////////////
 
 	const dropdown = (values, initialIndex, onchange, hideArrows) => {
@@ -252,9 +204,12 @@
 	const str32 = x => x.toString(16).padStart(8, '0');
 
 	const writeRgba16 = (bitmap, pixel, rgb16) => {
-		bitmap[pixel*4] = (rgb16 & 0x1f) << 3;
-		bitmap[pixel*4 + 1] = (rgb16 >> 5 & 0x1f) << 3;
-		bitmap[pixel*4 + 2] = (rgb16 >> 10 & 0x1f) << 3;
+		const r = rgb16 & 0x1f;
+		const g = rgb16 >> 5 & 0x1f;
+		const b = rgb16 >> 10 & 0x1f;
+		bitmap[pixel*4] = r << 3 | r >> 2;
+		bitmap[pixel*4 + 1] = g << 3 | g >> 2;
+		bitmap[pixel*4 + 2] = b << 3 | b >> 2;
 		bitmap[pixel*4 + 3] = 255;
 	};
 
@@ -353,19 +308,27 @@
 	};
 
 	const unpackSegmented = dat => {
-		if (dat.byteLength < 4) return { offsets: [], segments: [] };
-		const offsets = [dat.getUint32(0, true)];
+		if (dat.byteLength < 4) return [];
+		const offsetsEnd = dat.getUint32(0, true);
+		let lastSplit = offsetsEnd;
 		const segments = [];
-		for (let o = 4; o < offsets[0]; o += 4) {
-			const lastSplit = offsets[offsets.length - 1];
+		for (let o = 4; o < offsetsEnd; o += 4) {
 			const split = dat.getUint32(o, true);
-			offsets.push(split);
 			segments.push(sliceDataView(dat, lastSplit, split));
+			lastSplit = split;
 		}
 
-		segments.push(sliceDataView(dat, offsets[offsets.length - 1], dat.byteLength));
+		segments.push(sliceDataView(dat, lastSplit, dat.byteLength));
+		return segments;
+	};
 
-		return { offsets, segments };
+	const unpackSegmented16 = dat => {
+		if (dat.byteLength < 2) return [];
+		const offsets = [dat.getUint16(0, true)];
+		const segments = [];
+		for (let o = 2; o < offsets[0] * 2; o += 2) {
+			
+		}
 	};
 
 	/**
@@ -499,6 +462,54 @@
 	};
 
 	Object.assign(window, { download });
+
+	//////////////////// Section creation //////////////////////////////////////////////////////////////////////
+
+	const sections = [];
+	const createSection = title => {
+		const section = document.createElement('section');
+		const reveal = document.createElement('div');
+		reveal.className = 'reveal';
+		reveal.innerHTML = `<code>[-]</code> ${title}`;
+		section.appendChild(reveal);
+
+		const content = document.createElement('div');
+		content.className = 'content';
+		section.appendChild(content);
+
+		let visible = true;
+		const toggleVisible = newVisible => {
+			if (newVisible === visible) return;
+			visible = newVisible;
+			settings[`section.${title}.visible`] = visible;
+			localStorage.setItem('settings', JSON.stringify(settings));
+
+			content.style.display = visible ? '' : 'none';
+			reveal.innerHTML = `<code>${visible ? '[-]' : '[+]'}</code> ${title}`;
+
+			section.style.height = visible ? '' : '32px';
+		};
+		reveal.addEventListener('mousedown', e => {
+			if (e.button === 0) toggleVisible(!visible);
+		});
+
+		sections.push({ section, content });
+		document.body.appendChild(section);
+
+		toggleVisible(settings[`section.${title}.visible`] ?? true);
+		return content;
+	};
+
+	const createSectionWrapped = async (name, cb) => {
+		const section = createSection(name);
+		try {
+			return await cb(section);
+		} catch (err) {
+			console.error(err);
+			section.innerHTML = `<span style="color: #f99;">${sanitize(err.name)}: ${sanitize(err.message)}<br>
+				${sanitize(err.stack).replace('\n', '<br>')}</span>`;
+		}
+	};
 
 	//////////////////// Sections ////////////////////////////////////////////////////////////////////////////////
 
@@ -983,7 +994,7 @@
 				if (!dragging) return;
 				if (lastClientX !== undefined && lastClientY !== undefined) {
 					rotX = (rotX - (e.clientX - lastClientX) * 0.01) % (2 * Math.PI);
-					rotY = Math.min(Math.max(rotY - (e.clientY - lastClientY) * 0.01, 0), Math.PI / 2);
+					rotY = Math.min(Math.max(rotY - (e.clientY - lastClientY) * 0.01, 0), Math.PI * 3 / 4);
 					updateOverlay = true;
 				}
 				lastClientX = e.clientX;
@@ -1066,20 +1077,20 @@
 			window.EXP = layer(room.props);
 			props = unpackSegmented(layer(room.props));
 			Object.assign(props, {
-				tiles: [props.segments[0], props.segments[1], props.segments[2]],
-				palettes: [props.segments[3], props.segments[4], props.segments[5]],
-				map: props.segments[6],
-				loadingZones: props.segments[7],
-				unknown8: props.segments[8],
-				animations: props.segments[9],
-				passiveAnimations: props.segments[10],
-				unknown11: props.segments[11],
-				unknown12: props.segments[12],
-				unknown13: props.segments[13],
-				collision: props.segments[14],
-				depth: props.segments[15],
-				unknown16: props.segments[16],
-				unknown17: props.segments[17],
+				tiles: [props[0], props[1], props[2]],
+				palettes: [props[3], props[4], props[5]],
+				map: props[6],
+				loadingZones: props[7],
+				unknown8: props[8],
+				animations: props[9],
+				passiveAnimations: props[10],
+				unknown11: props[11],
+				unknown12: props[12],
+				unknown13: props[13],
+				collision: props[14],
+				depth: props[15],
+				unknown16: props[16],
+				unknown17: props[17],
 			});
 
 			bottomProperties.innerHTML = sideProperties.innerHTML = '';
@@ -1188,7 +1199,7 @@
 
 			{
 				const { animations } = props;
-				const { segments } = unpackSegmented(animations);
+				const segments = unpackSegmented(animations);
 				mapAnimations = new Set();
 
 				const div = document.createElement('div');
@@ -1218,17 +1229,35 @@
 
 			addHTML(bottomProperties, `<div>Animations:</div>`);
 			const animationList = document.createElement('ul');
-			const { segments: animationSegments } = unpackSegmented(props.animations);
+			const animationSegments = unpackSegmented(props.animations);
 			for (let i = 0; i < animationSegments.length; ++i) {
-				addHTML(animationList, `<li>${i}: <code>${bytes(0, animationSegments[i].byteLength, animationSegments[i])}</code></li>`);
+				if ((i % 3 === 1) && animationSegments[i].byteLength >= 8) {
+					const x = animationSegments[i].getInt16(0, true);
+					const y = animationSegments[i].getInt16(2, true);
+					const w = animationSegments[i].getInt16(4, true);
+					const h = animationSegments[i].getInt16(6, true);
+					addHTML(animationList, `<li>${i}: (${x}, ${y}), size (${w} x ${h})</li>`);
+				} else {
+					addHTML(animationList, `<li>${i}: <code>${bytes(0, animationSegments[i].byteLength, animationSegments[i])}</code></li>`);
+				}
 			}
 			bottomProperties.appendChild(animationList);
 
 			addHTML(bottomProperties, `<div>Passive Animations:</div>`);
 			const passiveAnimationList = document.createElement('ul');
-			const { segments: passiveAnimationSegments } = unpackSegmented(props.passiveAnimations);
+			const passiveAnimationSegments = unpackSegmented(props.passiveAnimations);
 			for (let i = 0; i < passiveAnimationSegments.length; ++i) {
-				addHTML(passiveAnimationList, `<li>${i}: <code>${bytes(0, passiveAnimationSegments[i].byteLength, passiveAnimationSegments[i])}</code></li>`);
+				const first = bytes(0, 4, passiveAnimationSegments[i]);
+				const second = bytes(4, 2, passiveAnimationSegments[i]);
+				const third = bytes(6, 2, passiveAnimationSegments[i]);
+				const parts = [];
+				for (let o = 8; o < passiveAnimationSegments[i].byteLength; o += 4) {
+					parts.push(`<span style="color: ${(o & 4) ? '#666' : '#999'}">${bytes(o, 4, passiveAnimationSegments[i])}`);
+				}
+				addHTML(passiveAnimationList, `<li>${i}: <code>
+					<span style="color: #f99;">${first}</span> <span style="color: #9f9;">${second}</span>
+					<span style="color: #99f;">${third}</span> ${parts.join(' ')}
+				</code></li>`);
 			}
 			bottomProperties.appendChild(passiveAnimationList);
 
@@ -1423,8 +1452,7 @@
 					}
 
 					if (showAnimations.checked && props.animations.byteLength > 0) {
-						const { segments } = unpackSegmented(props.animations);
-
+						const segments = unpackSegmented(props.animations);
 						for (let i = 1; i < segments.length; ++i) {
 							if (segments[i].byteLength < 8) continue;
 							const x = segments[i].getInt16(0, true);
@@ -1620,8 +1648,8 @@
 
 		const options = [];
 		for (let i = 0; i < fsext.fieldAnimeIndices[0]; ++i) options.push(`FMapData ${i.toString(16)}`);
-		for (let i = 0; i < fsext.fieldAnimeIndices.length; ++i) options.push(`FMapData ${fsext.fieldAnimeIndices[i].toString(16)} (${i.toString(16)})`);
-		const select = dropdown(options, 0, () => render());
+		for (let i = 0; i < fsext.fieldAnimeIndices.length; ++i) options.push(`FMapData ${fsext.fieldAnimeIndices[i].toString(16)} (Anime ${i.toString(16)})`);
+		const select = dropdown(options, 0, () => update());
 
 		section.appendChild(select);
 
@@ -1634,67 +1662,172 @@
 		});
 		section.appendChild(dump);
 
-		const tileCanvas256 = document.createElement('canvas');
-		tileCanvas256.width = tileCanvas256.height = 256;
-		tileCanvas256.style.width = tileCanvas256.style.height = '256px';
-		section.appendChild(tileCanvas256);
+		// generate a rainbow color palette, with later values using darker colors (0 - 0xf instead of 0 - 0x1f)
+		const globalPalette256 = new DataView(new ArrayBuffer(512));
+		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(i*2, 0x1f << 10 | i << 5 | 0, true);
+		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x40 + i*2, i << 10 | 0x1f << 5 | 0, true);
+		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x80 + i*2, 0 << 10 | 0x1f << 5 | i, true);
+		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0xc0 + i*2, 0 << 10 | i << 5 | 0x1f, true);
+		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x100 + i*2, i << 10 | 0 << 5 | 0x1f, true);
+		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x140 + i*2, 0x1f << 10 | 0 << 5 | i, true);
+		for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x180 + i*2, 0xf << 10 | i << 5 | 0, true);
+		for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1a0 + i*2, i << 10 | 0xf << 5 | 0, true);
+		for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x1c0 + i*2, 0 | 0xf << 5 | i, true);
+		for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1e0 + i*2, 0 | i << 5 | 0xf, true);
 
-		const tileCanvas16 = document.createElement('canvas');
-		tileCanvas16.width = tileCanvas16.height = 256;
-		tileCanvas16.style.width = tileCanvas16.style.height = '256px';
-		section.appendChild(tileCanvas16);
+		const globalPalette16 = new DataView(new ArrayBuffer(512));
+		const rgb16s = [[31,0,0], [31,10,0], [31,20,0], [31,31,0], [20,31,0], [10,31,0], [0,31,0], [0,31,10],
+			[0,31,20], [0,31,31], [0,20,31], [0,10,31], [0,0,31], [10,0,31], [20,0,31], [31,0,31]];
+		for (let i = 0; i < 16; ++i) {
+			const [b, g, r] = rgb16s[i];
+			const rgb16 = r << 10 | g << 5 | b;
+			for (let o = 0; o < 512; o += 32) globalPalette16.setUint16(o + i*2, rgb16, true);
+		}
 
-		// make a rainbow palette
-		const globalPalette256 = [[0,0,0]];
-		for (let i = 0; i < 32; ++i) globalPalette256.push([31 << 3, i << 3, 0]);
-		for (let i = 0; i < 32; ++i) globalPalette256.push([(31 - i) << 3, 31 << 3, 0]);
-		for (let i = 0; i < 32; ++i) globalPalette256.push([0, 31 << 3, i << 3]);
-		for (let i = 0; i < 32; ++i) globalPalette256.push([0, (31 - i) << 3, 31 << 3]);
-		for (let i = 0; i < 32; ++i) globalPalette256.push([31 << 1, i << 1, 0]);
-		for (let i = 0; i < 32; ++i) globalPalette256.push([(31 - i) << 1, 31 << 1, 0]);
-		for (let i = 0; i < 32; ++i) globalPalette256.push([0, 31 << 1, i << 1]);
-		for (let i = 0; i < 32; ++i) globalPalette256.push([0, (31 - i) << 1, 31 << 1]);
+		let paletteSelectPlaceholder = document.createElement('span');
+		paletteSelectPlaceholder.textContent = '(global palette)';
+		section.appendChild(paletteSelectPlaceholder);
 
-		const globalPalette16 = [
-			[0,0,0], [255,0,0], [255,64,0], [255,128,0], [255,192,0], [255,255,0], [192,255,0], [128,255,0], [64,255,0], [0,255,0],
-			[0,255,64], [0,255,128], [0,255,192], [0,255,255], [0,192,255], [0,128,255],
-		];
+		const canvasContainer = document.createElement('div');
+		canvasContainer.style.cssText = 'height: 640px; position: relative;';
+		section.appendChild(canvasContainer);
+
+		const tileCanvases256 = [];
+		const tileCanvases16 = [];
+		const paletteCanvases = [];
+		for (let i = 0; i < 3; ++i) {
+			const tc256 = document.createElement('canvas');
+			tc256.width = tc256.height = 256;
+			tc256.style.cssText = `position: absolute; top: 0px; left: ${i * 256}px; width: 256px; height: 256px;`;
+			canvasContainer.appendChild(tc256);
+			tileCanvases256.push(tc256);
+
+			const tc16 = document.createElement('canvas');
+			tc16.width = tc16.height = 256;
+			tc16.style.cssText = `position: absolute; top: 256px; left: ${i * 256}px; width: 256px; height: 256px;`;
+			canvasContainer.appendChild(tc16);
+			tileCanvases16.push(tc16);
+		}
+
+		for (let i = 0; i < 6; ++i) {
+			const pc = document.createElement('canvas');
+			pc.width = pc.height = 16;
+			pc.style.cssText = `position: absolute; top: 512px; left: ${i * 128}px; width: 128px; height: 128px;`;
+			canvasContainer.appendChild(pc);
+			paletteCanvases.push(pc);
+		}
+
+		const animeToProps = new Map();
+		for (let i = 0; i < field.rooms.length; ++i) {
+			const props = unpackSegmented(lz77ish(fsext.fmapdata.segments[field.rooms[i].props]));
+			const passiveAnimations = unpackSegmented(props[10]);
+			for (const passiveAnime of passiveAnimations) {
+				const tileset = passiveAnime.getInt16(4, true);
+				let arr = animeToProps.get(tileset) || [];
+				arr.push(i);
+				animeToProps.set(tileset, arr);
+			}
+		}
+
+		let paletteOptions;
+		const update = () => {
+			const animeId = parseInt(select.value) - fsext.fieldAnimeIndices[0];
+			console.log(animeId, parseInt(select.value), fsext.fieldAnimeIndices[0]);
+			if (animeId >= 0) {
+				paletteOptions = animeToProps.get(animeId) || [];
+
+				if (paletteOptions.length === 0) {
+					const span = document.createElement('span');
+					span.textContent = '(unused?)';
+					paletteSelectPlaceholder.replaceWith(span);
+					paletteSelectPlaceholder = span;
+				} else {
+					const select = dropdown(paletteOptions.map(x => `Palette for Room 0x${x.toString(16)}`), 0, () => render());
+					paletteSelectPlaceholder.replaceWith(select);
+					paletteSelectPlaceholder = select;
+				}
+			} else {
+				paletteOptions = [];
+				const placeholder = document.createElement('span');
+				placeholder.textContent = '(global palette)';
+				paletteSelectPlaceholder.replaceWith(placeholder);
+				paletteSelectPlaceholder = placeholder;
+			}
+
+			render();
+		};
 
 		const render = () => {
 			const index = parseInt(select.value);
 			const data = lz77ish(fsext.fmapdata.segments[index]);
 
+			let palettes = [globalPalette256, globalPalette16, globalPalette256, globalPalette16, globalPalette256, globalPalette16];
+			if (paletteOptions.length) {
+				const roomIndex = paletteOptions[parseInt(paletteSelectPlaceholder.value)];
+				const room = field.rooms[roomIndex];
+				const props = unpackSegmented(lz77ish(fsext.fmapdata.segments[room.props]));
+				palettes = [props[3], props[3], props[4], props[4], props[5], props[5]];
+			}
+
+			// 256-color
 			const bitmap256 = new Uint8ClampedArray(256 * 256 * 4);
-			let o = 0;
-			for (let i = 0; o < data.byteLength; ++i) {
-				const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
-				for (let j = 0; j < 64 && o < data.byteLength; ++j) {
-					const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-					const paletteIndex = data.getUint8(o++);
-					([bitmap256[pos*4], bitmap256[pos*4 + 1], bitmap256[pos*4 + 2]] = globalPalette256[paletteIndex]);
-					bitmap256[pos*4 + 3] = 255;
+			for (let i = 0; i < 3; ++i) {
+				const ctx = tileCanvases256[i].getContext('2d');
+				if (palettes[i*2].byteLength !== 512) { // if the layer doesn't exist in the room
+					ctx.clearRect(0, 0, 256, 256);
+					continue;
 				}
+
+				let o = 0;
+				for (let j = 0; o < data.byteLength; ++j) {
+					const basePos = (j >> 5) << 11 | (j & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+					for (let k = 0; k < 64 && o < data.byteLength; ++k) {
+						const pos = basePos | (k >> 3) << 8 | (k & 0x7);
+						const paletteIndex = data.getUint8(o++);
+						writeRgba16(bitmap256, pos, palettes[i*2].getUint16(paletteIndex*2, true));
+					}
+				}
+
+				ctx.putImageData(new ImageData(bitmap256, 256, 256), 0, 0);
 			}
 
+			// 16-color
 			const bitmap16 = new Uint8ClampedArray(256 * 256 * 4);
-			o = 0;
-			for (let i = 0; o < data.byteLength; ++i) {
-				const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
-				for (let j = 0; j < 64 && o < data.byteLength; j += 2) {
-					const pos1 = basePos | (j >> 3) << 8 | (j & 0x7);
-					const pos2 = pos1 | 1;
-					const composite = data.getUint8(o++);
-					([bitmap16[pos1*4], bitmap16[pos1*4 + 1], bitmap16[pos1*4 + 2]] = globalPalette16[composite & 0xf]);
-					([bitmap16[pos2*4], bitmap16[pos2*4 + 1], bitmap16[pos2*4 + 2]] = globalPalette16[composite >> 4]);
-					bitmap16[pos1*4 + 3] = bitmap16[pos2*4 + 3] = 255;
+			for (let i = 0; i < 3; ++i) {
+				const ctx = tileCanvases16[i].getContext('2d');
+				if (palettes[i*2 + 1].byteLength !== 512) { // if the layer doesn't exist in the room
+					ctx.clearRect(0, 0, 256, 256);
+					continue;
 				}
+
+				let o = 0;
+				for (let j = 0; o < data.byteLength; ++j) {
+					const basePos = (j >> 5) << 11 | (j & 0x1f) << 3; // y = j >> 5, x = j & 0x1f
+					for (let k = 0; k < 64 && o < data.byteLength; k += 2) {
+						const pos = basePos | (k >> 3) << 8 | (k & 0x7);
+						const composite = data.getUint8(o++);
+						writeRgba16(bitmap16, pos, palettes[i*2 + 1].getUint16((composite & 0xf)*2, true));
+						writeRgba16(bitmap16, pos ^ 1, palettes[i*2 + 1].getUint16((composite >> 4)*2, true));
+					}
+				}
+
+				ctx.putImageData(new ImageData(bitmap16, 256, 256), 0, 0);
 			}
 
-			tileCanvas256.getContext('2d').putImageData(new ImageData(bitmap256, 256, 256), 0, 0);
-			tileCanvas16.getContext('2d').putImageData(new ImageData(bitmap16, 256, 256), 0, 0);
+			// palettes
+			const bitmapPal = new Uint8ClampedArray(256 * 4);
+			for (let i = 0; i < 6; ++i) {
+				const ctx = paletteCanvases[i].getContext('2d');
+				if (palettes[i].byteLength !== 512) {
+					ctx.clearRect(0, 0, 16, 16);
+					continue;
+				}
+
+				for (let j = 0; j < 256; ++j) writeRgba16(bitmapPal, j, palettes[i].getUint16(j*2, true));
+				ctx.putImageData(new ImageData(bitmapPal, 16, 16), 0, 0);
+			}
 		};
-		select.addEventListener('change', render);
-		render();
+		update();
 	});
 
 	const battle = window.battle = await createSectionWrapped('Battle Maps', section => {
@@ -1704,16 +1837,16 @@
 		const bmap = battle.bmap = unpackSegmented(bmapFile);
 
 		const bmaps = battle.bmaps = [];
-		for (let i = 0; i < bmap.segments.length; i += 8) {
+		for (let i = 0; i < bmap.length; i += 8) {
 			bmaps.push({
-				unknown0: bmap.segments[i],
-				tileset: bmap.segments[i + 1],
-				palette: bmap.segments[i + 2],
-				layer1: bmap.segments[i + 3],
-				layer2: bmap.segments[i + 4],
-				layer3: bmap.segments[i + 5],
-				unknown6: bmap.segments[i + 6],
-				unknown7: bmap.segments[i + 7],
+				unknown0: bmap[i],
+				tileset: bmap[i + 1],
+				palette: bmap[i + 2],
+				layer1: bmap[i + 3],
+				layer2: bmap[i + 4],
+				layer3: bmap[i + 5],
+				unknown6: bmap[i + 6],
+				unknown7: bmap[i + 7],
 			});
 		}
 
@@ -1899,7 +2032,7 @@
 		const render = () => {
 			const index = parseInt(bmapgSelect.value);
 			const room = unpackSegmented(lz77ish(fsext.bmapg.segments[index]));
-			const [palette, tileset, layer1, layer2, unknown4, unknown5, unknown6] = room.segments;
+			const [palette, tileset, layer1, layer2, unknown4, unknown5, unknown6] = room;
 
 			// palette
 			const paletteCtx = paletteCanvas.getContext('2d');
