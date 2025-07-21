@@ -203,7 +203,7 @@
 	const str16 = x => x.toString(16).padStart(4, '0');
 	const str32 = x => x.toString(16).padStart(8, '0');
 
-	const writeRgba16 = (bitmap, pixel, rgb16) => {
+	const writeRgb16 = (bitmap, pixel, rgb16) => {
 		const r = rgb16 & 0x1f;
 		const g = rgb16 >> 5 & 0x1f;
 		const b = rgb16 >> 10 & 0x1f;
@@ -902,8 +902,8 @@
 		options.appendChild(showLoadingZones);
 		const showDepth = checkbox('Depth', false, () => { updateMaps = true; });
 		options.appendChild(showDepth);
-		const showAnimations = checkbox('Animations', false, () => { updateMaps = true; });
-		options.appendChild(showAnimations);
+		const showSimpleAnimations = checkbox('Simple Animations', false, () => { updateMaps = true; });
+		options.appendChild(showSimpleAnimations);
 
 		section.appendChild(options);
 		const mapContainer = document.createElement('div');
@@ -1066,13 +1066,15 @@
 		const bottomProperties = document.createElement('div');
 		section.appendChild(bottomProperties);
 
-		let collisionSelect, loadingZonesSelect, mapAnimations;
-		let layers, props, room;
+		let collisionSelect, loadingZonesSelect;
+		const enabledLayerAnimations = new Set();
+		const enabledTileAnimations = new Set();
+		let tilesets, props, room;
 		const roomPicked = () => {
 			room = field.rooms[parseInt(roomPicker.value)];
 
 			const layer = index => lz77ish(fsext.fmapdata.segments[index]);
-			layers = [room.l1, room.l2, room.l3].map(l => l !== -1 && layer(l));
+			tilesets = [room.l1, room.l2, room.l3].map(l => l !== -1 && layer(l));
 			console.log(room.props, layer(room.props));
 			window.EXP = layer(room.props);
 			props = unpackSegmented(layer(room.props));
@@ -1082,8 +1084,8 @@
 				map: props[6],
 				loadingZones: props[7],
 				unknown8: props[8],
-				animations: props[9],
-				passiveAnimations: props[10],
+				layerAnimations: props[9],
+				tileAnimations: props[10],
 				unknown11: props[11],
 				unknown12: props[12],
 				unknown13: props[13],
@@ -1198,23 +1200,19 @@
 			}
 
 			{
-				const { animations } = props;
-				const segments = unpackSegmented(animations);
-				mapAnimations = new Set();
+				const segments = unpackSegmented(props.layerAnimations);
+				enabledLayerAnimations.clear();
 
 				const div = document.createElement('div');
-				div.textContent = 'Animations:';
+				div.textContent = 'Layer animations: ';
 
 				let j = 0;
 				for (let i = 1; i < segments.length; i += 3) {
 					if (segments[i].byteLength < 8) continue;
 
-					const tileIndex = segments[0].getInt16(j*4, true);
-					const flags = segments[0].getUint16(j*4 + 2, true);
-
 					const check = checkbox('', false, () => {
-						if (check.checked) mapAnimations.add(segments[i]);
-						else mapAnimations.delete(segments[i]);
+						if (check.checked) enabledLayerAnimations.add(segments[i]);
+						else enabledLayerAnimations.delete(segments[i]);
 						updateMaps = true;
 					});
 					div.appendChild(check);
@@ -1225,11 +1223,33 @@
 				sideProperties.appendChild(div);
 			}
 
+			{
+				const segments = unpackSegmented(props.tileAnimations);
+				enabledTileAnimations.clear();
+
+				const div = document.createElement('div');
+				div.textContent = 'Tile animations: ';
+
+				for (let i = 0; i < segments.length; ++i) {
+					const animeIndex = segments[i].getUint16(4, true);
+					const animTileset = lz77ish(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
+					const obj = { anim: segments[i], tileset: animTileset };
+					const check = checkbox('', false, () => {
+						if (check.checked) enabledTileAnimations.add(obj);
+						else enabledTileAnimations.delete(obj);
+						updateTiles = true;
+					});
+					div.appendChild(check);
+				}
+
+				sideProperties.appendChild(div);
+			}
+
 			addHTML(bottomProperties, `<div>unknown8: <code>${bytes(0, props.unknown8.byteLength, props.unknown8)}</code></div>`);
 
-			addHTML(bottomProperties, `<div>Animations:</div>`);
+			addHTML(bottomProperties, `<div>Layer animations:</div>`);
 			const animationList = document.createElement('ul');
-			const animationSegments = unpackSegmented(props.animations);
+			const animationSegments = unpackSegmented(props.layerAnimations);
 			for (let i = 0; i < animationSegments.length; ++i) {
 				if ((i % 3 === 1) && animationSegments[i].byteLength >= 8) {
 					const x = animationSegments[i].getInt16(0, true);
@@ -1243,11 +1263,13 @@
 			}
 			bottomProperties.appendChild(animationList);
 
-			addHTML(bottomProperties, `<div>Passive Animations:</div>`);
+			addHTML(bottomProperties, `<div>Tile Animations:</div>`);
 			const passiveAnimationList = document.createElement('ul');
-			const passiveAnimationSegments = unpackSegmented(props.passiveAnimations);
+			const passiveAnimationSegments = unpackSegmented(props.tileAnimations);
 			for (let i = 0; i < passiveAnimationSegments.length; ++i) {
 				const first = bytes(0, 4, passiveAnimationSegments[i]);
+				const first32 = passiveAnimationSegments[i].getUint32(0, true);
+				const firstComponents = `${first32 >> 14 & 1023} tiles, ${first32 >> 7 & 0x7f} x, ${first32 & 0x7f} y`;
 				const second = bytes(4, 2, passiveAnimationSegments[i]);
 				const third = bytes(6, 2, passiveAnimationSegments[i]);
 				const parts = [];
@@ -1255,7 +1277,7 @@
 					parts.push(`<span style="color: ${(o & 4) ? '#666' : '#999'}">${bytes(o, 4, passiveAnimationSegments[i])}`);
 				}
 				addHTML(passiveAnimationList, `<li>${i}: <code>
-					<span style="color: #f99;">${first}</span> <span style="color: #9f9;">${second}</span>
+					<span style="color: #f99;">${first} (${firstComponents})</span> <span style="color: #9f9;">${second}</span>
 					<span style="color: #99f;">${third}</span> ${parts.join(' ')}
 				</code></li>`);
 			}
@@ -1271,202 +1293,245 @@
 		};
 		roomPicked();
 
-		// bitmap generation
-		const setPixel = (bitmap, pixel, rgb16) => {
-			if (rgb16 & 0x8000) rgb16 = 0xffff;
-			bitmap[pixel*4] = (rgb16 & 0x1f) << 3;
-			bitmap[pixel*4 + 1] = (rgb16 >> 5 & 0x1f) << 3;
-			bitmap[pixel*4 + 2] = (rgb16 >> 10 & 0x1f) << 3;
-			bitmap[pixel*4 + 3] = 255;
-		};
-
-		field.genPalette = paletteSegment => {
-			const bitmap = new Uint8ClampedArray(256 * 4);
-			for (let i = 0; i < 256; ++i) setPixel(bitmap, i, paletteSegment.getUint16(i*2, true));
-			return new ImageData(bitmap, 16);
-		};
-
-		field.genTiles = (paletteSegment, mapSegment, layer, layerId, paletteShift) => {
-			const mapFlags = mapSegment.getUint8(5);
-
-			let o = 0;
-			const bitmap = new Uint8ClampedArray(256 * 256 * 4);
-			if (mapFlags & (1 << layerId)) { // 256 color
-				for (let i = 0; o < layer.byteLength; ++i) {
-					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
-					for (let j = 0; j < 64 && o < layer.byteLength; ++j) { // 8x8
-						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-						const paletteIndex = layer.getUint8(o++);
-						const rgb16 = paletteSegment.getUint16(paletteIndex*2, true);
-						setPixel(bitmap, pos, rgb16);
-					}
-				}
-			} else { // 16 color
-				for (let i = 0; o < layer.byteLength; ++i) {
-					const basePos = (i >> 5) << 11 | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
-					for (let j = 0; j < 64 && o < layer.byteLength; j += 2) { // 8x8 still
-						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
-						const composite = layer.getUint8(o++);
-						setPixel(bitmap, pos, paletteSegment.getUint16((paletteShift << 4 | (composite & 0xf))*2, true));
-						setPixel(bitmap, pos | 1, paletteSegment.getUint16((paletteShift << 4 | composite >> 4)*2, true));
-					}
-				}
-			}
-
-			return new ImageData(bitmap, 256);
-		};
-
-		field.genMap = (props, layers, animations) => {
-			const mapWidth = props.map.getUint16(0, true);
-			const mapHeight = props.map.getUint16(2, true);
-			const mapFlags = props.map.getUint8(5);
-
-			const bitmaps = [];
-			for (let i = 2; i >= 0; --i) {
-				if (!layers[i]) {
-					bitmaps[i] = undefined;
-					continue;
-				}
-
-				bitmaps[i] = new Uint8ClampedArray(mapWidth * mapHeight * 64 * 4);
-				let o = 0;
-				for (let j = 0; j < mapHeight * mapWidth && o + 1 < props.tiles[i].byteLength; ++j) {
-					const x = j % mapWidth;
-					const y = (j / mapWidth) | 0;
-					let tile = props.tiles[i].getUint16(o, true);
-					o += 2;
-
-					for (const override of animations) {
-						const ox = override.getInt16(0, true);
-						const oy = override.getInt16(2, true);
-						const ow = override.getInt16(4, true);
-						const oh = override.getInt16(6, true);
-						if (ox <= x && x < ox + ow && oy <= y && y < oy + oh) {
-							const overrideIndex = (y - oy) * ow + (x - ox);
-							const overrideTile = override.getUint16(8 + (ow*oh*i + overrideIndex)*2, true);
-							if (overrideTile === 0x3ff) continue;
-							tile = overrideTile;
-						}
-					}
-
-					if (mapFlags & (1 << i)) { // 256 color
-						for (let k = 0; k < 64; ++k) {
-							const xx = (tile & 0x400) ? 7 - (k & 7) : k & 7;
-							const yy = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
-							const loc = (tile & 0x3ff) << 6 | k;
-							if (loc >= layers[i].byteLength) continue;
-
-							const paletteIndex = layers[i].getUint8(loc);
-							if (!paletteIndex) continue;
-
-							const rgb16 = props.palettes[i].getUint16(paletteIndex*2, true);
-							setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx, rgb16);
-						}
-					} else { // 16 color
-						for (let k = 0; k < 64; k += 2) {
-							const xx = (tile & 0x400) ? 7 - (k & 7) : k & 7;
-							const yy = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
-							const loc = ((tile & 0x3ff) << 6 | k) >> 1;
-							if (loc >= layers[i].byteLength) continue;
-
-							const paletteComposite = layers[i].getUint8(loc);
-							const paletteRow = tile >> 12;
-							if (paletteComposite & 0xf) {
-								const rgb16 = props.palettes[i].getUint16((paletteRow << 4 | (paletteComposite & 0xf))*2, true);
-								setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx, rgb16);
-							}
-							if (paletteComposite >> 4) {
-								const rgb16 = props.palettes[i].getUint16((paletteRow << 4 | paletteComposite >> 4)*2, true);
-								setPixel(bitmaps[i], (y*8 + yy)*mapWidth*8 + x*8 + xx + ((tile & 0x400) ? -1 : 1), rgb16);
-							}
-						}
-					}
-				}
-			}
-
-			return bitmaps.map(x => x && new ImageData(x, mapWidth * 8, mapHeight * 8));
-		};
-
 		// rendering
 		const shades = [];
 		const genShade = index => shades[index] || (shades[index] = Math.random() * 0.5 + 0.5);
 
 		const render = () => {
+			const mapWidth = props.map.getInt16(0, true);
+			const mapHeight = props.map.getInt16(2, true);
+			const mapFlags = props.map.getUint16(4, true);
+
 			const now = performance.now();
-			if (updatePalettes) { // palettes
-				console.log('updatePalettes');
+			const tick = Math.floor(now / 1000 * 30);
+
+			if (updatePalettes) {
+				console.debug('updatePalettes');
+
+				const bitmap = new Uint8ClampedArray(256 * 4);
 				for (let i = 0; i < 3; ++i) {
 					const ctx = paletteCanvases[i].getContext('2d');
-					if (layers[i]) ctx.putImageData(field.genPalette(props.palettes[i], i), 0, 0);
-					else ctx.clearRect(0, 0, 16, 16);
+					if (props.palettes[i].byteLength !== 512) {
+						ctx.clearRect(0, 0, 16, 16);
+						continue;
+					}
+
+					for (let j = 0; j < 256; ++j) writeRgb16(bitmap, j, props.palettes[i].getUint16(j * 2, true));
+
+					ctx.putImageData(new ImageData(bitmap, 16, 16), 0, 0);
 				}
 			}
 
-			if (updateTiles || updatePalettes) { // tiles
-				console.log('updateTiles');
+			if (enabledTileAnimations.size > 0) updateTiles = true;
+			if (updateTiles || updatePalettes) {
+				console.debug('updateTiles');
+
 				for (let i = 0; i < 3; ++i) {
 					const ctx = tileCanvases[i].getContext('2d');
-					if (layers[i]) ctx.putImageData(field.genTiles(props.palettes[i], props.map, layers[i], i, 0), 0, 0);
-					else ctx.clearRect(0, 0, 256, 256);
+					const palette = props.palettes[i];
+					const tileset = tilesets[i];
+					if (!tileset.byteLength || palette.byteLength !== 512) {
+						ctx.clearRect(0, 0, 256, 256);
+						continue;
+					}
+
+					const bitmap = new Uint8ClampedArray(256 * 256 * 4);
+					let o = 0;
+					for (let j = 0; j * 64 < tileset.byteLength; ++j) {
+						let tileIndex = j;
+						let thisTileset = tileset;
+						for (const { anim, tileset: animTileset } of enabledTileAnimations) {
+							const field = anim.getUint32(0, true);
+							const layer = field & 3;
+							if (layer !== i) continue;
+
+							const replacementStart = field >> 4 & 0x3ff;
+							const frameWidth = field >> 14 & 0x3ff;
+							if (replacementStart <= j && j < replacementStart + frameWidth) {
+								let animationLength = 0;
+								const keyframes = anim.getUint16(6, true);
+								for (let k = 0; k < keyframes; ++k) animationLength += anim.getUint16(8 + k*4 + 2, true);
+
+								let localTick = tick % animationLength;
+								for (let k = 0; k < keyframes; ++k) {
+									const frameLength = anim.getUint16(8 + k*4 + 2, true);
+									if (localTick >= frameLength) {
+										localTick -= frameLength;
+										continue;
+									}
+
+									const animeOffset = anim.getUint16(8 + k*4, true);
+									tileIndex = (j - replacementStart) + animeOffset * frameWidth;
+									break;
+								}
+								thisTileset = animTileset;
+								break;
+							}
+						}
+
+						const basePos = (j >> 5) << 11 | (j & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+						if (mapFlags & (1 << (i + 8))) { // 256-color
+							for (let k = 0, o = tileIndex * 64; k < 64 && o < thisTileset.byteLength; ++k, ++o) {
+								const pos = basePos | (k >> 3) << 8 | (k & 0x7);
+								const paletteIndex = thisTileset.getUint8(o);
+								const rgb16 = palette.getUint16(paletteIndex * 2, true);
+								writeRgb16(bitmap, pos, rgb16);
+							}
+						} else { // 16-color
+							for (let k = 0, o = tileIndex * 32; k < 64 && o < thisTileset.byteLength; k += 2, ++o) {
+								const pos = basePos | (k >> 3) << 8 | (k & 0x7);
+								const composite = thisTileset.getUint8(o);
+								const rgb16Left = palette.getUint16((composite & 0xf) * 2, true);
+								const rgb16Right = palette.getUint16((composite >> 4) * 2, true);
+								writeRgb16(bitmap, pos, rgb16Left);
+								writeRgb16(bitmap, pos ^ 1, rgb16Right);
+							}
+						}
+					}
+
+					ctx.putImageData(new ImageData(bitmap, 256, 256), 0, 0);
 				}
 			}
 
-			const mapWidth = props.map.getUint16(0, true);
-			const mapHeight = props.map.getUint16(2, true);
 			if (updateMaps || updateTiles || updatePalettes) {
-				console.log('updateMaps');
+				console.debug('updateMaps');
+
 				const ctx = mapCanvas.getContext('2d');
-				const bitmaps = field.genMap(props, layers.map((x, i) => layerCheckboxes[i].checked && x), mapAnimations);
-				Promise.all(bitmaps.map(x => x && createImageBitmap(x))).then(images => {
-					mapCanvas.width = mapWidth * 8 - (showExtensions.checked ? 0 : 32); // setting .width or .height clears the canvas
-					mapCanvas.height = mapHeight * 8 - (showExtensions.checked ? 0 : 32);
-					const args = showExtensions.checked
-						? [0, 0]
-						: [16, 16, mapWidth * 8 - 32, mapHeight * 8 - 32, 0, 0, mapWidth * 8 - 32, mapHeight * 8 - 32];
-					if (images[2]) ctx.drawImage(images[2], ...args);
-					if (images[1]) ctx.drawImage(images[1], ...args);
-					if (images[0]) ctx.drawImage(images[0], ...args);
+				const bitmap = new Uint8ClampedArray(mapWidth * mapHeight * 64 * 4);
+				for (let i = 2; i >= 0; --i) {
+					if (!layerCheckboxes[i].checked) continue;
 
-					ctx.save();
+					const tiles = props.tiles[i];
+					const tileset = tilesets[i];
+					const palette = props.palettes[i];
+					if (!tiles.byteLength || !tileset.byteLength || palette.byteLength !== 512) continue;
 
-					ctx.globalAlpha = 0.5;
+					let o = 0;
+					for (let j = 0; j < mapWidth * mapHeight && o + 1 < tiles.byteLength; ++j) {
+						const x = j % mapWidth;
+						const y = Math.floor(j / mapWidth);
+						const basePos = (y * mapWidth * 8 + x) * 8;
+						let tile = tiles.getUint16(o, true);
+						o += 2;
 
-					if (showDepth.checked && props.depth.byteLength > 0) {
-						const { depth } = props;
-						const numDepths = depth.getUint32(0, true);
-						for (let o = 4, i = 0; i < numDepths; ++i, o += 12) {
-							const data = depth.getUint16(o, true);
-							const flags = depth.getInt16(o + 2, true);
-							const x1 = depth.getInt16(o + 4, true);
-							const x2 = depth.getInt16(o + 6, true);
-							const y1 = depth.getInt16(o + 8, true);
-							const y2 = depth.getInt16(o + 10, true);
-							ctx.fillStyle = `#${[flags & 1, flags & 2, flags & 4].map(x => x ? 'f' : '9').join('')}`;
-							ctx.strokeStyle = '#000';
-							ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-							ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+						for (const anim of enabledLayerAnimations) {
+							const animX = anim.getInt16(0, true);
+							const animY = anim.getInt16(2, true);
+							const animW = anim.getInt16(4, true);
+							const animH = anim.getInt16(6, true);
+							if (animX <= x && x < animX + animW && animY <= y && y < animY + animH) {
+								const index = (y - animY) * animW + (x - animX);
+								const replacement = anim.getUint16(8 + animW * animH * 2 * i + index * 2, true);
+								if (replacement === 0x3ff) continue;
+								tile = replacement;
+							}
+						}
 
-							ctx.fillText(str16(data), x1 + 10, y1 + 20);
-							ctx.strokeText(str16(data), x1 + 10, y1 + 20);
+						let tileIndex = tile & 0x3ff;
+						let thisTileset = tileset;
+						for (const { anim, tileset: animTileset } of enabledTileAnimations) {
+							const field = anim.getUint32(0, true);
+							const layer = field & 3;
+							if (layer !== i) continue;
+
+							const replacementStart = field >> 4 & 0x3ff;
+							const frameWidth = field >> 14 & 0x3ff;
+							if (replacementStart <= tileIndex && tileIndex < replacementStart + frameWidth) {
+								let animationLength = 0;
+								const keyframes = anim.getUint16(6, true);
+								for (let k = 0; k < keyframes; ++k) animationLength += anim.getUint16(8 + k*4 + 2, true);
+
+								let localTick = tick % animationLength;
+								for (let k = 0; k < keyframes; ++k) {
+									const frameLength = anim.getUint16(8 + k*4 + 2, true);
+									if (localTick >= frameLength) {
+										localTick -= frameLength;
+										continue;
+									}
+
+									const animeOffset = anim.getUint16(8 + k*4, true);
+									tileIndex = (tileIndex - replacementStart) + animeOffset * frameWidth;
+									break;
+								}
+								thisTileset = animTileset;
+								break;
+							}
+						}
+
+						if (mapFlags & (1 << (i + 8))) { // 256-color
+							for (let k = 0, tileOffset = tileIndex * 64; k < 64 && tileOffset < thisTileset.byteLength; ++k, ++tileOffset) {
+								const tileX = (tile & 0x400) ? 7 - (k & 7) : k & 7;
+								const tileY = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
+								const paletteIndex = thisTileset.getUint8(tileOffset);
+								if (!paletteIndex) continue;
+
+								const rgb16 = palette.getUint16(paletteIndex * 2, true);
+								writeRgb16(bitmap, basePos + (tileY * mapWidth * 8) + tileX, rgb16);
+							}
+						} else { // 16-color
+							const paletteShift = (tile >> 12) << 4;
+							for (let k = 0, tileOffset = tileIndex * 32; k < 64 && tileOffset < thisTileset.byteLength; k += 2, ++tileOffset) {
+								const tileX = (tile & 0x400) ? 7 - (k & 7) : k & 7;
+								const tileY = (tile & 0x800) ? 7 - (k >> 3) : k >> 3;
+								const composite = thisTileset.getUint8(tileOffset);
+								if (composite & 0xf) {
+									const rgb16 = palette.getUint16((paletteShift | (composite & 0xf))*2, true);
+									writeRgb16(bitmap, basePos + (tileY * mapWidth * 8) + tileX, rgb16);
+								}
+								if (composite >> 4) {
+									const rgb16 = palette.getUint16((paletteShift | composite >> 4)*2, true);
+									writeRgb16(bitmap, basePos + (tileY * mapWidth * 8) + tileX ^ 1, rgb16);
+								}
+							}
 						}
 					}
+				}
 
-					if (showAnimations.checked && props.animations.byteLength > 0) {
-						const segments = unpackSegmented(props.animations);
-						for (let i = 1; i < segments.length; ++i) {
-							if (segments[i].byteLength < 8) continue;
-							const x = segments[i].getInt16(0, true);
-							const y = segments[i].getInt16(2, true);
-							const w = segments[i].getInt16(4, true);
-							const h = segments[i].getInt16(6, true);
-							ctx.fillStyle = '#fff';
-							ctx.fillRect(x * 8, y * 8, w * 8, h * 8);
-							ctx.strokeRect(x * 8, y * 8, w * 8, h * 8);
-						}
+				if (showExtensions.checked) {
+					mapCanvas.width = mapWidth * 8;
+					mapCanvas.height = mapHeight * 8;
+					ctx.putImageData(new ImageData(bitmap, mapWidth * 8, mapHeight * 8), 0, 0);
+				} else {
+					mapCanvas.width = mapWidth * 8 - 32;
+					mapCanvas.height = mapHeight * 8 - 32;
+					ctx.putImageData(new ImageData(bitmap, mapWidth * 8, mapHeight * 8), -16, -16);
+				}
+
+				if (showDepth.checked && props.depth.byteLength > 0) {
+					const { depth } = props;
+					const numDepths = depth.getUint32(0, true);
+					for (let o = 4, i = 0; i < numDepths; ++i, o += 12) {
+						const data = depth.getUint16(o, true);
+						const flags = depth.getInt16(o + 2, true);
+						const x1 = depth.getInt16(o + 4, true);
+						const x2 = depth.getInt16(o + 6, true);
+						const y1 = depth.getInt16(o + 8, true);
+						const y2 = depth.getInt16(o + 10, true);
+						ctx.fillStyle = `#${[flags & 1, flags & 2, flags & 4].map(x => x ? 'f' : '9').join('')}`;
+						ctx.strokeStyle = '#000';
+						ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+						ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+						ctx.fillText(str16(data), x1 + 10, y1 + 20);
+						ctx.strokeText(str16(data), x1 + 10, y1 + 20);
 					}
+				}
 
-					ctx.restore();
-				});
+				if (showSimpleAnimations.checked && props.layerAnimations.byteLength > 0) {
+					const segments = unpackSegmented(props.layerAnimations);
+					for (let i = 1; i < segments.length; ++i) {
+						if (segments[i].byteLength < 8) continue;
+						const x = segments[i].getInt16(0, true);
+						const y = segments[i].getInt16(2, true);
+						const w = segments[i].getInt16(4, true);
+						const h = segments[i].getInt16(6, true);
+						ctx.fillStyle = '#fff';
+						ctx.fillRect(x * 8, y * 8, w * 8, h * 8);
+						ctx.strokeRect(x * 8, y * 8, w * 8, h * 8);
+					}
+				}
+
+				ctx.restore();
 			}
 
 			if (updateOverlayTriangles || updateOverlay || updateMaps || updateTiles || updatePalettes) {
@@ -1636,6 +1701,8 @@
 
 			updatePalettes = updateTiles = updateMaps = updateOverlay = updateOverlayTriangles = false;
 
+			console.debug(performance.now() - now, 'ms time render');
+
 			requestAnimationFrame(render);
 		};
 		requestAnimationFrame(render); // RQA > interval?
@@ -1784,7 +1851,7 @@
 					for (let k = 0; k < 64 && o < data.byteLength; ++k) {
 						const pos = basePos | (k >> 3) << 8 | (k & 0x7);
 						const paletteIndex = data.getUint8(o++);
-						writeRgba16(bitmap256, pos, palettes[i*2].getUint16(paletteIndex*2, true));
+						writeRgb16(bitmap256, pos, palettes[i*2].getUint16(paletteIndex*2, true));
 					}
 				}
 
@@ -1806,8 +1873,8 @@
 					for (let k = 0; k < 64 && o < data.byteLength; k += 2) {
 						const pos = basePos | (k >> 3) << 8 | (k & 0x7);
 						const composite = data.getUint8(o++);
-						writeRgba16(bitmap16, pos, palettes[i*2 + 1].getUint16((composite & 0xf)*2, true));
-						writeRgba16(bitmap16, pos ^ 1, palettes[i*2 + 1].getUint16((composite >> 4)*2, true));
+						writeRgb16(bitmap16, pos, palettes[i*2 + 1].getUint16((composite & 0xf)*2, true));
+						writeRgb16(bitmap16, pos ^ 1, palettes[i*2 + 1].getUint16((composite >> 4)*2, true));
 					}
 				}
 
@@ -1823,7 +1890,7 @@
 					continue;
 				}
 
-				for (let j = 0; j < 256; ++j) writeRgba16(bitmapPal, j, palettes[i].getUint16(j*2, true));
+				for (let j = 0; j < 256; ++j) writeRgb16(bitmapPal, j, palettes[i].getUint16(j*2, true));
 				ctx.putImageData(new ImageData(bitmapPal, 16, 16), 0, 0);
 			}
 		};
@@ -1900,7 +1967,7 @@
 				const paletteBitmap = new Uint8ClampedArray(256 * 4);
 				for (let i = 0; i < 256; ++i) {
 					const rgb16 = palette.getUint16(i * 2, true);
-					writeRgba16(paletteBitmap, i, palette.getUint16(i * 2, true));
+					writeRgb16(paletteBitmap, i, palette.getUint16(i * 2, true));
 				}
 				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
 			} else {
@@ -1919,8 +1986,8 @@
 					for (let j = 0; j < 64 && o < tileset.byteLength; j += 2) {
 						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
 						const composite = tileset.getUint8(o++);
-						writeRgba16(tilesetBitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
-						writeRgba16(tilesetBitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
+						writeRgb16(tilesetBitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
+						writeRgb16(tilesetBitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
 					}
 				}
 				tilesetCtx.putImageData(new ImageData(tilesetBitmap, 256, 256), 0, 0);
@@ -1940,8 +2007,8 @@
 					for (let j = 0; j < 64 && o < unknown0.byteLength; j += 2) {
 						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
 						const composite = unknown0.getUint8(o++);
-						writeRgba16(unknown0Bitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
-						writeRgba16(unknown0Bitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
+						writeRgb16(unknown0Bitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
+						writeRgb16(unknown0Bitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
 					}
 				}
 				unknown0Ctx.putImageData(new ImageData(unknown0Bitmap, 256, 256), 0, 0);
@@ -1966,8 +2033,8 @@
 							if (tile & 0x400) pos ^= 0x7; // horizontal flip
 							if (tile & 0x800) pos ^= 0x7 << 9; // vertical flip
 							const composite = tileset.getUint8(tileOffset + j);
-							if (composite & 0xf) writeRgba16(mapBitmap, pos, palette.getUint16((paletteRow << 4 | (composite & 0xf)) * 2, true));
-							if (composite >> 4) writeRgba16(mapBitmap, pos ^ 1, palette.getUint16((paletteRow << 4 | composite >> 4) * 2, true));
+							if (composite & 0xf) writeRgb16(mapBitmap, pos, palette.getUint16((paletteRow << 4 | (composite & 0xf)) * 2, true));
+							if (composite >> 4) writeRgb16(mapBitmap, pos ^ 1, palette.getUint16((paletteRow << 4 | composite >> 4) * 2, true));
 						}
 					}
 				}
@@ -2039,7 +2106,7 @@
 			if (palette?.byteLength) {
 				const paletteBitmap = new Uint8ClampedArray(256 * 4);
 				for (let i = 0; i*2 + 1 < palette.byteLength; ++i) {
-					writeRgba16(paletteBitmap, i, palette.getUint16(i * 2, true));
+					writeRgb16(paletteBitmap, i, palette.getUint16(i * 2, true));
 				}
 				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
 			} else {
@@ -2057,7 +2124,7 @@
 					for (let j = 0; j < 64 && o < tileset.byteLength; ++j) {
 						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
 						const paletteIndex = tileset.getUint8(o++);
-						writeRgba16(tilesetBitmap, pos, palette.getUint16(paletteIndex * 2, true));
+						writeRgb16(tilesetBitmap, pos, palette.getUint16(paletteIndex * 2, true));
 					}
 				}
 				tilesetCtx.putImageData(new ImageData(tilesetBitmap, 256, 256), 0, 0);
@@ -2089,7 +2156,7 @@
 							const paletteIndex = tileset.getUint8(tileOffset + j);
 							if (!paletteIndex) continue;
 
-							writeRgba16(mapBitmap, pos, palette.getUint16(paletteIndex * 2, true));
+							writeRgb16(mapBitmap, pos, palette.getUint16(paletteIndex * 2, true));
 						}
 					}
 				}
@@ -2167,7 +2234,7 @@
 			if (option.pal.byteLength >= 516) {
 				const paletteBitmap = new Uint8ClampedArray(256 * 4);
 				for (let i = 0; i < 256; ++i) {
-					writeRgba16(paletteBitmap, i, option.pal.getUint16(4 + i*2, true));
+					writeRgb16(paletteBitmap, i, option.pal.getUint16(4 + i*2, true));
 				}
 				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
 			} else {
@@ -2191,15 +2258,15 @@
 					for (let j = 0; j < 64 && o256 < tileset.byteLength; ++j) {
 						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
 						const paletteIndex = tileset.getUint8(o256++);
-						writeRgba16(tileset256Bitmap, pos, option.pal.getUint16(4 + paletteIndex * 2, true));
+						writeRgb16(tileset256Bitmap, pos, option.pal.getUint16(4 + paletteIndex * 2, true));
 					}
 
 					// 16-color
 					for (let j = 0; j < 64 && o16 < tileset.byteLength; j += 2) {
 						const pos = basePos | (j >> 3) << 8 | (j & 0x7);
 						const composite = tileset.getUint8(o16++);
-						writeRgba16(tileset16Bitmap, pos, option.pal.getUint16(4 + (paletteRow | (composite & 0xf))*2, true));
-						writeRgba16(tileset16Bitmap, pos ^ 1, option.pal.getUint16(4 + (paletteRow | composite >> 4)*2, true));
+						writeRgb16(tileset16Bitmap, pos, option.pal.getUint16(4 + (paletteRow | (composite & 0xf))*2, true));
+						writeRgb16(tileset16Bitmap, pos ^ 1, option.pal.getUint16(4 + (paletteRow | composite >> 4)*2, true));
 					}
 				}
 
