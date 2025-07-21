@@ -902,8 +902,8 @@
 		options.appendChild(showLoadingZones);
 		const showDepth = checkbox('Depth', false, () => { updateMaps = true; });
 		options.appendChild(showDepth);
-		const showSimpleAnimations = checkbox('Simple Animations', false, () => { updateMaps = true; });
-		options.appendChild(showSimpleAnimations);
+		const showLayerAnimations = checkbox('Layer Animation Regions', false, () => { updateMaps = true; });
+		options.appendChild(showLayerAnimations);
 
 		section.appendChild(options);
 		const mapContainer = document.createElement('div');
@@ -1303,7 +1303,7 @@
 			const mapFlags = props.map.getUint16(4, true);
 
 			const now = performance.now();
-			const tick = Math.floor(now / 1000 * 30);
+			const tick = Math.floor(now / 1000 * 60);
 
 			if (updatePalettes) {
 				console.debug('updatePalettes');
@@ -1517,7 +1517,7 @@
 					}
 				}
 
-				if (showSimpleAnimations.checked && props.layerAnimations.byteLength > 0) {
+				if (showLayerAnimations.checked && props.layerAnimations.byteLength > 0) {
 					const segments = unpackSegmented(props.layerAnimations);
 					for (let i = 1; i < segments.length; ++i) {
 						if (segments[i].byteLength < 8) continue;
