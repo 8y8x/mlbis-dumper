@@ -255,9 +255,12 @@
 		return new DataView(outbuf.buffer);
 	};
 
-	const lz77ish = indat => {
+	/**
+	 * Decompresses the custom lzss-like used in various BIS files
+	 */
+	const lzssBis = indat => {
 		let inoff = 0;
-		const readFunnyU24 = () => {
+		const readFunnyVarLength = () => {
 			const composite = indat.getUint8(inoff++);
 			const blen = composite >> 6;
 			let out = composite & 0x3f;
@@ -266,8 +269,8 @@
 			return out;
 		};
 
-		const outsize = readFunnyU24();
-		const blocks = readFunnyU24() + 1;
+		const outsize = readFunnyVarLength();
+		const blocks = readFunnyVarLength() + 1;
 
 		const outbuf = new Uint8Array(outsize);
 		let outoff = 0;
@@ -305,6 +308,122 @@
 		}
 
 		return new DataView(outbuf.buffer);
+	};
+
+	/**
+	 * Compresses the custom lzss-like format used in various BIS files.
+	 * The compression matches **exactly** what you would find in a ROM. (i.e. lzssBisCompress(lzssBis(dat)) = dat)
+	 * Use `optimize` if you need the compressed output to be even smaller.
+	 */
+	const lzssBisCompress = (indat, optimize) => {
+		const outbuf = new Uint8Array(indat.byteLength * 2);
+		let outoff = 0;
+		const writeFunnyVarLength = x => {
+			if (x < (1 << 6)) {
+				outbuf[outoff++] = x;
+			} else if (x < (1 << 14)) {
+				outbuf[outoff++] = (x & 0x3f) | 0x40;
+				outbuf[outoff++] = x >> 6;
+			} else {
+				outbuf[outoff++] = (x & 0x3f) | 0x80;
+				outbuf[outoff++] = x >> 6 & 0xff; // note that these two overlap, i'm not sure why,
+				outbuf[outoff++] = x >> 12; // but they do, and that's how it is
+			}
+		};
+		writeFunnyVarLength(indat.byteLength);
+
+		// each compression block will decompress into exactly 512 bytes of output
+		const blockSize = optimize ? 2048 : 512; // MLBIS crashes if this is too big (4096)
+		const inblocks = [];
+		for (let blockStart = 0; blockStart < indat.byteLength; blockStart += blockSize) {
+			inblocks.push(sliceDataView(indat, blockStart, Math.min(blockStart + blockSize, indat.byteLength)));
+		}
+		writeFunnyVarLength(inblocks.length - 1);
+
+		for (let i = 0; i < inblocks.length; ++i) {
+			const inblock = inblocks[i];
+			const blockLengthOffset = outoff;
+			outoff += 2;
+
+			let controlByteOffset = outoff++;
+			let controlByteEntries = 0;
+
+			for (let inoff = 0; inoff < inblock.byteLength;) {
+				const byte = inblock.getUint8(inoff);
+				if (inoff + 1 >= inblock.byteLength) { // only a literal makes sense right now
+					++inoff;
+					outbuf[outoff++] = byte;
+					outbuf[controlByteOffset] |= 1 << (controlByteEntries++ * 2);
+
+					if (controlByteEntries >= 4) {
+						controlByteOffset = outoff++;
+						controlByteEntries = 0;
+					}
+					break;
+				}
+
+				const next = inblock.getUint8(inoff + 1);
+
+				let bestRepetitions = 1;
+				let bestBackReference = 0;
+				let bestBackReferenceOffset;
+				if (byte === next) { // repeated bytes; see how far the repetition goes
+					for (bestRepetitions = 2; bestRepetitions < 257 && inoff + bestRepetitions < inblock.byteLength; ++bestRepetitions) {
+						if (inblock.getUint8(inoff + bestRepetitions) !== byte) break;
+					}
+				}
+
+				// try back-references
+				if (bestRepetitions <= 16) {
+					const short = next << 8 | byte;
+					const globalInoff = inoff + i * blockSize;
+					for (let j = Math.min(4095, globalInoff); j >= 2; --j) {
+						const seekedShort = indat.getUint16(globalInoff - j, true);
+						if (seekedShort === short) {
+							let length = 2;
+							for (; length < 17 && length < j && inoff + length < inblock.byteLength; ++length) {
+								if (inblock.getUint8(inoff + length) !== indat.getUint8(globalInoff - j + length)) break;
+							}
+
+							if (length > bestBackReference) {
+								bestBackReference = length;
+								bestBackReferenceOffset = j;
+							}
+						}
+					}
+				}
+
+				if (bestBackReference > bestRepetitions && bestBackReference >= 2) { // prefer back references
+					outbuf[outoff++] = bestBackReferenceOffset & 0xff;
+					outbuf[outoff++] = (bestBackReferenceOffset >> 4 & 0xf0) | (bestBackReference - 2);
+					inoff += bestBackReference;
+
+					outbuf[controlByteOffset] |= 2 << (controlByteEntries++ * 2);
+				} else if (bestRepetitions >= 2) { // prefer repetitions
+					outbuf[outoff++] = bestRepetitions - 2;
+					outbuf[outoff++] = byte;
+					inoff += bestRepetitions;
+
+					outbuf[controlByteOffset] |= 3 << (controlByteEntries++ * 2);
+				} else { // prefer literal
+					outbuf[outoff++] = byte;
+					++inoff;
+
+					outbuf[controlByteOffset] |= 1 << (controlByteEntries++ * 2);
+				}
+
+				if (controlByteEntries >= 4) {
+					controlByteOffset = outoff++;
+					controlByteEntries = 0;
+				}
+			}
+
+			const blockLength = outoff - blockLengthOffset - 2;
+			outbuf[blockLengthOffset] = blockLength & 0xff;
+			outbuf[blockLengthOffset + 1] = blockLength >> 8;
+		}
+
+		return new DataView(outbuf.buffer, 0, Math.ceil(outoff / 4) * 4);
 	};
 
 	const unpackSegmented = dat => {
@@ -446,7 +565,7 @@
 
 	const sliceDataView = (dat, start, end) => new DataView(dat.buffer, dat.byteOffset + start, end - start);
 
-	Object.assign(window, { lzssBackwards, lz77ish, sliceDataView, unpackSegmented, zipStore });
+	Object.assign(window, { lzssBackwards, lzssBis, lzssBisCompress, sliceDataView, unpackSegmented, zipStore });
 
 	//////////////////// Misc ////////////////////////////////////////////////////////////////////////////////
 
@@ -1073,9 +1192,8 @@
 		const roomPicked = () => {
 			room = field.rooms[parseInt(roomPicker.value)];
 
-			const layer = index => lz77ish(fsext.fmapdata.segments[index]);
+			const layer = index => lzssBis(fsext.fmapdata.segments[index]);
 			tilesets = [room.l1, room.l2, room.l3].map(l => l !== -1 && layer(l));
-			console.log(room.props, layer(room.props));
 			window.EXP = layer(room.props);
 			props = unpackSegmented(layer(room.props));
 			Object.assign(props, {
@@ -1102,11 +1220,38 @@
 			const mapWidth = props.map.getUint16(0, true);
 			const mapHeight = props.map.getUint16(2, true);
 			const mapActualHeight = Math.max(props.tiles[0].byteLength, props.tiles[1].byteLength, props.tiles[2].byteLength) / 2 / mapWidth;
-			const mapFlags = props.map.getUint16(4, true);
+			const mapFlags = [0,1,2,3,4,5,6,7,8,9,10,11].map(x => props.map.getUint8(x));
 			addHTML(sideProperties, `<div><code>${mapWidth}x${mapHeight} tiles (${mapWidth}x${mapActualHeight} actual),
 				(${mapWidth * 8}x${mapHeight * 8} px)
 			</code></div>`);
-			addHTML(sideProperties, `<div>Other props: <code>${bytes(4, 8, props.map)}</code></div>`);
+
+			const bgAttrs = [[], [], []];
+			if (mapFlags[5] & 0x08) bgAttrs[1].push('above obj');
+			if (mapFlags[5] & 0x10) bgAttrs[0].push('above obj');
+			if (mapFlags[8] & 0x01) bgAttrs[2].push('above BG2');
+			if (mapFlags[8] & 0x02) bgAttrs[2].push('above BG1');
+			if (mapFlags[8] & 0x20) bgAttrs[0].push('autoscrolls');
+			if (mapFlags[8] & 0x40) bgAttrs[1].push('autoscrolls');
+			if (mapFlags[8] & 0x80) bgAttrs[2].push('autoscrolls');
+
+			for (let i = 0; i < 3; ++i) {
+				const layerFlags = mapFlags[9 + i];
+
+				const horizontalSpeed = layerFlags & 0x07;
+				const horizontalLocked = layerFlags & 0x08;
+				const verticalSpeed = (layerFlags & 0x70) >> 4;
+				const verticalLocked = layerFlags & 0x80;
+				if (horizontalLocked && verticalLocked) bgAttrs[i].push('locked horizontally + vertically');
+				else if (horizontalLocked) bgAttrs[i].push('locked horizontally');
+				else if (verticalLocked) bgAttrs[i].push('locked vertically');
+				if (horizontalSpeed) bgAttrs[i].push(['', '0.25x', '0.5x', '2x', '-1x', '-0.25x', '-0.5x', '-1x'][horizontalSpeed] + ' horizontal');
+				if (verticalSpeed) bgAttrs[i].push(['', '0.25x', '0.5x', '2x', '-1x', '-0.25x', '-0.5x', '-1x'][verticalSpeed] + ' vertical');
+			}
+
+			for (let i = 0; i < 3; ++i) { 
+				if (!bgAttrs[i].length) continue;
+				addHTML(sideProperties, `<div>BG${i + 1}: ${bgAttrs[i].join(', ')}</div>`);
+			}
 
 			{
 				const { loadingZones } = props;
@@ -1232,7 +1377,7 @@
 
 				for (let i = 0; i < segments.length; ++i) {
 					const animeIndex = segments[i].getUint16(4, true);
-					const animTileset = lz77ish(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
+					const animTileset = lzssBis(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
 					const obj = { anim: segments[i], tileset: animTileset };
 					const check = checkbox('', false, () => {
 						if (check.checked) enabledTileAnimations.add(obj);
@@ -1343,7 +1488,7 @@
 						for (const { anim, tileset: animTileset } of enabledTileAnimations) {
 							const field = anim.getUint32(0, true);
 							const layer = field & 3;
-							if (layer !== i) continue;
+							if (room[['l1', 'l2', 'l3'][i]] !== room[['l1', 'l2', 'l3'][layer]]) continue;
 
 							const replacementStart = field >> 4 & 0x3ff;
 							const frameWidth = field >> 14 & 0x3ff;
@@ -1432,7 +1577,7 @@
 						for (const { anim, tileset: animTileset } of enabledTileAnimations) {
 							const field = anim.getUint32(0, true);
 							const layer = field & 3;
-							if (layer !== i) continue;
+							if (room[['l1', 'l2', 'l3'][i]] !== room[['l1', 'l2', 'l3'][layer]]) continue;
 
 							const replacementStart = field >> 4 & 0x3ff;
 							const frameWidth = field >> 14 & 0x3ff;
@@ -1510,7 +1655,7 @@
 						ctx.fillStyle = `#${[flags & 1, flags & 2, flags & 4].map(x => x ? 'f' : '9').join('')}`;
 						ctx.strokeStyle = '#000';
 						ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-						ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+						ctx.strokeRect(x1 + .5, y1 + .5, x2 - x1 - 1, y2 - y1 - 1);
 
 						ctx.fillText(str16(data), x1 + 10, y1 + 20);
 						ctx.strokeText(str16(data), x1 + 10, y1 + 20);
@@ -1527,7 +1672,7 @@
 						const h = segments[i].getInt16(6, true);
 						ctx.fillStyle = '#fff';
 						ctx.fillRect(x * 8, y * 8, w * 8, h * 8);
-						ctx.strokeRect(x * 8, y * 8, w * 8, h * 8);
+						ctx.strokeRect(x * 8 + .5, y * 8 + .5, w * 8 - 1, h * 8 - 1);
 					}
 				}
 
@@ -1701,8 +1846,6 @@
 
 			updatePalettes = updateTiles = updateMaps = updateOverlay = updateOverlayTriangles = false;
 
-			console.debug(performance.now() - now, 'ms time render');
-
 			requestAnimationFrame(render);
 		};
 		requestAnimationFrame(render); // RQA > interval?
@@ -1710,7 +1853,8 @@
 		return field;
 	});
 
-	const fmapdataTileViewer = window.fmapdataTileViewer = await createSectionWrapped('FMapData Tile Viewer', async section => {
+	const fmapdataTiles = window.fmapdataTiles = await createSectionWrapped('FMapData Tile Viewer', async section => {
+		const fmapdataTiles = {};
 		const fieldFile = fs.get('/FMap/FMapData.dat');
 
 		const options = [];
@@ -1724,7 +1868,7 @@
 		dump.textContent = 'Dump';
 		dump.addEventListener('click', () => {
 			const index = parseInt(select.value);
-			const data = lz77ish(fsext.fmapdata.segments[index]);
+			const data = lzssBis(fsext.fmapdata.segments[index]);
 			download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data.buffer);
 		});
 		section.appendChild(dump);
@@ -1784,9 +1928,9 @@
 			paletteCanvases.push(pc);
 		}
 
-		const animeToProps = new Map();
+		const animeToProps = fmapdataTiles.animeToProps = new Map();
 		for (let i = 0; i < field.rooms.length; ++i) {
-			const props = unpackSegmented(lz77ish(fsext.fmapdata.segments[field.rooms[i].props]));
+			const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[field.rooms[i].props]));
 			const passiveAnimations = unpackSegmented(props[10]);
 			for (const passiveAnime of passiveAnimations) {
 				const tileset = passiveAnime.getInt16(4, true);
@@ -1799,7 +1943,6 @@
 		let paletteOptions;
 		const update = () => {
 			const animeId = parseInt(select.value) - fsext.fieldAnimeIndices[0];
-			console.log(animeId, parseInt(select.value), fsext.fieldAnimeIndices[0]);
 			if (animeId >= 0) {
 				paletteOptions = animeToProps.get(animeId) || [];
 
@@ -1826,13 +1969,13 @@
 
 		const render = () => {
 			const index = parseInt(select.value);
-			const data = lz77ish(fsext.fmapdata.segments[index]);
+			const data = lzssBis(fsext.fmapdata.segments[index]);
 
 			let palettes = [globalPalette256, globalPalette16, globalPalette256, globalPalette16, globalPalette256, globalPalette16];
 			if (paletteOptions.length) {
 				const roomIndex = paletteOptions[parseInt(paletteSelectPlaceholder.value)];
 				const room = field.rooms[roomIndex];
-				const props = unpackSegmented(lz77ish(fsext.fmapdata.segments[room.props]));
+				const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[room.props]));
 				palettes = [props[3], props[3], props[4], props[4], props[5], props[5]];
 			}
 
@@ -1895,6 +2038,8 @@
 			}
 		};
 		update();
+
+		return fmapdataTiles;
 	});
 
 	const battle = window.battle = await createSectionWrapped('Battle Maps', section => {
@@ -1975,7 +2120,7 @@
 			}
 
 			// tileset
-			const tileset = room.tileset?.byteLength && lz77ish(room.tileset);
+			const tileset = room.tileset?.byteLength && lzssBis(room.tileset);
 			const tilesetCtx = tilesetCanvas.getContext('2d');
 			if (tileset) {
 				const tilesetBitmap = new Uint8ClampedArray(256 * 256 * 4);
@@ -1996,7 +2141,7 @@
 			}
 
 			// unknown0
-			const unknown0 = room.unknown0?.byteLength && lz77ish(room.unknown0);
+			const unknown0 = room.unknown0?.byteLength && lzssBis(room.unknown0);
 			const unknown0Ctx = unknown0Canvas.getContext('2d');
 			if (unknown0) {
 				const unknown0Bitmap = new Uint8ClampedArray(256 * 256 * 4);
@@ -2046,7 +2191,7 @@
 			// metadata below
 			metaPreview.innerHTML = '';
 			try {
-				const decompressed = lz77ish(room.unknown0);
+				const decompressed = lzssBis(room.unknown0);
 				addHTML(metaPreview, `<div>unknown0 decompressed: <code>${bytes(0, decompressed.byteLength, decompressed)}</code></div>`);
 			} catch (err) {
 				addHTML(metaPreview, `<div>unknown0: <code>${bytes(0, room.unknown0.byteLength, room.unknown0)}</code></div>`);
@@ -2098,7 +2243,7 @@
 
 		const render = () => {
 			const index = parseInt(bmapgSelect.value);
-			const room = unpackSegmented(lz77ish(fsext.bmapg.segments[index]));
+			const room = unpackSegmented(lzssBis(fsext.bmapg.segments[index]));
 			const [palette, tileset, layer1, layer2, unknown4, unknown5, unknown6] = room;
 
 			// palette
@@ -2244,7 +2389,7 @@
 			const tileset256Ctx = tileset256Canvas.getContext('2d');
 			const tileset16Ctx = tileset16Canvas.getContext('2d');
 			if (option.pal.byteLength >= 516) {
-				const tileset = lz77ish(option.tex);
+				const tileset = lzssBis(option.tex);
 				const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
 				const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
 
