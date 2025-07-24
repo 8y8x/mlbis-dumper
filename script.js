@@ -313,9 +313,9 @@
 	/**
 	 * Compresses the custom lzss-like format used in various BIS files.
 	 * The compression matches **exactly** what you would find in a ROM. (i.e. lzssBisCompress(lzssBis(dat)) = dat)
-	 * Use `optimize` if you need the compressed output to be even smaller.
+	 * Using a custom `blockSize` larger than 512 will make the output smaller, but may cause the game to crash.
 	 */
-	const lzssBisCompress = (indat, optimize) => {
+	const lzssBisCompress = (indat, blockSize = 512) => {
 		const outbuf = new Uint8Array(indat.byteLength * 2);
 		let outoff = 0;
 		const writeFunnyVarLength = x => {
@@ -333,7 +333,6 @@
 		writeFunnyVarLength(indat.byteLength);
 
 		// each compression block will decompress into exactly 512 bytes of output
-		const blockSize = optimize ? 2048 : 512; // MLBIS crashes if this is too big (4096)
 		const inblocks = [];
 		for (let blockStart = 0; blockStart < indat.byteLength; blockStart += blockSize) {
 			inblocks.push(sliceDataView(indat, blockStart, Math.min(blockStart + blockSize, indat.byteLength)));
@@ -1390,7 +1389,14 @@
 				sideProperties.appendChild(div);
 			}
 
-			addHTML(bottomProperties, `<div>unknown8: <code>${bytes(0, props.unknown8.byteLength, props.unknown8)}</code></div>`);
+			addHTML(bottomProperties, `<div>unknown8 (Palette animations?): <code>${bytes(0, props.unknown8.byteLength, props.unknown8)}</code></div>`);
+			const paletteAnimList = document.createElement('ul');
+			const paletteAnimSegments = unpackSegmented(props.unknown8);
+			for (let i = 0; i < paletteAnimSegments.length; ++i) {
+				const segment = paletteAnimSegments[i];
+				addHTML(paletteAnimList, `<li><code>${bytes(0, segment.byteLength, segment)}</code></li>`);
+			}
+			bottomProperties.appendChild(paletteAnimList);
 
 			addHTML(bottomProperties, `<div>Layer animations:</div>`);
 			const animationList = document.createElement('ul');
@@ -1409,24 +1415,26 @@
 			bottomProperties.appendChild(animationList);
 
 			addHTML(bottomProperties, `<div>Tile Animations:</div>`);
-			const passiveAnimationList = document.createElement('ul');
-			const passiveAnimationSegments = unpackSegmented(props.tileAnimations);
-			for (let i = 0; i < passiveAnimationSegments.length; ++i) {
-				const first = bytes(0, 4, passiveAnimationSegments[i]);
-				const first32 = passiveAnimationSegments[i].getUint32(0, true);
-				const firstComponents = `${first32 >> 14 & 1023} tiles, ${first32 >> 7 & 0x7f} x, ${first32 & 0x7f} y`;
-				const second = bytes(4, 2, passiveAnimationSegments[i]);
-				const third = bytes(6, 2, passiveAnimationSegments[i]);
-				const parts = [];
-				for (let o = 8; o < passiveAnimationSegments[i].byteLength; o += 4) {
-					parts.push(`<span style="color: ${(o & 4) ? '#666' : '#999'}">${bytes(o, 4, passiveAnimationSegments[i])}`);
+			const tileAnimationList = document.createElement('ul');
+			const tileAnimationSegments = unpackSegmented(props.tileAnimations);
+			for (let i = 0; i < tileAnimationSegments.length; ++i) {
+				const segment = tileAnimationSegments[i];
+				const config = segment.getUint32(0, true);
+				const animeId = segment.getUint16(4, true);
+				const keyframes = segment.getUint16(6, true);
+
+				const keyframeParts = [];
+				for (let j = 0; j < keyframes; ++j) {
+					keyframeParts.push(`<span style="color: ${j % 2 ? '#999' : '#666'}">${bytes(8 + j*4, 4, segment)}</span>`);
 				}
-				addHTML(passiveAnimationList, `<li>${i}: <code>
-					<span style="color: #f99;">${first} (${firstComponents})</span> <span style="color: #9f9;">${second}</span>
-					<span style="color: #99f;">${third}</span> ${parts.join(' ')}
-				</code></li>`);
+
+				addHTML(tileAnimationList, `<li>${i}:
+					BG${(config & 3) + 1}, animeId <code>0x${animeId.toString(16)}</code>,
+					replaces <code>0x${(config >> 14 & 0x3ff).toString(16)}</code> tiles at <code>0x${(config >> 4 & 0x3ff).toString(16)}</code>, 
+					${keyframes} keyframes: <code>${keyframeParts.join(' ')}</code>
+				</li>`);
 			}
-			bottomProperties.appendChild(passiveAnimationList);
+			bottomProperties.appendChild(tileAnimationList);
 
 			addHTML(bottomProperties, `<div>unknown11: <code>${bytes(0, props.unknown11.byteLength, props.unknown11)}</code></div>`);
 			addHTML(bottomProperties, `<div>unknown12: <code>${bytes(0, props.unknown12.byteLength, props.unknown12)}</code></div>`);
@@ -1895,8 +1903,8 @@
 			for (let o = 0; o < 512; o += 32) globalPalette16.setUint16(o + i*2, rgb16, true);
 		}
 
-		let paletteSelectPlaceholder = document.createElement('span');
-		paletteSelectPlaceholder.textContent = '(global palette)';
+		let paletteSelectPlaceholder = document.createElement('button');
+		paletteSelectPlaceholder.textContent = 'Find Palettes';
 		section.appendChild(paletteSelectPlaceholder);
 
 		const canvasContainer = document.createElement('div');
@@ -1929,39 +1937,44 @@
 		}
 
 		const animeToProps = fmapdataTiles.animeToProps = new Map();
-		for (let i = 0; i < field.rooms.length; ++i) {
-			const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[field.rooms[i].props]));
-			const passiveAnimations = unpackSegmented(props[10]);
-			for (const passiveAnime of passiveAnimations) {
-				const tileset = passiveAnime.getInt16(4, true);
-				let arr = animeToProps.get(tileset) || [];
-				arr.push(i);
-				animeToProps.set(tileset, arr);
+		paletteSelectPlaceholder.addEventListener('mousedown', () => {
+			for (let i = 0; i < field.rooms.length; ++i) {
+				const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[field.rooms[i].props]));
+				const passiveAnimations = unpackSegmented(props[10]);
+				for (const passiveAnime of passiveAnimations) {
+					const tileset = passiveAnime.getInt16(4, true);
+					let arr = animeToProps.get(tileset) || [];
+					arr.push(i);
+					animeToProps.set(tileset, arr);
+				}
 			}
-		}
+			update();
+		});
 
-		let paletteOptions;
+		let paletteOptions = [];
 		const update = () => {
 			const animeId = parseInt(select.value) - fsext.fieldAnimeIndices[0];
-			if (animeId >= 0) {
-				paletteOptions = animeToProps.get(animeId) || [];
+			if (animeToProps.size) {
+				if (animeId >= 0) {
+					paletteOptions = animeToProps.get(animeId) || [];
 
-				if (paletteOptions.length === 0) {
-					const span = document.createElement('span');
-					span.textContent = '(unused?)';
-					paletteSelectPlaceholder.replaceWith(span);
-					paletteSelectPlaceholder = span;
+					if (paletteOptions.length === 0) {
+						const span = document.createElement('span');
+						span.textContent = '(unused?)';
+						paletteSelectPlaceholder.replaceWith(span);
+						paletteSelectPlaceholder = span;
+					} else {
+						const select = dropdown(paletteOptions.map(x => `Palette for Room 0x${x.toString(16)}`), 0, () => render());
+						paletteSelectPlaceholder.replaceWith(select);
+						paletteSelectPlaceholder = select;
+					}
 				} else {
-					const select = dropdown(paletteOptions.map(x => `Palette for Room 0x${x.toString(16)}`), 0, () => render());
-					paletteSelectPlaceholder.replaceWith(select);
-					paletteSelectPlaceholder = select;
+					paletteOptions = [];
+					const placeholder = document.createElement('span');
+					placeholder.textContent = '(global palette)';
+					paletteSelectPlaceholder.replaceWith(placeholder);
+					paletteSelectPlaceholder = placeholder;
 				}
-			} else {
-				paletteOptions = [];
-				const placeholder = document.createElement('span');
-				placeholder.textContent = '(global palette)';
-				paletteSelectPlaceholder.replaceWith(placeholder);
-				paletteSelectPlaceholder = placeholder;
 			}
 
 			render();
