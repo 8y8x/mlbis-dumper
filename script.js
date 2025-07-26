@@ -1002,7 +1002,7 @@
 				type: packed >> 1 & 0xf,
 				counter: packed >> 5 & 0x1f, // either maximum hits or an animation id for a bean
 				quantity: packed >> 10 & 0x1f,
-				itemId: treasureFile.getInt16(i*12 + 2, true),
+				itemId: treasureFile.getUint16(i*12 + 2, true),
 				treasureId: treasureFile.getUint16(i*12 + 4, true),
 				x: treasureFile.getInt16(i*12 + 6, true),
 				y: treasureFile.getInt16(i*12 + 8, true),
@@ -1207,7 +1207,7 @@
 		const bottomProperties = document.createElement('div');
 		section.appendChild(bottomProperties);
 
-		let collisionSelect, loadingZonesSelect;
+		let collisionSelect, loadingZonesSelect, treasureSelect;
 		const enabledLayerAnimations = new Set();
 		const enabledTileAnimations = new Set();
 		let tilesets, props, room;
@@ -1273,6 +1273,37 @@
 			for (let i = 0; i < 3; ++i) { 
 				if (!bgAttrs[i].length) continue;
 				addHTML(sideProperties, `<div>BG${i + 1}: ${bgAttrs[i].join(', ')}</div>`);
+			}
+
+			{
+				const treasurePlaceholder = document.createElement('div');
+				sideProperties.appendChild(treasurePlaceholder);
+
+				const treasureData = document.createElement('div');
+				sideProperties.appendChild(treasureData);
+
+				const treasureSegment = field.treasure[room.treasure] || [];
+				const options = [`${treasureSegment.length} treasures`];
+				for (let i = 0; i < treasureSegment.length; ++i) {
+					const treasure = treasureSegment[i];
+					options.push(`[${i}]
+						${['Bean', 'Floating Block', '-', '-', 'Brick Block', 'Grass', '-', 'Underwater Brick Block'][treasure.type]}
+					`);
+				}
+
+				treasureSelect = dropdown(options, 0, () => {
+					updateMaps = true;
+
+					if (treasureSelect.value === '0') {
+						treasureData.innerHTML = '';
+						return;
+					}
+
+					const treasure = treasureSegment[parseInt(treasureSelect.value) - 1];
+					treasureData.innerHTML = `Treasure 0x${treasure.treasureId.toString(16)}, Item 0x${treasure.itemId.toString(16)},
+						Quantity ${treasure.quantity.toString(16)}, Counter ${treasure.counter}`;
+				});
+				treasurePlaceholder.replaceWith(treasureSelect);
 			}
 
 			{
@@ -1681,10 +1712,10 @@
 					for (let o = 4, i = 0; i < numDepths; ++i, o += 12) {
 						const data = depth.getUint16(o, true);
 						const flags = depth.getInt16(o + 2, true);
-						const x1 = depth.getInt16(o + 4, true);
-						const x2 = depth.getInt16(o + 6, true);
-						const y1 = depth.getInt16(o + 8, true);
-						const y2 = depth.getInt16(o + 10, true);
+						const x1 = depth.getInt16(o + 4, true) - (showExtensions.checked ? 0 : 16);
+						const x2 = depth.getInt16(o + 6, true) - (showExtensions.checked ? 0 : 16);
+						const y1 = depth.getInt16(o + 8, true) - (showExtensions.checked ? 0 : 16);
+						const y2 = depth.getInt16(o + 10, true) - (showExtensions.checked ? 0 : 16);
 						ctx.fillStyle = `#${[flags & 1, flags & 2, flags & 4].map(x => x ? 'f' : '9').join('')}`;
 						ctx.strokeStyle = '#000';
 						ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
@@ -1699,8 +1730,8 @@
 					const segments = unpackSegmented(props.layerAnimations);
 					for (let i = 1; i < segments.length; ++i) {
 						if (segments[i].byteLength < 8) continue;
-						const x = segments[i].getInt16(0, true);
-						const y = segments[i].getInt16(2, true);
+						const x = segments[i].getInt16(0, true) - (showExtensions.checked ? 0 : 2);
+						const y = segments[i].getInt16(2, true) - (showExtensions.checked ? 0 : 2);
 						const w = segments[i].getInt16(4, true);
 						const h = segments[i].getInt16(6, true);
 						ctx.fillStyle = '#fff';
@@ -1710,17 +1741,20 @@
 				}
 
 				if (showTreasure.checked && room.treasure !== -1) {
+					const selectedIndex = parseInt(treasureSelect.value) - 1;
 					const treasureSegment = field.treasure[room.treasure];
-					for (const treasure of treasureSegment) {
+					for (let i = 0; i < treasureSegment.length; ++i) {
+						const treasure = treasureSegment[i];
+
 						const x = treasure.x - 8/*region padding*/ + (showExtensions.checked ? 16 : 0);
 						const y = treasure.y - treasure.z - 8/*region padding*/ + (showExtensions.checked ? 16 : 0);
 
-						ctx.fillStyle = '#880';
+						ctx.fillStyle = selectedIndex === i ? '#888' : '#880';
 						ctx.fillRect(x, y, 16, 16);
 						ctx.strokeRect(x + .5, y + .5, 16 - 1, 16 - 1);
 
 						let str = ['Bean', 'fBlock', '-', '-', 'bBlock', 'Grass', '-', 'uBlock'][treasure.type];
-						ctx.fillStyle = '#fff';
+						ctx.fillStyle = selectedIndex === i ? '#fff' : '#ff0';
 						ctx.strokeText(str, x, y + 12);
 						ctx.fillText(str, x, y + 12);
 					}
