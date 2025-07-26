@@ -977,9 +977,12 @@
 	const field = window.field = await createSectionWrapped('Field Maps', async section => {
 		const field = {};
 
+		const treasureFile = fs.get('/Treasure/TreasureInfo.dat');
+
 		const layoutPreview = document.createElement('div');
 		section.appendChild(layoutPreview);
 
+		let maxTreasureId = 0;
 		field.rooms = [];
 		for (let i = 0, j = 0; i < fsext.fieldRoomIndices.length; i += 5, ++j) {
 			field.rooms[j] = {
@@ -987,8 +990,26 @@
 				l2: fsext.fieldRoomIndices[i + 1],
 				l3: fsext.fieldRoomIndices[i + 2],
 				props: fsext.fieldRoomIndices[i + 3],
-				unknown: fsext.fieldRoomIndices[i + 4],
+				treasure: fsext.fieldRoomIndices[i + 4],
 			};
+			maxTreasureId = Math.max(maxTreasureId, field.rooms[j].treasure);
+		}
+
+		field.treasure = [[]];
+		for (let i = 0; field.treasure.length - 1 <= maxTreasureId; ++i) {
+			const packed = treasureFile.getUint16(i*12, true);
+			field.treasure[field.treasure.length - 1].push({
+				type: packed >> 1 & 0xf,
+				counter: packed >> 5 & 0x1f, // either maximum hits or an animation id for a bean
+				quantity: packed >> 10 & 0x1f,
+				itemId: treasureFile.getInt16(i*12 + 2, true),
+				treasureId: treasureFile.getUint16(i*12 + 4, true),
+				x: treasureFile.getInt16(i*12 + 6, true),
+				y: treasureFile.getInt16(i*12 + 8, true),
+				z: treasureFile.getInt16(i*12 + 10, true),
+			});
+
+			if (packed & 1) field.treasure.push([]); // end of this room's treasure
 		}
 
 		let updatePalettes = true;
@@ -1014,6 +1035,8 @@
 		options.appendChild(showTiles);
 		const showExtensions = checkbox('Room Extensions', true, () => { updateMaps = true; });
 		options.appendChild(showExtensions);
+		const showTreasure = checkbox('Treasure', false, () => { updateMaps = true; });
+		options.appendChild(showTreasure);
 		const showCollision = checkbox('Collision', false, () => { updateOverlayTriangles = true; });
 		options.appendChild(showCollision);
 		const showLoadingZones = checkbox('Loading Zones', false, () => { updateOverlayTriangles = true; });
@@ -1214,7 +1237,7 @@
 
 			bottomProperties.innerHTML = sideProperties.innerHTML = '';
 
-			addHTML(bottomProperties, `<div>Layers: <code>BG1 ${room.l1.toString(16)}, BG2 ${room.l2.toString(16)}, BG3 ${room.l3.toString(16)}, Props ${room.props.toString(16)}, ??? ${room.unknown.toString(16)}</code></div>`);
+			addHTML(bottomProperties, `<div>Layers: <code>BG1 ${room.l1.toString(16)}, BG2 ${room.l2.toString(16)}, BG3 ${room.l3.toString(16)}, Props ${room.props.toString(16)}, Treasure ${room.treasure.toString(16)}</code></div>`);
 
 			const mapWidth = props.map.getUint16(0, true);
 			const mapHeight = props.map.getUint16(2, true);
@@ -1650,6 +1673,8 @@
 					ctx.putImageData(new ImageData(bitmap, mapWidth * 8, mapHeight * 8), -16, -16);
 				}
 
+				ctx.font = 'bold 14px "Red Hat Mono"';
+
 				if (showDepth.checked && props.depth.byteLength > 0) {
 					const { depth } = props;
 					const numDepths = depth.getUint32(0, true);
@@ -1681,6 +1706,23 @@
 						ctx.fillStyle = '#fff';
 						ctx.fillRect(x * 8, y * 8, w * 8, h * 8);
 						ctx.strokeRect(x * 8 + .5, y * 8 + .5, w * 8 - 1, h * 8 - 1);
+					}
+				}
+
+				if (showTreasure.checked && room.treasure !== -1) {
+					const treasureSegment = field.treasure[room.treasure];
+					for (const treasure of treasureSegment) {
+						const x = treasure.x - 8/*region padding*/ + (showExtensions.checked ? 16 : 0);
+						const y = treasure.y - treasure.z - 8/*region padding*/ + (showExtensions.checked ? 16 : 0);
+
+						ctx.fillStyle = '#880';
+						ctx.fillRect(x, y, 16, 16);
+						ctx.strokeRect(x + .5, y + .5, 16 - 1, 16 - 1);
+
+						let str = ['Bean', 'fBlock', '-', '-', 'bBlock', 'Grass', '-', 'uBlock'][treasure.type];
+						ctx.fillStyle = '#fff';
+						ctx.strokeText(str, x, y + 12);
+						ctx.fillText(str, x, y + 12);
 					}
 				}
 
