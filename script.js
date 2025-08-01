@@ -55,9 +55,9 @@
 			optionElements[selected].style.color = '';
 			optionElements[i].style.color = 'var(--dropdown-fg)';
 			selected = i;
-			dropdown.value = String(i);
+			dropdown.value = i;
 			selection.innerHTML = values[i];
-			if (!silent) onchange();
+			if (!silent) onchange(i);
 		};
 
 		for (let i = 0; i < values.length; ++i) {
@@ -93,7 +93,8 @@
 			if (box.width <= 0) return;
 			clearInterval(interval);
 
-			selection.style.width = `calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '3em'})`;
+			selection.style.width =
+				`calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '3em'})`;
 		});
 
 		if (hideArrows) {
@@ -830,11 +831,11 @@
 		singleExport.appendChild(downloadOutput);
 
 		singleDump.addEventListener('mousedown', () => {
-			const fsentry = fs.get(parseInt(fileSelect.value));
+			const fsentry = fs.get(fileSelect.value);
 
 			let output;
-			if (singleDecompression.value === '0') output = file.buffer.slice(fsentry.start, fsentry.end);
-			else if (singleDecompression.value === '1')
+			if (singleDecompression.value === 0) output = file.buffer.slice(fsentry.start, fsentry.end);
+			else if (singleDecompression.value === 1)
 				output = lzssBackwards(fsentry.end, file, fsentry.end - fsentry.start);
 
 			if (!output) {
@@ -863,7 +864,7 @@
 				const fsentry = fs.get(i);
 				let dat = fsentry;
 				let name = fsentry.name;
-				if (multiDecompression.value === '0' && fsentry.path === '<overlay?>') {
+				if (multiDecompression.value === 0 && fsentry.path === '<overlay?>') {
 					dat = lzssBackwards(dat.byteLength, dat, dat.byteLength);
 					if (dat) {
 						// if decompression succeeded
@@ -892,9 +893,9 @@
 		const sorted = document.createElement('div');
 		section.appendChild(sorted);
 		const resort = () => {
-			if (sorting.value === '0') {
+			if (sorting.value === 0) {
 				fsList.sort((a, b) => a.index - b.index); // sort by index
-			} else if (sorting.value === '1') {
+			} else if (sorting.value === 1) {
 				fsList.sort((a, b) => a.end - a.start - (b.end - b.start)); // sort by length
 			}
 
@@ -1029,7 +1030,7 @@
 		const render = () => {
 			preview.innerHTML = '';
 
-			const o = uniqueLocations[parseInt(select.value)];
+			const o = uniqueLocations[select.value];
 			const firstLength = file.getUint32(fontFile.start + o, true);
 			const secondLength = file.getUint32(fontFile.start + o + 4, true);
 			const headerLength = file.getUint32(fontFile.start + o + 8, true); // usually 12, but can be more
@@ -1380,7 +1381,7 @@
 		let vertexFloatsUsed = 0;
 
 		const roomPicked = () => {
-			const indices = field.rooms[parseInt(options.roomDropdown.value)];
+			const indices = field.rooms[options.roomDropdown.value];
 
 			updatePalettes = updateTiles = updateMaps = updateOverlay2d = true;
 			updateOverlay3d = updateOverlay3dTriangles = true;
@@ -1476,12 +1477,12 @@
 			side.treasureDropdown.replaceWith(
 				(side.treasureDropdown = dropdown(treasureOptions, 0, () => {
 					updateOverlay2d = true;
-					if (side.treasureDropdown.value === '0') {
+					if (side.treasureDropdown.value === 0) {
 						side.treasureDisplay.innerHTML = '';
 						return;
 					}
 
-					const treasure = treasureSegments[parseInt(side.treasureDropdown.value) - 1];
+					const treasure = treasureSegments[side.treasureDropdown.value - 1];
 					const flags = treasure.getUint16(0, true);
 					const itemId = treasure.getUint16(2, true);
 					const treasureId = treasure.getUint16(4, true);
@@ -1506,12 +1507,12 @@
 			side.loadingZoneDropdown.replaceWith(
 				(side.loadingZoneDropdown = dropdown(loadingZoneOptions, 0, () => {
 					updateOverlay3d = updateOverlay3dTriangles = true;
-					if (side.loadingZoneDropdown.value === '0') {
+					if (side.loadingZoneDropdown.value === 0) {
 						side.loadingZoneDisplay.innerHTML = '';
 						return;
 					}
 
-					const o = (parseInt(side.loadingZoneDropdown.value) - 1) * 24;
+					const o = (side.loadingZoneDropdown.value - 1) * 24;
 					const x1 = room.loadingZones.getInt16(o + 4, true);
 					const y1 = room.loadingZones.getInt16(o + 6, true);
 					const z = room.loadingZones.getInt16(o + 8, true);
@@ -1541,12 +1542,12 @@
 				side.collisionDropdown.replaceWith(
 					(side.collisionDropdown = dropdown(options, 0, () => {
 						updateOverlay3d = updateOverlay3dTriangles = true;
-						if (side.collisionDropdown.value === '0') {
+						if (side.collisionDropdown.value === 0) {
 							side.collisionDisplay.innerHTML = '';
 							return;
 						}
 
-						const index = parseInt(side.collisionDropdown.value) - 1;
+						const index = side.collisionDropdown.value - 1;
 						let o = 8;
 						o += Math.min(index, numBoxes) * 40; // first chunk of prisms
 						o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
@@ -1618,7 +1619,8 @@
 				const animTileset = lzssBis(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
 				const container = { startTick: undefined, segment: tileAnimations[i], tileset: bufToU8(animTileset) };
 
-				const autoEnable = options.animations.checked && !(flags & 0x8);
+				// only auto-enable if animation is "immediately looping" (flags & 4 == 0, flags & 8 == 0)
+				const autoEnable = options.animations.checked && !(flags & 0xc);
 				if (autoEnable) room.enabledTileAnimations.add(container);
 				const check = checkbox('', autoEnable, () => {
 					if (check.checked) {
@@ -1706,7 +1708,7 @@
 				parts.push(`BG${(flags & 3) + 1},`);
 				parts.push(flags & 8 ? 'scripted' : 'immediately');
 				parts.push(flags & 4 ? 'one-shot,' : 'looping,');
-				parts.push(`anime 0x${animeId.toString(16)},`);
+				parts.push(`anime <code>0x${animeId.toString(16)}</code>,`);
 				parts.push(`${(flags >> 14) & 0x3ff} tiles at <code>0x${((flags >> 4) & 0x3ff).toString(16)}</code>,`);
 				parts.push(`${keyframes} keyframes (frame, ticks):`);
 
@@ -1818,6 +1820,8 @@
 						const tileByteSize = layerFlags[5] & (1 << i) ? 64 : 32; // 256-color or 16-color
 						const numTiles = Math.ceil(room.tilesets[i].length / tileByteSize);
 
+						bitmap.fill(0, 0, 256 * 256);
+
 						for (let j = 0; j < numTiles; ++j) {
 							const basePos = ((j >> 5) << 11) | ((j & 0x1f) << 3); // y << 8 | x
 							const tilesetIndex = tilesetLayouts[i][j];
@@ -1840,8 +1844,6 @@
 								}
 							}
 						}
-
-						bitmap.fill(0, numTiles * tileByteSize, 256 * 256);
 
 						ctx.putImageData(tilesetImages[i], 0, 0);
 					}
@@ -1957,7 +1959,7 @@
 				ctx.font = 'bold 14px "Red Hat Mono"';
 
 				if (options.treasure.checked) {
-					const selectedIndex = parseInt(side.treasureDropdown.value) - 1;
+					const selectedIndex = side.treasureDropdown.value - 1;
 					const treasureSegments = field.treasure[room.indices.treasure] || [];
 					for (let i = 0; i < treasureSegments.length; ++i) {
 						const treasure = treasureSegments[i];
@@ -2086,7 +2088,7 @@
 
 					if (options.collision.checked) {
 						// loading zones
-						const selectedLoadingZone = Number(side.loadingZoneDropdown.value) - 1;
+						const selectedLoadingZone = side.loadingZoneDropdown.value - 1;
 						for (let i = 0, o = 0; o < room.loadingZones.byteLength; ++i, o += 24) {
 							const flags = room.loadingZones.getUint16(o, true);
 							const x1 = room.loadingZones.getInt16(o + 4, true);
@@ -2124,7 +2126,7 @@
 						if (room.collision.byteLength > 0) {
 							const numPrisms = room.collision.getUint32(0, true);
 							const numSpecials = room.collision.getUint32(4, true);
-							const selectedPrism = Number(side.collisionDropdown.value) - 1;
+							const selectedPrism = side.collisionDropdown.value - 1;
 
 							for (let i = 0, o = 8; i < numPrisms; ++i, o += 40) {
 								const flags1 = room.collision.getUint16(o, true);
@@ -2231,7 +2233,7 @@
 			const dump = document.createElement('button');
 			dump.textContent = 'Dump';
 			dump.addEventListener('click', () => {
-				const index = parseInt(select.value);
+				const index = select.value;
 				const data = lzssBis(fsext.fmapdata.segments[index]);
 				download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data.buffer);
 			});
@@ -2325,7 +2327,7 @@
 
 			let paletteOptions = [];
 			const update = () => {
-				const animeId = parseInt(select.value) - fsext.fieldAnimeIndices[0];
+				const animeId = select.value - fsext.fieldAnimeIndices[0];
 				if (animeToProps.size) {
 					if (animeId >= 0) {
 						paletteOptions = animeToProps.get(animeId) || [];
@@ -2357,7 +2359,7 @@
 			};
 
 			const render = () => {
-				const index = parseInt(select.value);
+				const index = select.value;
 				const data = lzssBis(fsext.fmapdata.segments[index]);
 
 				let palettes = [
@@ -2369,7 +2371,7 @@
 					globalPalette16,
 				];
 				if (paletteOptions.length) {
-					const roomIndex = paletteOptions[parseInt(paletteSelectPlaceholder.value)];
+					const roomIndex = paletteOptions[paletteSelectPlaceholder.value];
 					const room = field.rooms[roomIndex];
 					const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[room.props]));
 					palettes = [props[3], props[3], props[4], props[4], props[5], props[5]];
@@ -2506,7 +2508,7 @@
 		section.appendChild(metaPreview);
 
 		const render = () => {
-			const room = bmaps[parseInt(bmapSelect.value)];
+			const room = bmaps[bmapSelect.value];
 
 			// palette
 			const palette = room.palette?.byteLength && room.palette;
@@ -2680,8 +2682,7 @@
 		section.appendChild(metaPreview);
 
 		const render = () => {
-			const index = parseInt(bmapgSelect.value);
-			const room = unpackSegmented(lzssBis(fsext.bmapg.segments[index]));
+			const room = unpackSegmented(lzssBis(fsext.bmapg.segments[bmapgSelect.value]));
 			const [palette, tileset, layer1, layer2, unknown4, unknown5, unknown6] = room;
 
 			// palette
@@ -2832,7 +2833,7 @@
 		componentPreview.appendChild(paletteCanvas);
 
 		const render = () => {
-			const option = options[parseInt(select.value)];
+			const option = options[select.value];
 
 			const paletteCtx = paletteCanvas.getContext('2d');
 			if (option.pal.byteLength >= 516) {
@@ -2852,7 +2853,7 @@
 				const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
 				const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
 
-				const paletteRow = parseInt(paletteShift.value) << 4;
+				const paletteRow = paletteShift.value << 4;
 
 				let o256 = 0;
 				let o16 = 0;
