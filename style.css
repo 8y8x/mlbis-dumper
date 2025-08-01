@@ -1,48 +1,150 @@
-* { box-sizing: border-box; margin: 0; }
-
-@font-face {
-	font-family: "Red Hat Mono";
-	src: url("./redhat/mono.ttf");
+* {
+	box-sizing: border-box;
+	margin: 0;
 }
 
 @font-face {
-	font-family: "Red Hat Text";
-	src: url("./redhat/text.ttf");
+	font-family: 'Red Hat Mono';
+	src: url('./redhat/mono.ttf');
 }
 
-body { background: #111; color: #999; font-family: "Red Hat Text"; overflow-x: hidden; }
+@font-face {
+	font-family: 'Red Hat Text';
+	src: url('./redhat/text.ttf');
+}
 
-#title { padding-bottom: 10px; position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, -100%); }
-#file-input { padding-top: 10px; position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, 0); }
+:root {
+	--button-fg: hsl(204, 100%, 50%);
+	--button-bg: hsl(204, 100%, 5%);
+	--button-fg-hover: hsl(204, 100%, 75%);
+
+	--dropdown-fg: hsl(247, 100%, 70%);
+	--dropdown-bg: hsl(247, 100%, 7%);
+	--dropdown-fg-hover: hsl(247, 100%, 85%);
+	--dropdown-opt-fg: hsl(247, 20%, 60%);
+	--dropdown-opt-bg: hsl(247, 20%, 7%);
+	--dropdown-opt-fg-hover: hsl(247, 20%, 80%);
+
+	--checkbox-fg: hsl(150, 100%, 60%);
+	--checkbox-bg: hsl(150, 100%, 6%);
+	--checkbox-fg-hover: hsl(150, 100%, 80%);
+	--checkbox-not-fg: hsl(150, 100%, 30%);
+	--checkbox-not-fg-hover: hsl(150, 100%, 60%);
+}
+
+body {
+	background: #111;
+	color: #999;
+	font-family: 'Red Hat Text';
+	overflow-x: hidden;
+}
+
+#title {
+	padding-bottom: 10px;
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	transform: translate(-50%, -100%);
+}
+#file-input {
+	padding-top: 10px;
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	transform: translate(-50%, 0);
+}
+
+canvas {
+	display: block;
+	image-rendering: pixelated;
+}
+
+section {
+	border-bottom: 1px solid #666;
+	position: relative;
+	width: 100vw;
+}
+section .reveal {
+	line-height: 32px;
+	user-select: none;
+	padding: 0 5px;
+}
+section .reveal:hover {
+	color: #ccc;
+}
+section .content {
+	width: calc(100% - 32px);
+	padding: 20px;
+	padding-left: 52px;
+}
+
+label {
+	padding: 0 5px;
+	user-select: none;
+}
+
+code {
+	font-family: 'Red Hat Mono';
+}
 
 button {
-	background: #012; border: 1px solid #09f; color: #09f; font: inherit; font-size: 0.9rem; height: 1.4em;
-	line-height: 1.4em; margin: 0 1px; max-height: unset; padding: 0 0.5em;
+	background: var(--button-bg);
+	border: 1px solid var(--button-fg);
+	color: var(--button-fg);
+	display: inline-block;
+	font: inherit;
+	font-size: 0.9rem;
+	height: 1.4em;
+	line-height: 1.4em;
+	margin: 0 1px;
+	max-height: unset;
+	min-width: 1.4em;
+	padding: 0 0.5em;
 }
-button:hover { color: #9cf; }
+button:hover {
+	color: #9cf;
+}
 
-canvas { display: block; image-rendering: pixelated; }
+.dropdown * {
+	user-select: none;
+}
+.dropdown .left:hover,
+.dropdown .selection:hover,
+.dropdown .right:hover {
+	color: var(--dropdown-fg-hover);
+}
+.dropdown:has(.selection:hover) .vee {
+	color: var(--dropdown-fg-hover);
+}
+.dropdown .option:hover {
+	color: var(--dropdown-opt-fg-hover);
+}
 
-section { border-bottom: 1px solid #666; position: relative; width: 100vw; }
-section .reveal { line-height: 32px; user-select: none; padding: 0 5px; }
-section .reveal:hover { color: #ccc; }
-section .content { width: calc(100% - 32px); padding: 20px; padding-left: 52px; }
-
-label { padding: 0 5px; user-select: none; }
-
-code { font-family: "Red Hat Mono" }
-
-.dropdown * { user-select: none; }
-.dropdown .left:hover, .dropdown .selection:hover, .dropdown .right:hover { color: #cbf; }
-.dropdown:has(.selection:hover) .vee { color: #cbf; }
-.dropdown .option:hover { color: #cce; }
-
-.checkbox { border: 1px solid #191; user-select: none; }
-.checkbox * { color: #191; }
-.checkbox .check { opacity: 0; }
-.checkbox:hover * { color: #3f3; }
-.checkbox:not(.checked):hover .check { opacity: 0.2; }
-.checkbox.checked { border-color: #3f3; }
-.checkbox.checked .check { opacity: 1; }
-.checkbox.checked * { color: #3f3; }
-.checkbox.checked:hover * { color: #afa; }
+.checkbox {
+	border: 1px solid var(--checkbox-not-fg);
+	user-select: none;
+}
+.checkbox * {
+	color: var(--checkbox-not-fg);
+}
+.checkbox .check {
+	opacity: 0;
+}
+.checkbox:hover * {
+	color: var(--checkbox-not-fg-hover);
+}
+.checkbox:not(.checked):hover .check {
+	opacity: 0.2;
+}
+.checkbox.checked {
+	border-color: var(--checkbox-fg);
+}
+.checkbox.checked .check {
+	opacity: 1;
+}
+.checkbox.checked * {
+	color: var(--checkbox-fg);
+}
+.checkbox.checked:hover * {
+	color: var(--checkbox-fg-hover);
+}
