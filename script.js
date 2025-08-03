@@ -93,8 +93,7 @@
 			if (box.width <= 0) return;
 			clearInterval(interval);
 
-			selection.style.width =
-				`calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '3em'})`;
+			selection.style.width = `calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '3em'})`;
 		});
 
 		if (hideArrows) {
@@ -473,9 +472,17 @@
 
 	const unpackSegmented16 = (dat) => {
 		if (dat.byteLength < 2) return [];
-		const offsets = [dat.getUint16(0, true)];
+		const offsetsEnd = dat.getUint16(0, true);
+		let lastSplit = offsetsEnd;
 		const segments = [];
-		for (let o = 2; o < offsets[0] * 2; o += 2) {}
+		for (let i = 1; i < offsetsEnd; ++i) {
+			const split = dat.getUint16(i * 2, true);
+			segments.push(sliceDataView(dat, lastSplit * 2, split * 2));
+			lastSplit = split;
+		}
+
+		segments.push(sliceDataView(dat, lastSplit * 2, dat.byteLength));
+		return segments;
 	};
 
 	/**
@@ -615,6 +622,7 @@
 	const bufToU8Clamped = (buf, off = buf.byteOffset, len = buf.byteLength) =>
 		new Uint8ClampedArray(buf.buffer, off, len);
 	const bufToU16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Uint16Array(buf.buffer, off, len);
+	const bufToS16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Int16Array(buf.buffer, off, len);
 	const bufToU32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) => new Uint32Array(buf.buffer, off, len);
 
 	Object.assign(window, {
@@ -623,10 +631,12 @@
 		lzssBisCompress,
 		sliceDataView,
 		unpackSegmented,
+		unpackSegmented16,
 		zipStore,
 		rgb15To32,
 		bufToU8,
 		bufToU16,
+		bufToS16,
 		bufToU32,
 	});
 
@@ -2450,37 +2460,44 @@
 		const bmap = (battle.bmap = unpackSegmented(bmapFile));
 
 		const bmaps = (battle.bmaps = []);
-		for (let i = 0; i < bmap.length; i += 8) {
+		for (let i = 1; i < bmap.length; i += 8) {
 			bmaps.push({
-				unknown0: bmap[i],
-				tileset: bmap[i + 1],
-				palette: bmap[i + 2],
-				layer1: bmap[i + 3],
-				layer2: bmap[i + 4],
-				layer3: bmap[i + 5],
-				unknown6: bmap[i + 6],
-				unknown7: bmap[i + 7],
+				tileset: bmap[i],
+				palette: bmap[i + 1],
+				tilemaps: [bmap[i + 2], bmap[i + 3], bmap[i + 4]],
+				paletteAnimations: bmap[i + 5],
+				tileAnimations: bmap[i + 6],
+				tilesetAnimated: bmap[i + 7],
 			});
 		}
 
-		const bmapSelect = dropdown(
+		const bmapDropdown = dropdown(
 			bmaps.map((_, i) => `BMap 0x${i.toString(16)}`),
 			0,
-			() => render(),
+			() => update(),
 		);
-		section.appendChild(bmapSelect);
+		section.appendChild(bmapDropdown);
 
-		const bg1Check = checkbox('BG1', true, () => render());
-		section.appendChild(bg1Check);
-		const bg2Check = checkbox('BG2', true, () => render());
-		section.appendChild(bg2Check);
-		const bg3Check = checkbox('BG3', true, () => render());
-		section.appendChild(bg3Check);
-		const reverseLayers = checkbox('Reverse Layers', false, () => render());
-		section.appendChild(reverseLayers);
+		let updatePalette = false;
+		let updateTileset = false;
+		let updateTilesetAnimated = false;
+		let updateMap = false;
+
+		const options = {};
+		options.bgChecks = [];
+		section.appendChild((options.bgChecks[0] = checkbox('BG1', true, () => { updateMap = true; })));
+		section.appendChild((options.bgChecks[1] = checkbox('BG2', true, () => { updateMap = true; })));
+		section.appendChild((options.bgChecks[2] = checkbox('BG3', true, () => { updateMap = true; })));
+		section.appendChild((options.reverseLayers = checkbox('Reverse Layers', false, () => { updateMap = true; })));
+		section.appendChild((options.margins = checkbox('Margins', true, () => { updateMap = true; })));
+		section.appendChild((options.paletteAnimations = checkbox('Palette Animations', false, () => {
+			updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
+		})));
+		section.appendChild((options.tileAnimations = checkbox('Tile Animations', false, () => {
+			updateTileset = updateMap = true;
+		})));
 
 		const mapCanvas = document.createElement('canvas');
-		mapCanvas.style.cssText = 'width: 512px; height: 256px;';
 		mapCanvas.width = 512;
 		mapCanvas.height = 256;
 		section.appendChild(mapCanvas);
@@ -2494,10 +2511,10 @@
 		tilesetCanvas.width = tilesetCanvas.height = 256;
 		rawPreview.appendChild(tilesetCanvas);
 
-		const unknown0Canvas = document.createElement('canvas');
-		unknown0Canvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0; left: 256px;';
-		unknown0Canvas.width = unknown0Canvas.height = 256;
-		rawPreview.appendChild(unknown0Canvas);
+		const tilesetAnimatedCanvas = document.createElement('canvas');
+		tilesetAnimatedCanvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0; left: 256px;';
+		tilesetAnimatedCanvas.width = tilesetAnimatedCanvas.height = 256;
+		rawPreview.appendChild(tilesetAnimatedCanvas);
 
 		const paletteCanvas = document.createElement('canvas');
 		paletteCanvas.style.cssText = 'height: 128px; width: 128px; position: absolute; top: 0px; left: 512px;';
@@ -2507,131 +2524,355 @@
 		const metaPreview = document.createElement('div');
 		section.appendChild(metaPreview);
 
-		const render = () => {
-			const room = bmaps[bmapSelect.value];
+		let room = battle.room = undefined;
+		const update = () => {
+			const rawRoom = bmaps[bmapDropdown.value];
+			battle.room = room = {
+				tileset: rawRoom.tileset?.byteLength && bufToU8(lzssBis(rawRoom.tileset)),
+				palette: rawRoom.palette?.byteLength && rgb15To32(bufToU16(rawRoom.palette)),
+				tilemaps: rawRoom.tilemaps.map(x => x?.byteLength && bufToU16(x)),
+				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength && bufToU8(lzssBis(rawRoom.tilesetAnimated)),
+			};
 
-			// palette
-			const palette = room.palette?.byteLength && room.palette;
-			const paletteCtx = paletteCanvas.getContext('2d');
-			if (palette) {
-				const paletteBitmap = new Uint8ClampedArray(256 * 4);
-				for (let i = 0; i < 256; ++i) {
-					const rgb16 = palette.getUint16(i * 2, true);
-					writeRgb16(paletteBitmap, i, palette.getUint16(i * 2, true));
-				}
-				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
-			} else {
-				paletteCtx.clearRect(0, 0, 16, 16);
-			}
+			// parse palette animations
+			room.paletteAnimations = [];
+			const paletteSegments = unpackSegmented16(rawRoom.paletteAnimations);
+			for (let i = 0; i < paletteSegments.length - 1; ++i) {
+				const segment = bufToS16(paletteSegments[i]);
 
-			// tileset
-			const tileset = room.tileset?.byteLength && lzssBis(room.tileset);
-			const tilesetCtx = tilesetCanvas.getContext('2d');
-			if (tileset) {
-				const tilesetBitmap = new Uint8ClampedArray(256 * 256 * 4);
-				let o = 0;
-				for (let i = 0; o < tileset.byteLength; ++i) {
-					const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
-					// 16-color
-					for (let j = 0; j < 64 && o < tileset.byteLength; j += 2) {
-						const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
-						const composite = tileset.getUint8(o++);
-						writeRgb16(tilesetBitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
-						writeRgb16(tilesetBitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
-					}
-				}
-				tilesetCtx.putImageData(new ImageData(tilesetBitmap, 256, 256), 0, 0);
-			} else {
-				tilesetCtx.clearRect(0, 0, 256, 256);
-			}
+				const totalLength = segment[0]; // all keyframe lengths must add up to this
 
-			// unknown0
-			const unknown0 = room.unknown0?.byteLength && lzssBis(room.unknown0);
-			const unknown0Ctx = unknown0Canvas.getContext('2d');
-			if (unknown0) {
-				const unknown0Bitmap = new Uint8ClampedArray(256 * 256 * 4);
-				let o = 0;
-				for (let i = 0; o < unknown0.byteLength; ++i) {
-					const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
-					// 16-color
-					for (let j = 0; j < 64 && o < unknown0.byteLength; j += 2) {
-						const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
-						const composite = unknown0.getUint8(o++);
-						writeRgb16(unknown0Bitmap, pos, palette.getUint16((composite & 0xf) * 2, true));
-						writeRgb16(unknown0Bitmap, pos | 1, palette.getUint16((composite >> 4) * 2, true));
-					}
-				}
-				unknown0Ctx.putImageData(new ImageData(unknown0Bitmap, 256, 256), 0, 0);
-			} else {
-				unknown0Ctx.clearRect(0, 0, 256, 256);
-			}
+				let o = 1;
+				while (o < segment.length) {
+					let blendMode;
+					let paletteStart;
+					let paletteLength;
+					let red, green, blue;
+					let redShift, greenShift, blueShift;
+					const keyframeLengths = [];
+					const keyframeLuminances = [];
 
-			// map
-			const mapCtx = mapCanvas.getContext('2d');
-			if (palette && tileset) {
-				const mapBitmap = new Uint8ClampedArray(512 * 256 * 4);
-				for (const layerIndex of reverseLayers.checked ? [0, 1, 2] : [2, 1, 0]) {
-					if (![bg1Check, bg2Check, bg3Check][layerIndex].checked) continue;
-					const layer = [room.layer1, room.layer2, room.layer3][layerIndex];
-					for (let i = 0; i * 2 + 1 < (layer?.byteLength ?? 0); ++i) {
-						const tile = layer.getUint16(i * 2, true);
-						const paletteRow = tile >> 12;
-						const tileOffset = (tile & 0x3ff) * 32;
-						const basePos = ((i >> 6) << 12) | ((i & 0x3f) << 3); // y = i >> 6, x = i & 0x3f
-						for (let j = 0; j < 32 && tileOffset + j < tileset.byteLength; ++j) {
-							let pos = basePos | ((j >> 2) << 9) | ((j & 0x3) << 1);
-							if (tile & 0x400) pos ^= 0x7; // horizontal flip
-							if (tile & 0x800) pos ^= 0x7 << 9; // vertical flip
-							const composite = tileset.getUint8(tileOffset + j);
-							if (composite & 0xf)
-								writeRgb16(
-									mapBitmap,
-									pos,
-									palette.getUint16(((paletteRow << 4) | (composite & 0xf)) * 2, true),
-								);
-							if (composite >> 4)
-								writeRgb16(
-									mapBitmap,
-									pos ^ 1,
-									palette.getUint16(((paletteRow << 4) | (composite >> 4)) * 2, true),
-								);
+					commandLoop: while (o < segment.length) {
+						const command = segment[o] & 0xff;
+						const params = segment[o] >> 8;
+						++o;
+
+						switch (command) {
+							case 0x82:
+								++o; // always 0?
+								break;
+							case 0x00: // min palette index (must be same as 0x02?)
+								paletteStart = segment[o++];
+								break;
+							case 0x01: // # of palette entries to modify
+								paletteLength = segment[o++];
+								break;
+							case 0x02: // must be the same as 0x00, otherwise glitches occur?
+								if (segment[o++] !== paletteStart) throw `mismatch`;
+								break;
+							case 0x83:
+								++o; // ???
+								break;
+							case 0x1c: // red multiplier in brightness (0 - 0xff)
+								red = segment[o++];
+								break;
+							case 0x1d: // green multiplier in brightness (0 - 0xff)
+								green = segment[o++];
+								break;
+							case 0x1e: // blue multiplier in brightness (0 - 0xff)
+								blue = segment[o++];
+								break;
+							case 0x04:
+							case 0x05:
+							case 0x06: // keyframe lengths (this is how long it will take to fade to the target brightness)
+							case 0x07:
+							case 0x08:
+							case 0x09:
+								blendMode = command;
+								for (let j = 0; j <= params / 2; ++j) keyframeLengths.push(segment[o++] + 1);
+								break;
+							case 0x1f: // keyframe target brightness (0 - 0xff)
+								for (let j = 0; j < keyframeLengths.length; ++j) keyframeLuminances.push(segment[o++]);
+								break commandLoop; // exit segment right after
+							default:
+								throw `unknown command ${command.toString(16)} params ${params.toString(16)}`;
 						}
 					}
+
+					room.paletteAnimations.push({
+						blendMode,
+						paletteStart,
+						paletteLength,
+						red,
+						green,
+						blue,
+						keyframeLengths,
+						keyframeLuminances,
+						totalLength,
+					});
 				}
-				mapCtx.putImageData(new ImageData(mapBitmap, 512, 256), 0, 0);
-			} else {
-				mapCtx.clearRect(0, 0, 512, 256);
+			}
+
+			// parse tile animations
+			room.tileAnimations = [];
+			const tileSegments = unpackSegmented16(rawRoom.tileAnimations);
+			for (let i = 0; i < tileSegments.length - 1; ++i) {
+				const segment = bufToS16(tileSegments[i]);
+				let tilesetStart;
+				let tilesetAnimatedStart;
+				let replacementLength;
+				let keyframeIndices = [];
+				let keyframeLengths = [];
+				let totalLength = 0;
+
+				let o = 1;
+				while (o < segment.length) {
+					const command = segment[o] & 0xff;
+					const params = segment[o] >> 8;
+					++o;
+
+					switch (command) {
+						case 0x41:
+							tilesetStart = segment[o++];
+							break;
+						case 0x19:
+							replacementLength = segment[o++];
+							break;
+						case 0x1a:
+							tilesetAnimatedStart = segment[o++];
+							break;
+						case 0x00:
+							for (let j = 0; j <= params / 2; ++j) keyframeIndices.push(segment[o++]);
+							break;
+						case 0x1b:
+							for (let j = 0; j < keyframeIndices.length; ++j) {
+								const length = segment[o++];
+								totalLength += length;
+								keyframeLengths.push(length);
+							}
+							break;
+					}
+				}
+
+				room.tileAnimations.push({
+					tilesetStart,
+					tilesetAnimatedStart,
+					replacementLength,
+					keyframeIndices,
+					keyframeLengths,
+					totalLength,
+				});
 			}
 
 			// metadata below
 			metaPreview.innerHTML = '';
-			try {
-				const decompressed = lzssBis(room.unknown0);
-				addHTML(
-					metaPreview,
-					`<div>unknown0 decompressed: <code>${bytes(0, decompressed.byteLength, decompressed)}</code></div>`,
-				);
-			} catch (err) {
-				addHTML(
-					metaPreview,
-					`<div>unknown0: <code>${bytes(0, room.unknown0.byteLength, room.unknown0)}</code></div>`,
-				);
-			}
-			addHTML(
-				metaPreview,
-				`<div>layer sizes: ${room.layer1?.byteLength}, ${room.layer2?.byteLength}, ${room.layer3?.byteLength}</div>`,
+
+			const metaLines = [];
+			metaLines.push(`tilemap sizes: ${room.tilemaps.map((dat) => dat?.byteLength).join(', ')}`);
+			metaLines.push(
+				`paletteAnimations: <code>${bytes(0, rawRoom.paletteAnimations.byteLength, rawRoom.paletteAnimations)}</code>`,
 			);
-			if (room.unknown6)
-				addHTML(
-					metaPreview,
-					`<div>unknown6: <code>${bytes(0, room.unknown6.byteLength, room.unknown6)}</code></div>`,
-				);
-			if (room.unknown7)
-				addHTML(
-					metaPreview,
-					`<div>unknown7: <code>${bytes(0, room.unknown7.byteLength, room.unknown7)}</code></div>`,
-				);
+			metaLines.push(
+				`tileAnimations: <code>${bytes(0, rawRoom.tileAnimations.byteLength, rawRoom.tileAnimations)}</code>`,
+			);
+			for (const metaLine of metaLines) addHTML(metaPreview, '<div>' + metaLine + '</div>');
+
+			updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
 		};
+
+		const render = () => {
+			if (options.paletteAnimations.checked)
+				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
+			if (options.tileAnimations.checked)
+				updateTileset = updateMap = true;
+			const tick = Math.floor((performance.now() / 1000) * 60);
+
+			// palette
+			const palette = new Uint32Array(256);
+			if (room.palette) palette.set(room.palette, 0);
+			if (updatePalette) {
+				const paletteCtx = paletteCanvas.getContext('2d');
+				if (room.palette) {
+					const clamped = bufToU8Clamped(palette);
+					const lastPalette = new Uint32Array(256);
+					lastPalette.set(palette, 0);
+
+					if (options.paletteAnimations.checked) {
+						for (const palAnim of room.paletteAnimations) {
+							let localTick = tick % palAnim.totalLength;
+							let fromLuminance, toLuminance, alpha;
+							for (let j = 0; j < palAnim.keyframeLengths.length; ++j) {
+								if (localTick < palAnim.keyframeLengths[j]) {
+									fromLuminance = palAnim.keyframeLuminances[j - 1];
+									toLuminance = palAnim.keyframeLuminances[j];
+									alpha = localTick / palAnim.keyframeLengths[j];
+									break;
+								}
+								localTick -= palAnim.keyframeLengths[j];
+							}
+
+							if (fromLuminance === undefined || toLuminance === undefined) continue; // no net effect
+							const luminance = (fromLuminance + (toLuminance - fromLuminance) * alpha) / 100;
+							let r = palAnim.red << 3 | palAnim.red >> 2;
+							let g = palAnim.green << 3 | palAnim.green >> 2;
+							let b = palAnim.blue << 3 | palAnim.blue >> 2;
+
+							lastPalette.set(palette, 0);
+							for (let i = 0; i < palAnim.paletteLength; ++i) {
+								const base = (palAnim.paletteStart + i) * 4;
+								// TODO: overlay effects rgb15 correction
+								if (palAnim.blendMode === 4) { // palette shift
+									const mod = (a, b) => (a % b + b) % b;
+									palette[palAnim.paletteStart + mod(Math.floor(i - palAnim.paletteLength * luminance), palAnim.paletteLength)] =
+										lastPalette[palAnim.paletteStart + i];
+								} else if (palAnim.blendMode === 5) { // true set
+									clamped[base] += (r - clamped[base]) * luminance;
+									clamped[base + 1] += (g - clamped[base + 1]) * luminance;
+									clamped[base + 2] += (b - clamped[base + 2]) * luminance;
+								} else if (palAnim.blendMode === 6) { // add
+									clamped[base] += r * luminance;
+									clamped[base + 1] += g * luminance;
+									clamped[base + 2] += b * luminance;
+								} else if (palAnim.blendMode === 7) { // sub
+									clamped[base] -= r * luminance;
+									clamped[base + 1] -= g * luminance;
+									clamped[base + 2] -= b * luminance;
+								} else if (palAnim.blendMode === 8) { // set
+									clamped[base] += (r * 0x16 / 0x1f - clamped[base]) * luminance;
+									clamped[base + 1] += (g * 0x16 / 0x1f - clamped[base + 1]) * luminance;
+									clamped[base + 2] += (b * 0x16 / 0x1f - clamped[base + 2]) * luminance;
+								} else if (palAnim.blendMode === 9) { // invert
+									clamped[base] += (255 - clamped[base] * 2) * luminance;
+									clamped[base + 1] += (255 - clamped[base + 1] * 2) * luminance;
+									clamped[base + 2] += (255 - clamped[base + 2] * 2) * luminance;
+								}
+							}
+						}
+					}
+
+					paletteCtx.putImageData(new ImageData(clamped, 16, 16), 0, 0);
+				} else {
+					paletteCtx.clearRect(0, 0, 16, 16);
+				}
+			}
+
+			// tileset
+			if (updateTileset || updateTilesetAnimated || updateMap) {
+				const layout = new Array(1024);
+				const layoutAnimated = new Array(1024);
+				for (let i = 0; i < 1024; ++i) {
+					layout[i] = i;
+					layoutAnimated[i] = false;
+				}
+
+				if (options.tileAnimations.checked) {
+					for (let i = 0; i < room.tileAnimations.length; ++i) {
+						const tileAnim = room.tileAnimations[i];
+
+						let localTick = tick % tileAnim.totalLength;
+						let frame = 0;
+						for (let j = 0; j < tileAnim.keyframeLengths.length; ++j) {
+							if (localTick < tileAnim.keyframeLengths[j]) {
+								frame = tileAnim.keyframeIndices[j];
+								break;
+							}
+							localTick -= tileAnim.keyframeLengths[j];
+						}
+
+						for (let j = 0; j < tileAnim.replacementLength; ++j) {
+							layout[tileAnim.tilesetStart + j] =
+								tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength + j;
+							layoutAnimated[tileAnim.tilesetStart + j] = true;
+						}
+					}
+				}
+
+				const tilesetCtx = tilesetCanvas.getContext('2d');
+				if (room.tileset) {
+					const tilesetBitmap = new Uint32Array(256 * 256);
+					for (let i = 0; i * 32 < room.tileset.length; ++i) {
+						const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
+						const tileset = layoutAnimated[i] ? room.tilesetAnimated : room.tileset;
+						const tileOffset = layout[i] * 32;
+
+						// 16-color
+						for (let j = 0; j < 32; ++j) {
+							const pos = basePos | ((j >> 2) << 8) | ((j & 0x3) << 1);
+							const composite = tileset[tileOffset + j] ?? 0;
+							tilesetBitmap[pos] = palette[composite & 0xf];
+							tilesetBitmap[pos ^ 1] = palette[composite >> 4];
+						}
+					}
+					tilesetCtx.putImageData(new ImageData(bufToU8Clamped(tilesetBitmap), 256, 256), 0, 0);
+				} else {
+					tilesetCtx.clearRect(0, 0, 256, 256);
+				}
+
+				// tilesetAnimated
+				const tilesetAnimatedCtx = tilesetAnimatedCanvas.getContext('2d');
+				if (room.tilesetAnimated) {
+					const bitmap = new Uint32Array(256 * 256);
+					for (let i = 0; i * 32 < room.tilesetAnimated.length; ++i) {
+						const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
+						// 16-color
+						for (let j = 0; j < 32; ++j) {
+							const pos = basePos | ((j >> 2) << 8) | ((j & 0x3) << 1);
+							const composite = room.tilesetAnimated[i * 32 + j] ?? 0;
+							bitmap[pos] = palette[composite & 0xf];
+							bitmap[pos ^ 1] = palette[composite >> 4];
+						}
+					}
+					tilesetAnimatedCtx.putImageData(new ImageData(bufToU8Clamped(bitmap), 256, 256), 0, 0);
+				} else {
+					tilesetAnimatedCtx.clearRect(0, 0, 256, 256);
+				}
+
+				// map
+				const mapCtx = mapCanvas.getContext('2d');
+				if (updateMap) {
+					const height = options.margins.checked ? 256 : 192;
+					mapCanvas.height = height;
+					if (room.tileset) {
+						const mapBitmap = new Uint32Array(512 * 256);
+						for (let i = 2; i >= 0; --i) {
+							const layerIndex = options.reverseLayers.checked ? 2 - i : i;
+							const tilemap = room.tilemaps[layerIndex];
+							if (!options.bgChecks[layerIndex].checked || !tilemap) continue;
+
+							for (let j = 0; j < tilemap.length; ++j) {
+								const tile = tilemap[j];
+								const paletteRow = (tile >> 12) << 4;
+								const tileOffset = layout[tile & 0x3ff] * 32;
+								const tileset = layoutAnimated[tile & 0x3ff] ? room.tilesetAnimated : room.tileset;
+
+								const basePos = ((j >> 6) << 12) | ((j & 0x3f) << 3); // y = i >> 6, x = i & 0x3f
+								for (let k = 0; k < 32; ++k) {
+									let pos = basePos | ((k >> 2) << 9) | ((k & 0x3) << 1);
+									if (tile & 0x400) pos ^= 0x7; // horizontal flip
+									if (tile & 0x800) pos ^= 0x7 << 9; // vertical flip
+
+									const composite = tileset[tileOffset + k] ?? 0;
+									if (composite & 0xf) mapBitmap[pos] = palette[paletteRow | (composite & 0xf)];
+									if (composite >> 4) mapBitmap[pos ^ 1] = palette[paletteRow | (composite >> 4)];
+								}
+							}
+						}
+						mapCtx.putImageData(
+							new ImageData(bufToU8Clamped(mapBitmap), 512, 256),
+							0,
+							options.margins.checked ? 0 : -32,
+						);
+					} else {
+						mapCtx.clearRect(0, 0, 512, height);
+					}
+				}
+			}
+
+			updatePalette = updateTileset = updateTilesetAnimated = updateMap = false;
+
+			requestAnimationFrame(render);
+		};
+		update();
 		render();
 
 		return battle;
@@ -2653,10 +2894,9 @@
 		const bmapgSelect = dropdown(selectOptions, 0, () => render());
 		section.appendChild(bmapgSelect);
 
-		const bg1Check = checkbox('BG1', true, () => render());
-		section.appendChild(bg1Check);
-		const bg2Check = checkbox('BG2', true, () => render());
-		section.appendChild(bg2Check);
+		const bgChecks = [];
+		section.appendChild((bgChecks[0] = checkbox('BG1', true, () => render())));
+		section.appendChild((bgChecks[1] = checkbox('BG2', true, () => render())));
 
 		const mapCanvas = document.createElement('canvas');
 		mapCanvas.style.cssText = 'width: 2048px; height: 512px;';
@@ -2683,72 +2923,64 @@
 
 		const render = () => {
 			const room = unpackSegmented(lzssBis(fsext.bmapg.segments[bmapgSelect.value]));
-			const [palette, tileset, layer1, layer2, unknown4, unknown5, unknown6] = room;
+			const palette = room[0]?.byteLength && rgb15To32(bufToU16(room[0]));
+			const tileset = room[1]?.byteLength && bufToU8(room[1]);
+			const tilemaps = [2, 3].map((index) => room[index]?.byteLength && bufToU16(room[index]));
+			const unknown4 = room[4];
+			const unknown5 = room[5];
+			const unknown6 = room[6];
 
 			// palette
 			const paletteCtx = paletteCanvas.getContext('2d');
-			if (palette?.byteLength) {
-				const paletteBitmap = new Uint8ClampedArray(256 * 4);
-				for (let i = 0; i * 2 + 1 < palette.byteLength; ++i) {
-					writeRgb16(paletteBitmap, i, palette.getUint16(i * 2, true));
-				}
-				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
-			} else {
-				paletteCtx.clearRect(0, 0, 16, 16);
-			}
+			if (palette) paletteCtx.putImageData(new ImageData(bufToU8Clamped(palette), 16, 16), 0, 0);
+			else paletteCtx.clearRect(0, 0, 16, 16);
 
 			// tileset
 			const tilesetCtx = tilesetCanvas.getContext('2d');
-			if (palette?.byteLength && tileset?.byteLength) {
-				const tilesetBitmap = new Uint8ClampedArray(256 * 256 * 4);
+			if (palette && tileset) {
+				const tilesetBitmap = new Uint32Array(256 * 256);
 				let o = 0;
-				for (let i = 0; o < tileset.byteLength; ++i) {
+				for (let i = 0; i * 64 < tileset.byteLength; ++i) {
 					const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
 					// 256-color
-					for (let j = 0; j < 64 && o < tileset.byteLength; ++j) {
+					for (let j = 0; j < 64; ++j) {
 						const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
-						const paletteIndex = tileset.getUint8(o++);
-						writeRgb16(tilesetBitmap, pos, palette.getUint16(paletteIndex * 2, true));
+						tilesetBitmap[pos] = palette[tileset[i * 64 + j] ?? 0];
 					}
 				}
-				tilesetCtx.putImageData(new ImageData(tilesetBitmap, 256, 256), 0, 0);
+				tilesetCtx.putImageData(new ImageData(bufToU8Clamped(tilesetBitmap), 256, 256), 0, 0);
 			} else {
 				tilesetCtx.clearRect(0, 0, 256, 256);
 			}
 
 			// map
 			const mapCtx = mapCanvas.getContext('2d');
-			if (palette?.byteLength && tileset?.byteLength) {
-				const mapBitmap = new Uint8ClampedArray(2048 * 512 * 4);
-				let o = 0;
+			if (palette && tileset) {
+				const mapBitmap = new Uint32Array(2048 * 512);
 				// maybe there are more layers, so use an array
-				for (const [layer, check] of [
-					[layer2, bg2Check],
-					[layer1, bg1Check],
-				]) {
-					if (!layer?.byteLength || !check.checked) continue;
+				for (let i = 1; i >= 0; --i) {
+					const tilemap = tilemaps[i];
+					if (!bgChecks[i].checked) continue;
 
-					for (let i = 0; i * 2 + 1 < layer.byteLength; ++i) {
-						const tile = layer.getUint16(i * 2, true);
-						if (!(tile & 0x3ff)) continue;
+					for (let j = 0; j < tilemap.length; ++j) {
+						const tile = tilemap[j];
 
 						// 256-color
-						const basePos = ((i >> 7) << 14) | ((i & 0x7f) << 3); // y = i >> 7, x = i & 0x7f
+						const basePos = ((j >> 7) << 14) | ((j & 0x7f) << 3); // y = i >> 7, x = i & 0x7f
 						const tileOffset = (tile & 0x3ff) * 64;
-						for (let j = 0; j < 64 && tileOffset + j < tileset.byteLength; ++j) {
-							let pos = basePos | ((j >> 3) << 11) | (j & 0x7);
+						for (let k = 0; k < 64; ++k) {
+							let pos = basePos | ((k >> 3) << 11) | (k & 0x7);
 							if (tile & 0x400) pos ^= 0x7; // horizontal flip
 							if (tile & 0x800) pos ^= 0x7 << 11; // vertical flip
 
-							const paletteIndex = tileset.getUint8(tileOffset + j);
+							const paletteIndex = tileset[tileOffset + k] ?? 0;
 							if (!paletteIndex) continue;
-
-							writeRgb16(mapBitmap, pos, palette.getUint16(paletteIndex * 2, true));
+							mapBitmap[pos] = palette[paletteIndex];
 						}
 					}
 				}
 
-				mapCtx.putImageData(new ImageData(mapBitmap, 2048, 512), 0, 0);
+				mapCtx.putImageData(new ImageData(bufToU8Clamped(mapBitmap), 2048, 512), 0, 0);
 			} else {
 				mapCtx.clearRect(0, 0, 2048, 512);
 			}
@@ -2756,14 +2988,15 @@
 			// metadata below
 			metaPreview.innerHTML = '';
 
-			addHTML(metaPreview, `<div>Layer sizes: ${layer1?.byteLength}, ${layer2?.byteLength}</div>`);
-			addHTML(metaPreview, `<div>unknown4 size: ${unknown4?.byteLength}</div>`);
-			addHTML(metaPreview, `<div>unknown5 size: ${unknown5?.byteLength}</div>`);
-			if (unknown5?.byteLength)
-				addHTML(metaPreview, `<div>unknown5 preview: <code>${bytes(0, 256, unknown5)}</code></div>`);
-			addHTML(metaPreview, `<div>unknown6 size: ${unknown6?.byteLength}</div>`);
-			if (unknown6?.byteLength)
-				addHTML(metaPreview, `<div>unknown6 preview: <code>${bytes(0, 256, unknown6)}</code></div>`);
+			const metaLines = [];
+			metaLines.push(`Tilemap sizes: ${tilemaps[0]?.byteLength}, ${tilemaps[1]?.byteLength}`);
+			metaLines.push(`unknown4 size: ${unknown4?.byteLength}`);
+			metaLines.push(`unknown4 preview: <code>${bytes(0, 256, unknown4)}</code>`);
+			metaLines.push(`unknown5 size: ${unknown5?.byteLength}`);
+			metaLines.push(`unknown5 preview: <code>${bytes(0, 256, unknown5)}</code>`);
+			metaLines.push(`unknown6 size: ${unknown6?.byteLength}`);
+			metaLines.push(`unknown6 preview: <code>${bytes(0, 256, unknown6)}</code>`);
+			for (const metaLine of metaLines) addHTML(metaPreview, '<div>' + metaLine + '</div>');
 		};
 		render();
 
