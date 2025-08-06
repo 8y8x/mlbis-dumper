@@ -1074,7 +1074,7 @@
 		const optionRows = [0, 1].map(() => document.createElement('div'));
 		for (const row of optionRows) section.appendChild(row);
 
-		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: #111;';
+		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: #111; margin-bottom: 1px;';
 
 		options.roomDropdown = dropdown(
 			field.rooms.map((_, i) => `Room 0x${i.toString(16)}`),
@@ -1573,7 +1573,12 @@
 				const flags = tileAnimations[i].getUint32(0, true);
 				const animeIndex = tileAnimations[i].getUint16(4, true);
 				const animTileset = lzssBis(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
-				const container = { startTick: undefined, segment: tileAnimations[i], tileset: bufToU8(animTileset) };
+				const container = {
+					nextUpdateTick: undefined,
+					startTick: undefined,
+					segment: tileAnimations[i],
+					tileset: bufToU8(animTileset),
+				};
 
 				// only auto-enable if animation is "immediately looping" (flags & 4 == 0, flags & 8 == 0)
 				const autoEnable = options.animations.checked && !(flags & 0xc);
@@ -1707,6 +1712,7 @@
 			const canvasHeight = options.margins.checked ? layerHeight * 8 : layerHeight * 8 - 32;
 
 			if (updatePalettes) {
+				console.log('updatePalettes');
 				for (let i = 0; i < 3; ++i) {
 					const ctx = paletteCanvases[i].getContext('2d');
 					if (!room.palettes[i]) {
@@ -1719,7 +1725,13 @@
 				}
 			}
 
-			if (room.enabledTileAnimations.size) updateTiles = updateMaps = true;
+			for (const { nextUpdateTick } of room.enabledTileAnimations) {
+				if (nextUpdateTick === undefined || nextUpdateTick <= tick) {
+					updateTiles = updateMaps = true;
+					break;
+				}
+			}
+
 			if (updateTiles || updateMaps) {
 				// each will be an array 0-1023 referencing the original tileset,
 				// unless there's a tile animation that's replacing some tiles with its own tileset
@@ -1733,7 +1745,8 @@
 					}
 				}
 
-				for (const { startTick, segment, tileset } of room.enabledTileAnimations) {
+				for (const container of room.enabledTileAnimations) {
+					const { startTick, segment, tileset } = container;
 					const field = segment.getUint32(0, true);
 					const layer = field & 3;
 
@@ -1749,6 +1762,7 @@
 						const keyframeLength = segment.getUint16(8 + i * 4 + 2, true);
 						if (localTick < keyframeLength) {
 							animationFrame = frame;
+							container.nextUpdateTick = tick + (keyframeLength - localTick);
 							break;
 						}
 						localTick -= keyframeLength;
@@ -1764,6 +1778,7 @@
 				}
 
 				if (updateTiles) {
+					console.log('updateTiles');
 					for (let i = 0; i < 3; ++i) {
 						const ctx = tilesetCanvases[i].getContext('2d');
 						if (!room.tilesets[i] || !room.palettes[i]) {
@@ -1806,6 +1821,7 @@
 				}
 
 				if (updateMaps) {
+					console.log('updateMaps');
 					const height = Math.max(layerHeight, room.actualHeight);
 					mapBitmap.fill(0, 0, layerWidth * height * 64);
 
