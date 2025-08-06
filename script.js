@@ -23,12 +23,9 @@
 
 	const settings = JSON.parse(localStorage.getItem('settings') || '{}');
 
-	const uniqueId = (() => {
-		let counter = 0;
-		return () => `uniqueid-${counter++}`;
-	})();
-
-	// ========== Components ===========================================================================================
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Components                                                                                                    |
+	// +---------------------------------------------------------------------------------------------------------------+
 
 	const dropdown = (values, initialIndex, onchange, hideArrows) => {
 		const container = document.getElementById('dropdown').content.cloneNode(true);
@@ -175,7 +172,9 @@
 		return button;
 	};
 
-	//////////////////// Quick data display functions ////////////////////////////////////////////////////////////
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Quick Data Display                                                                                            |
+	// +---------------------------------------------------------------------------------------------------------------+
 
 	const readString = (o, l, buf = file) => {
 		let end;
@@ -233,7 +232,9 @@
 
 	Object.assign(window, { file, readString, bytes });
 
-	//////////////////// Compression/Packing ////////////////////////////////////////////////////////////////////
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Compression and Packing                                                                                       |
+	// +---------------------------------------------------------------------------------------------------------------+
 
 	const lzssBackwards = (end, indat, inputLen) => {
 		const composite = indat.getUint32(end - 8, true);
@@ -640,7 +641,9 @@
 		bufToU32,
 	});
 
-	//////////////////// Misc ////////////////////////////////////////////////////////////////////////////////
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Misc                                                                                                          |
+	// +---------------------------------------------------------------------------------------------------------------+
 
 	const download = (name, mime, dat) => {
 		const blob = new Blob([dat], { type: mime });
@@ -655,10 +658,7 @@
 
 	Object.assign(window, { download });
 
-	//////////////////// Section creation //////////////////////////////////////////////////////////////////////
-
-	const sections = [];
-	const createSection = (title) => {
+	const createSection = async (title, cb) => {
 		const section = document.createElement('section');
 		const reveal = document.createElement('div');
 		reveal.className = 'reveal';
@@ -684,28 +684,27 @@
 		reveal.addEventListener('mousedown', (e) => {
 			if (e.button === 0) toggleVisible(!visible);
 		});
+		toggleVisible(settings[`section.${title}.visible`] ?? true);
 
-		sections.push({ section, content });
 		document.body.appendChild(section);
 
-		toggleVisible(settings[`section.${title}.visible`] ?? true);
-		return content;
-	};
-
-	const createSectionWrapped = async (name, cb) => {
-		const section = createSection(name);
 		try {
-			return await cb(section);
+			return await cb(content);
 		} catch (err) {
 			console.error(err);
-			section.innerHTML = `<span style="color: #f99;">${sanitize(err.name)}: ${sanitize(err.message)}<br>
-				${sanitize(err.stack).replace('\n', '<br>')}</span>`;
+			addHTML(
+				content,
+				`<span style="color: #f99;">${sanitize(err.name)}: ${sanitize(err.message)}<br>
+				${sanitize(err.stack).replace('\n', '<br>')}</span>`,
+			);
 		}
 	};
 
-	//////////////////// Sections ////////////////////////////////////////////////////////////////////////////////
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: ROM Headers                                                                                          |
+	// +---------------------------------------------------------------------------------------------------------------+
 
-	const headers = (window.headers = await createSectionWrapped('ROM Headers', async (section) => {
+	const headers = (window.headers = await createSection('ROM Headers', async (section) => {
 		const fields = [];
 		const headers = {};
 
@@ -741,7 +740,11 @@
 		return headers;
 	}));
 
-	const fs = (window.fs = await createSectionWrapped('File System', async (section) => {
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: File System                                                                                          |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const fs = (window.fs = await createSection('File System', async (section) => {
 		const parseSubtable = (o, fileId) => {
 			const entries = [];
 			while (true) {
@@ -923,7 +926,11 @@
 		return fs;
 	}));
 
-	const fsext = (window.fsext = await createSectionWrapped('File System (Extended)', async (section) => {
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: File System (Extended)                                                                               |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const fsext = (window.fsext = await createSection('File System (Extended)', async (section) => {
 		const fsext = {};
 
 		// JP and demo versions don't compress their overlays, but the other versions do
@@ -1023,72 +1030,11 @@
 		return fsext;
 	}));
 
-	const font = (window.font = await createSectionWrapped('Font Data', async (section) => {
-		const fontFile = fs.get('/Font/StatFontSet.dat');
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Field Maps                                                                                           |
+	// +---------------------------------------------------------------------------------------------------------------+
 
-		const locations = [];
-		for (let i = 0; i < 12; ++i) locations.push(file.getUint32(fontFile.start + i * 4, true));
-		addHTML(section, `<li>Locations: ${locations.map((x) => `0x${x.toString(16)}`).join(' ')}`);
-		const uniqueLocations = Array.from(new Set(locations));
-
-		const options = [];
-		for (const loc of uniqueLocations) options.push(`0x${loc.toString(16)}`);
-		const select = dropdown(options, 0, () => render());
-		section.appendChild(select);
-
-		const preview = document.createElement('div');
-		const render = () => {
-			preview.innerHTML = '';
-
-			const o = uniqueLocations[select.value];
-			const firstLength = file.getUint32(fontFile.start + o, true);
-			const secondLength = file.getUint32(fontFile.start + o + 4, true);
-			const headerLength = file.getUint32(fontFile.start + o + 8, true); // usually 12, but can be more
-			const numChars = file.getUint8(fontFile.start + o + headerLength + 3);
-			addHTML(preview, `<li>Lengths: 0x${firstLength.toString(16)} 0x${secondLength.toString(16)}`);
-			addHTML(preview, `<li>Header: <code>${bytes(fontFile.start + o, headerLength || 20)}</code>`);
-			addHTML(preview, `<li>Magic: <code>${bytes(fontFile.start + o + headerLength, 3)}</code>`);
-			addHTML(preview, `<li># of chars: ${numChars}`);
-
-			if (numChars === 0) return;
-
-			const charWidths = [];
-			for (let i = 0; i < numChars; ++i) {
-				const width = file.getUint32(fontFile.start + o + headerLength + 4 + i * 4, true);
-				charWidths.push(width.toString(16).padStart(8, '0'));
-			}
-			addHTML(preview, `<ul><li><code>${charWidths.join(' - ')}</code></ul>`);
-
-			const colors = [];
-			for (let i = 0; i < numChars * 4; ) {
-				const ab = file.getUint16(fontFile.start + o + headerLength + 4 + i, true);
-				i += 2;
-
-				const color =
-					'#' +
-					[(ab & 0x1f) << 3, ((ab >> 5) & 0x1f) << 3, ((ab >> 10) & 0x1f) << 3, 255]
-						.map((x) => x.toString(16).padStart(2, '0'))
-						.join('');
-				const str = ab.toString(16).padStart(4, '0');
-				colors.push(`<span style="color: ${color}">${str}</span>`);
-			}
-			addHTML(preview, `<ul><li><code>${colors.join(' ')}</code></ul>`);
-
-			const startOfRest = headerLength + 4 + 4 * numChars;
-			addHTML(
-				preview,
-				`<li>Rest of first part: <br><code>${bytes(fontFile.start + o + startOfRest, firstLength - startOfRest)}</code>`,
-			);
-			addHTML(
-				preview,
-				`<li>Second part: <br><code>${bytes(fontFile.start + o + firstLength, secondLength)}</code>`,
-			);
-		};
-		render();
-		section.appendChild(preview);
-	}));
-
-	const field = (window.field = await createSectionWrapped('Field Maps', async (section) => {
+	const field = (window.field = await createSection('Field Maps', async (section) => {
 		const field = {};
 
 		const treasureFile = fs.get('/Treasure/TreasureInfo.dat');
@@ -1734,12 +1680,12 @@
 			const lines = [
 				`[6] map: <code>${bytes(0, room.map.byteLength, room.map)}</code>`,
 				`[7] loadingZones: ${room.loadingZones.byteLength} bytes`,
-				`[8] unknown: <code>${bytes(0, Math.min(1024, room.props[8].byteLength), room.props[8])}</code>`,
+				`[8] blending: <code>${bytes(0, Math.min(1024, room.props[8].byteLength), room.props[8])}</code>`,
 				`[9] layerAnimations: <ul>${layerAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[10] tileAnimations: <ul>${tileAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
-				`[11] unknown: <code>${bytes(0, Math.min(1024, room.props[11].byteLength), room.props[11])}</code>`,
-				`[12] unknown: <code>${bytes(0, Math.min(1024, room.props[12].byteLength), room.props[12])}</code>`,
-				`[13] unknown: <code>${bytes(0, Math.min(1024, room.props[13].byteLength), room.props[13])}</code>`,
+				`[11] paletteAnimations BG1: <code>${bytes(0, Math.min(1024, room.props[11].byteLength), room.props[11])}</code>`,
+				`[12] paletteAnimations BG2: <code>${bytes(0, Math.min(1024, room.props[12].byteLength), room.props[12])}</code>`,
+				`[13] paletteAnimations BG3: <code>${bytes(0, Math.min(1024, room.props[13].byteLength), room.props[13])}</code>`,
 				`[16] unused: <code>${bytes(0, Math.min(1024, room.props[16].byteLength), room.props[16])}</code>`,
 				`[17] unused: <code>${bytes(0, Math.min(1024, room.props[17].byteLength), room.props[17])}</code>`,
 			];
@@ -2226,234 +2172,239 @@
 		return field;
 	}));
 
-	const fmapdataTiles = (window.fmapdataTiles = await createSectionWrapped(
-		'FMapData Tile Viewer',
-		async (section) => {
-			const fmapdataTiles = {};
-			const fieldFile = fs.get('/FMap/FMapData.dat');
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: FMapData Tile Viewer                                                                                 |
+	// +---------------------------------------------------------------------------------------------------------------+
 
-			const options = [];
-			for (let i = 0; i < fsext.fieldAnimeIndices[0]; ++i) options.push(`FMapData ${i.toString(16)}`);
-			for (let i = 0; i < fsext.fieldAnimeIndices.length; ++i)
-				options.push(`FMapData ${fsext.fieldAnimeIndices[i].toString(16)} (Anime ${i.toString(16)})`);
-			const select = dropdown(options, 0, () => update());
+	const fmapdataTiles = (window.fmapdataTiles = await createSection('FMapData Tile Viewer', async (section) => {
+		const fmapdataTiles = {};
+		const fieldFile = fs.get('/FMap/FMapData.dat');
 
-			section.appendChild(select);
+		const options = [];
+		for (let i = 0; i < fsext.fieldAnimeIndices[0]; ++i) options.push(`FMapData ${i.toString(16)}`);
+		for (let i = 0; i < fsext.fieldAnimeIndices.length; ++i)
+			options.push(`FMapData ${fsext.fieldAnimeIndices[i].toString(16)} (Anime ${i.toString(16)})`);
+		const select = dropdown(options, 0, () => update());
 
-			const dump = document.createElement('button');
-			dump.textContent = 'Dump';
-			dump.addEventListener('click', () => {
-				const index = select.value;
-				const data = lzssBis(fsext.fmapdata.segments[index]);
-				download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data.buffer);
-			});
-			section.appendChild(dump);
+		section.appendChild(select);
 
-			// generate a rainbow color palette, with later values using darker colors (0 - 0xf instead of 0 - 0x1f)
-			const globalPalette256 = new DataView(new ArrayBuffer(512));
-			for (let i = 0; i < 32; ++i) globalPalette256.setUint16(i * 2, (0x1f << 10) | (i << 5) | 0, true);
-			for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x40 + i * 2, (i << 10) | (0x1f << 5) | 0, true);
-			for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x80 + i * 2, (0 << 10) | (0x1f << 5) | i, true);
-			for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0xc0 + i * 2, (0 << 10) | (i << 5) | 0x1f, true);
-			for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x100 + i * 2, (i << 10) | (0 << 5) | 0x1f, true);
-			for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x140 + i * 2, (0x1f << 10) | (0 << 5) | i, true);
-			for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x180 + i * 2, (0xf << 10) | (i << 5) | 0, true);
-			for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1a0 + i * 2, (i << 10) | (0xf << 5) | 0, true);
-			for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x1c0 + i * 2, 0 | (0xf << 5) | i, true);
-			for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1e0 + i * 2, 0 | (i << 5) | 0xf, true);
+		const dump = document.createElement('button');
+		dump.textContent = 'Dump';
+		dump.addEventListener('click', () => {
+			const index = select.value;
+			const data = lzssBis(fsext.fmapdata.segments[index]);
+			download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data.buffer);
+		});
+		section.appendChild(dump);
 
-			const globalPalette16 = new DataView(new ArrayBuffer(512));
-			const rgb16s = [
-				[31, 0, 0],
-				[31, 10, 0],
-				[31, 20, 0],
-				[31, 31, 0],
-				[20, 31, 0],
-				[10, 31, 0],
-				[0, 31, 0],
-				[0, 31, 10],
-				[0, 31, 20],
-				[0, 31, 31],
-				[0, 20, 31],
-				[0, 10, 31],
-				[0, 0, 31],
-				[10, 0, 31],
-				[20, 0, 31],
-				[31, 0, 31],
-			];
-			for (let i = 0; i < 16; ++i) {
-				const [b, g, r] = rgb16s[i];
-				const rgb16 = (r << 10) | (g << 5) | b;
-				for (let o = 0; o < 512; o += 32) globalPalette16.setUint16(o + i * 2, rgb16, true);
+		// generate a rainbow color palette, with later values using darker colors (0 - 0xf instead of 0 - 0x1f)
+		const globalPalette256 = new DataView(new ArrayBuffer(512));
+		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(i * 2, (0x1f << 10) | (i << 5) | 0, true);
+		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x40 + i * 2, (i << 10) | (0x1f << 5) | 0, true);
+		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x80 + i * 2, (0 << 10) | (0x1f << 5) | i, true);
+		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0xc0 + i * 2, (0 << 10) | (i << 5) | 0x1f, true);
+		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x100 + i * 2, (i << 10) | (0 << 5) | 0x1f, true);
+		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x140 + i * 2, (0x1f << 10) | (0 << 5) | i, true);
+		for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x180 + i * 2, (0xf << 10) | (i << 5) | 0, true);
+		for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1a0 + i * 2, (i << 10) | (0xf << 5) | 0, true);
+		for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x1c0 + i * 2, 0 | (0xf << 5) | i, true);
+		for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1e0 + i * 2, 0 | (i << 5) | 0xf, true);
+
+		const globalPalette16 = new DataView(new ArrayBuffer(512));
+		const rgb16s = [
+			[31, 0, 0],
+			[31, 10, 0],
+			[31, 20, 0],
+			[31, 31, 0],
+			[20, 31, 0],
+			[10, 31, 0],
+			[0, 31, 0],
+			[0, 31, 10],
+			[0, 31, 20],
+			[0, 31, 31],
+			[0, 20, 31],
+			[0, 10, 31],
+			[0, 0, 31],
+			[10, 0, 31],
+			[20, 0, 31],
+			[31, 0, 31],
+		];
+		for (let i = 0; i < 16; ++i) {
+			const [b, g, r] = rgb16s[i];
+			const rgb16 = (r << 10) | (g << 5) | b;
+			for (let o = 0; o < 512; o += 32) globalPalette16.setUint16(o + i * 2, rgb16, true);
+		}
+
+		let paletteSelectPlaceholder = document.createElement('button');
+		paletteSelectPlaceholder.textContent = 'Find Palettes';
+		section.appendChild(paletteSelectPlaceholder);
+
+		const canvasContainer = document.createElement('div');
+		canvasContainer.style.cssText = 'height: 640px; position: relative;';
+		section.appendChild(canvasContainer);
+
+		const tileCanvases256 = [];
+		const tileCanvases16 = [];
+		const paletteCanvases = [];
+		for (let i = 0; i < 3; ++i) {
+			const tc256 = document.createElement('canvas');
+			tc256.width = tc256.height = 256;
+			tc256.style.cssText = `position: absolute; top: 0px; left: ${i * 256}px; width: 256px; height: 256px;`;
+			canvasContainer.appendChild(tc256);
+			tileCanvases256.push(tc256);
+
+			const tc16 = document.createElement('canvas');
+			tc16.width = tc16.height = 256;
+			tc16.style.cssText = `position: absolute; top: 256px; left: ${i * 256}px; width: 256px; height: 256px;`;
+			canvasContainer.appendChild(tc16);
+			tileCanvases16.push(tc16);
+		}
+
+		for (let i = 0; i < 6; ++i) {
+			const pc = document.createElement('canvas');
+			pc.width = pc.height = 16;
+			pc.style.cssText = `position: absolute; top: 512px; left: ${i * 128}px; width: 128px; height: 128px;`;
+			canvasContainer.appendChild(pc);
+			paletteCanvases.push(pc);
+		}
+
+		const animeToProps = (fmapdataTiles.animeToProps = new Map());
+		paletteSelectPlaceholder.addEventListener('mousedown', () => {
+			for (let i = 0; i < field.rooms.length; ++i) {
+				const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[field.rooms[i].props]));
+				const passiveAnimations = unpackSegmented(props[10]);
+				for (const passiveAnime of passiveAnimations) {
+					const tileset = passiveAnime.getInt16(4, true);
+					let arr = animeToProps.get(tileset) || [];
+					arr.push(i);
+					animeToProps.set(tileset, arr);
+				}
 			}
-
-			let paletteSelectPlaceholder = document.createElement('button');
-			paletteSelectPlaceholder.textContent = 'Find Palettes';
-			section.appendChild(paletteSelectPlaceholder);
-
-			const canvasContainer = document.createElement('div');
-			canvasContainer.style.cssText = 'height: 640px; position: relative;';
-			section.appendChild(canvasContainer);
-
-			const tileCanvases256 = [];
-			const tileCanvases16 = [];
-			const paletteCanvases = [];
-			for (let i = 0; i < 3; ++i) {
-				const tc256 = document.createElement('canvas');
-				tc256.width = tc256.height = 256;
-				tc256.style.cssText = `position: absolute; top: 0px; left: ${i * 256}px; width: 256px; height: 256px;`;
-				canvasContainer.appendChild(tc256);
-				tileCanvases256.push(tc256);
-
-				const tc16 = document.createElement('canvas');
-				tc16.width = tc16.height = 256;
-				tc16.style.cssText = `position: absolute; top: 256px; left: ${i * 256}px; width: 256px; height: 256px;`;
-				canvasContainer.appendChild(tc16);
-				tileCanvases16.push(tc16);
-			}
-
-			for (let i = 0; i < 6; ++i) {
-				const pc = document.createElement('canvas');
-				pc.width = pc.height = 16;
-				pc.style.cssText = `position: absolute; top: 512px; left: ${i * 128}px; width: 128px; height: 128px;`;
-				canvasContainer.appendChild(pc);
-				paletteCanvases.push(pc);
-			}
-
-			const animeToProps = (fmapdataTiles.animeToProps = new Map());
-			paletteSelectPlaceholder.addEventListener('mousedown', () => {
-				for (let i = 0; i < field.rooms.length; ++i) {
-					const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[field.rooms[i].props]));
-					const passiveAnimations = unpackSegmented(props[10]);
-					for (const passiveAnime of passiveAnimations) {
-						const tileset = passiveAnime.getInt16(4, true);
-						let arr = animeToProps.get(tileset) || [];
-						arr.push(i);
-						animeToProps.set(tileset, arr);
-					}
-				}
-				update();
-			});
-
-			let paletteOptions = [];
-			const update = () => {
-				const animeId = select.value - fsext.fieldAnimeIndices[0];
-				if (animeToProps.size) {
-					if (animeId >= 0) {
-						paletteOptions = animeToProps.get(animeId) || [];
-
-						if (paletteOptions.length === 0) {
-							const span = document.createElement('span');
-							span.textContent = '(unused?)';
-							paletteSelectPlaceholder.replaceWith(span);
-							paletteSelectPlaceholder = span;
-						} else {
-							const select = dropdown(
-								paletteOptions.map((x) => `Palette for Room 0x${x.toString(16)}`),
-								0,
-								() => render(),
-							);
-							paletteSelectPlaceholder.replaceWith(select);
-							paletteSelectPlaceholder = select;
-						}
-					} else {
-						paletteOptions = [];
-						const placeholder = document.createElement('span');
-						placeholder.textContent = '(global palette)';
-						paletteSelectPlaceholder.replaceWith(placeholder);
-						paletteSelectPlaceholder = placeholder;
-					}
-				}
-
-				render();
-			};
-
-			const render = () => {
-				const index = select.value;
-				const data = lzssBis(fsext.fmapdata.segments[index]);
-
-				let palettes = [
-					globalPalette256,
-					globalPalette16,
-					globalPalette256,
-					globalPalette16,
-					globalPalette256,
-					globalPalette16,
-				];
-				if (paletteOptions.length) {
-					const roomIndex = paletteOptions[paletteSelectPlaceholder.value];
-					const room = field.rooms[roomIndex];
-					const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[room.props]));
-					palettes = [props[3], props[3], props[4], props[4], props[5], props[5]];
-				}
-
-				// 256-color
-				const bitmap256 = new Uint8ClampedArray(256 * 256 * 4);
-				for (let i = 0; i < 3; ++i) {
-					const ctx = tileCanvases256[i].getContext('2d');
-					if (palettes[i * 2].byteLength !== 512) {
-						// if the layer doesn't exist in the room
-						ctx.clearRect(0, 0, 256, 256);
-						continue;
-					}
-
-					let o = 0;
-					for (let j = 0; o < data.byteLength; ++j) {
-						const basePos = ((j >> 5) << 11) | ((j & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
-						for (let k = 0; k < 64 && o < data.byteLength; ++k) {
-							const pos = basePos | ((k >> 3) << 8) | (k & 0x7);
-							const paletteIndex = data.getUint8(o++);
-							writeRgb16(bitmap256, pos, palettes[i * 2].getUint16(paletteIndex * 2, true));
-						}
-					}
-
-					ctx.putImageData(new ImageData(bitmap256, 256, 256), 0, 0);
-				}
-
-				// 16-color
-				const bitmap16 = new Uint8ClampedArray(256 * 256 * 4);
-				for (let i = 0; i < 3; ++i) {
-					const ctx = tileCanvases16[i].getContext('2d');
-					if (palettes[i * 2 + 1].byteLength !== 512) {
-						// if the layer doesn't exist in the room
-						ctx.clearRect(0, 0, 256, 256);
-						continue;
-					}
-
-					let o = 0;
-					for (let j = 0; o < data.byteLength; ++j) {
-						const basePos = ((j >> 5) << 11) | ((j & 0x1f) << 3); // y = j >> 5, x = j & 0x1f
-						for (let k = 0; k < 64 && o < data.byteLength; k += 2) {
-							const pos = basePos | ((k >> 3) << 8) | (k & 0x7);
-							const composite = data.getUint8(o++);
-							writeRgb16(bitmap16, pos, palettes[i * 2 + 1].getUint16((composite & 0xf) * 2, true));
-							writeRgb16(bitmap16, pos ^ 1, palettes[i * 2 + 1].getUint16((composite >> 4) * 2, true));
-						}
-					}
-
-					ctx.putImageData(new ImageData(bitmap16, 256, 256), 0, 0);
-				}
-
-				// palettes
-				const bitmapPal = new Uint8ClampedArray(256 * 4);
-				for (let i = 0; i < 6; ++i) {
-					const ctx = paletteCanvases[i].getContext('2d');
-					if (palettes[i].byteLength !== 512) {
-						ctx.clearRect(0, 0, 16, 16);
-						continue;
-					}
-
-					for (let j = 0; j < 256; ++j) writeRgb16(bitmapPal, j, palettes[i].getUint16(j * 2, true));
-					ctx.putImageData(new ImageData(bitmapPal, 16, 16), 0, 0);
-				}
-			};
 			update();
+		});
 
-			return fmapdataTiles;
-		},
-	));
+		let paletteOptions = [];
+		const update = () => {
+			const animeId = select.value - fsext.fieldAnimeIndices[0];
+			if (animeToProps.size) {
+				if (animeId >= 0) {
+					paletteOptions = animeToProps.get(animeId) || [];
 
-	const battle = (window.battle = await createSectionWrapped('Battle Maps', (section) => {
+					if (paletteOptions.length === 0) {
+						const span = document.createElement('span');
+						span.textContent = '(unused?)';
+						paletteSelectPlaceholder.replaceWith(span);
+						paletteSelectPlaceholder = span;
+					} else {
+						const select = dropdown(
+							paletteOptions.map((x) => `Palette for Room 0x${x.toString(16)}`),
+							0,
+							() => render(),
+						);
+						paletteSelectPlaceholder.replaceWith(select);
+						paletteSelectPlaceholder = select;
+					}
+				} else {
+					paletteOptions = [];
+					const placeholder = document.createElement('span');
+					placeholder.textContent = '(global palette)';
+					paletteSelectPlaceholder.replaceWith(placeholder);
+					paletteSelectPlaceholder = placeholder;
+				}
+			}
+
+			render();
+		};
+
+		const render = () => {
+			const index = select.value;
+			const data = lzssBis(fsext.fmapdata.segments[index]);
+
+			let palettes = [
+				globalPalette256,
+				globalPalette16,
+				globalPalette256,
+				globalPalette16,
+				globalPalette256,
+				globalPalette16,
+			];
+			if (paletteOptions.length) {
+				const roomIndex = paletteOptions[paletteSelectPlaceholder.value];
+				const room = field.rooms[roomIndex];
+				const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[room.props]));
+				palettes = [props[3], props[3], props[4], props[4], props[5], props[5]];
+			}
+
+			// 256-color
+			const bitmap256 = new Uint8ClampedArray(256 * 256 * 4);
+			for (let i = 0; i < 3; ++i) {
+				const ctx = tileCanvases256[i].getContext('2d');
+				if (palettes[i * 2].byteLength !== 512) {
+					// if the layer doesn't exist in the room
+					ctx.clearRect(0, 0, 256, 256);
+					continue;
+				}
+
+				let o = 0;
+				for (let j = 0; o < data.byteLength; ++j) {
+					const basePos = ((j >> 5) << 11) | ((j & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
+					for (let k = 0; k < 64 && o < data.byteLength; ++k) {
+						const pos = basePos | ((k >> 3) << 8) | (k & 0x7);
+						const paletteIndex = data.getUint8(o++);
+						writeRgb16(bitmap256, pos, palettes[i * 2].getUint16(paletteIndex * 2, true));
+					}
+				}
+
+				ctx.putImageData(new ImageData(bitmap256, 256, 256), 0, 0);
+			}
+
+			// 16-color
+			const bitmap16 = new Uint8ClampedArray(256 * 256 * 4);
+			for (let i = 0; i < 3; ++i) {
+				const ctx = tileCanvases16[i].getContext('2d');
+				if (palettes[i * 2 + 1].byteLength !== 512) {
+					// if the layer doesn't exist in the room
+					ctx.clearRect(0, 0, 256, 256);
+					continue;
+				}
+
+				let o = 0;
+				for (let j = 0; o < data.byteLength; ++j) {
+					const basePos = ((j >> 5) << 11) | ((j & 0x1f) << 3); // y = j >> 5, x = j & 0x1f
+					for (let k = 0; k < 64 && o < data.byteLength; k += 2) {
+						const pos = basePos | ((k >> 3) << 8) | (k & 0x7);
+						const composite = data.getUint8(o++);
+						writeRgb16(bitmap16, pos, palettes[i * 2 + 1].getUint16((composite & 0xf) * 2, true));
+						writeRgb16(bitmap16, pos ^ 1, palettes[i * 2 + 1].getUint16((composite >> 4) * 2, true));
+					}
+				}
+
+				ctx.putImageData(new ImageData(bitmap16, 256, 256), 0, 0);
+			}
+
+			// palettes
+			const bitmapPal = new Uint8ClampedArray(256 * 4);
+			for (let i = 0; i < 6; ++i) {
+				const ctx = paletteCanvases[i].getContext('2d');
+				if (palettes[i].byteLength !== 512) {
+					ctx.clearRect(0, 0, 16, 16);
+					continue;
+				}
+
+				for (let j = 0; j < 256; ++j) writeRgb16(bitmapPal, j, palettes[i].getUint16(j * 2, true));
+				ctx.putImageData(new ImageData(bitmapPal, 16, 16), 0, 0);
+			}
+		};
+		update();
+
+		return fmapdataTiles;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Battle Maps                                                                                          |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const battle = (window.battle = await createSection('Battle Maps', (section) => {
 		const battle = {};
 
 		const bmapFile = fs.get('/BMap/BMap.dat');
@@ -2485,17 +2436,41 @@
 
 		const options = {};
 		options.bgChecks = [];
-		section.appendChild((options.bgChecks[0] = checkbox('BG1', true, () => { updateMap = true; })));
-		section.appendChild((options.bgChecks[1] = checkbox('BG2', true, () => { updateMap = true; })));
-		section.appendChild((options.bgChecks[2] = checkbox('BG3', true, () => { updateMap = true; })));
-		section.appendChild((options.reverseLayers = checkbox('Reverse Layers', false, () => { updateMap = true; })));
-		section.appendChild((options.margins = checkbox('Margins', true, () => { updateMap = true; })));
-		section.appendChild((options.paletteAnimations = checkbox('Palette Animations', false, () => {
-			updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
-		})));
-		section.appendChild((options.tileAnimations = checkbox('Tile Animations', false, () => {
-			updateTileset = updateMap = true;
-		})));
+		section.appendChild(
+			(options.bgChecks[0] = checkbox('BG1', true, () => {
+				updateMap = true;
+			})),
+		);
+		section.appendChild(
+			(options.bgChecks[1] = checkbox('BG2', true, () => {
+				updateMap = true;
+			})),
+		);
+		section.appendChild(
+			(options.bgChecks[2] = checkbox('BG3', true, () => {
+				updateMap = true;
+			})),
+		);
+		section.appendChild(
+			(options.reverseLayers = checkbox('Reverse Layers', false, () => {
+				updateMap = true;
+			})),
+		);
+		section.appendChild(
+			(options.margins = checkbox('Margins', true, () => {
+				updateMap = true;
+			})),
+		);
+		section.appendChild(
+			(options.paletteAnimations = checkbox('Palette Animations', false, () => {
+				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
+			})),
+		);
+		section.appendChild(
+			(options.tileAnimations = checkbox('Tile Animations', false, () => {
+				updateTileset = updateMap = true;
+			})),
+		);
 
 		const mapCanvas = document.createElement('canvas');
 		mapCanvas.width = 512;
@@ -2524,13 +2499,13 @@
 		const metaPreview = document.createElement('div');
 		section.appendChild(metaPreview);
 
-		let room = battle.room = undefined;
+		let room = (battle.room = undefined);
 		const update = () => {
 			const rawRoom = bmaps[bmapDropdown.value];
 			battle.room = room = {
 				tileset: rawRoom.tileset?.byteLength && bufToU8(lzssBis(rawRoom.tileset)),
 				palette: rawRoom.palette?.byteLength && rgb15To32(bufToU16(rawRoom.palette)),
-				tilemaps: rawRoom.tilemaps.map(x => x?.byteLength && bufToU16(x)),
+				tilemaps: rawRoom.tilemaps.map((x) => x?.byteLength && bufToU16(x)),
 				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength && bufToU8(lzssBis(rawRoom.tilesetAnimated)),
 			};
 
@@ -2573,13 +2548,13 @@
 							case 0x83:
 								++o; // ???
 								break;
-							case 0x1c: // red multiplier in brightness (0 - 0xff)
+							case 0x1c: // red multiplier in brightness (0 - 0x1f)
 								red = segment[o++];
 								break;
-							case 0x1d: // green multiplier in brightness (0 - 0xff)
+							case 0x1d: // green multiplier in brightness (0 - 0x1f)
 								green = segment[o++];
 								break;
-							case 0x1e: // blue multiplier in brightness (0 - 0xff)
+							case 0x1e: // blue multiplier in brightness (0 - 0x1f)
 								blue = segment[o++];
 								break;
 							case 0x04:
@@ -2683,8 +2658,7 @@
 		const render = () => {
 			if (options.paletteAnimations.checked)
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
-			if (options.tileAnimations.checked)
-				updateTileset = updateMap = true;
+			if (options.tileAnimations.checked) updateTileset = updateMap = true;
 			const tick = Math.floor((performance.now() / 1000) * 60);
 
 			// palette
@@ -2712,36 +2686,43 @@
 							}
 
 							if (fromLuminance === undefined || toLuminance === undefined) continue; // no net effect
-							const luminance = (fromLuminance + (toLuminance - fromLuminance) * alpha) / 100;
-							let r = palAnim.red << 3 | palAnim.red >> 2;
-							let g = palAnim.green << 3 | palAnim.green >> 2;
-							let b = palAnim.blue << 3 | palAnim.blue >> 2;
 
 							lastPalette.set(palette, 0);
 							for (let i = 0; i < palAnim.paletteLength; ++i) {
 								const base = (palAnim.paletteStart + i) * 4;
 								// TODO: overlay effects rgb15 correction
-								if (palAnim.blendMode === 4) { // palette shift
-									const mod = (a, b) => (a % b + b) % b;
-									palette[palAnim.paletteStart + mod(Math.floor(i - palAnim.paletteLength * luminance), palAnim.paletteLength)] =
-										lastPalette[palAnim.paletteStart + i];
-								} else if (palAnim.blendMode === 5) { // true set
+								if (palAnim.blendMode === 4) {
+									// palette shift
+									const mod = (a, b) => ((a % b) + b) % b;
+									palette[
+										palAnim.paletteStart +
+											mod(
+												Math.floor(i - palAnim.paletteLength * luminance),
+												palAnim.paletteLength,
+											)
+									] = lastPalette[palAnim.paletteStart + i];
+								} else if (palAnim.blendMode === 5) {
+									// true set
 									clamped[base] += (r - clamped[base]) * luminance;
 									clamped[base + 1] += (g - clamped[base + 1]) * luminance;
 									clamped[base + 2] += (b - clamped[base + 2]) * luminance;
-								} else if (palAnim.blendMode === 6) { // add
+								} else if (palAnim.blendMode === 6) {
+									// add
 									clamped[base] += r * luminance;
 									clamped[base + 1] += g * luminance;
 									clamped[base + 2] += b * luminance;
-								} else if (palAnim.blendMode === 7) { // sub
+								} else if (palAnim.blendMode === 7) {
+									// sub
 									clamped[base] -= r * luminance;
 									clamped[base + 1] -= g * luminance;
 									clamped[base + 2] -= b * luminance;
-								} else if (palAnim.blendMode === 8) { // set
-									clamped[base] += (r * 0x16 / 0x1f - clamped[base]) * luminance;
-									clamped[base + 1] += (g * 0x16 / 0x1f - clamped[base + 1]) * luminance;
-									clamped[base + 2] += (b * 0x16 / 0x1f - clamped[base + 2]) * luminance;
-								} else if (palAnim.blendMode === 9) { // invert
+								} else if (palAnim.blendMode === 8) {
+									// set
+									clamped[base] += ((r * 0x16) / 0x1f - clamped[base]) * luminance;
+									clamped[base + 1] += ((g * 0x16) / 0x1f - clamped[base + 1]) * luminance;
+									clamped[base + 2] += ((b * 0x16) / 0x1f - clamped[base + 2]) * luminance;
+								} else if (palAnim.blendMode === 9) {
+									// invert
 									clamped[base] += (255 - clamped[base] * 2) * luminance;
 									clamped[base + 1] += (255 - clamped[base + 1] * 2) * luminance;
 									clamped[base + 2] += (255 - clamped[base + 2] * 2) * luminance;
@@ -2878,7 +2859,11 @@
 		return battle;
 	}));
 
-	const battleGiant = (window.battleGiant = await createSectionWrapped('Giant Battle Maps', async (section) => {
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Giant Battle Maps                                                                                    |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const battleGiant = (window.battleGiant = await createSection('Giant Battle Maps', async (section) => {
 		const battleGiant = {};
 
 		if (!fs.has('/BMapG/BMapG.dat')) {
@@ -3003,7 +2988,11 @@
 		return battleGiant;
 	}));
 
-	const fx = (window.fx = await createSectionWrapped('Fx', (section) => {
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Fx                                                                                                   |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const fx = (window.fx = await createSection('Fx', (section) => {
 		const options = [];
 		for (let i = 0; i < fsext.bdfxtex.segments.length; ++i) {
 			options.push({
