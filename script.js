@@ -2780,6 +2780,10 @@
 							}
 
 							if (fromLuminance === undefined || toLuminance === undefined) continue; // no net effect
+							const luminance = (fromLuminance + (toLuminance - fromLuminance) * alpha) / 100;
+							let r = palAnim.red << 3 | palAnim.red >> 2;
+							let g = palAnim.green << 3 | palAnim.green >> 2;
+							let b = palAnim.blue << 3 | palAnim.blue >> 2;
 
 							lastPalette.set(palette, 0);
 							for (let i = 0; i < palAnim.paletteLength; ++i) {
