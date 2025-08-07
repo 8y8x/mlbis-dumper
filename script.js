@@ -27,7 +27,7 @@
 	// | Components                                                                                                    |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const dropdown = (values, initialIndex, onchange, hideArrows) => {
+	const dropdown = (values, initialIndex, onchange, onhover, hideArrows) => {
 		const container = document.getElementById('dropdown').content.cloneNode(true);
 		const dropdown = container.querySelector('.dropdown');
 		const left = dropdown.querySelector('.left');
@@ -51,9 +51,11 @@
 		const select = (i, silent) => {
 			optionElements[selected].style.color = '';
 			optionElements[i].style.color = 'var(--dropdown-fg)';
+			selection.innerHTML = values[i];
+
 			selected = i;
 			dropdown.value = i;
-			selection.innerHTML = values[i];
+			dropdown.hovered = undefined;
 			if (!silent) onchange(i);
 		};
 
@@ -68,8 +70,18 @@
 				hide();
 				select(i);
 			});
+
+			option.addEventListener('mouseenter', () => {
+				dropdown.hovered = i;
+				onhover?.(i);
+			});
 		}
 		optionBase.remove();
+
+		options.addEventListener('mouseleave', () => {
+			dropdown.hovered = undefined;
+			onhover?.(undefined);
+		});
 
 		select(initialIndex, true);
 
@@ -833,7 +845,7 @@
 		const fileSelect = dropdown(fileSelectEntries, 0, () => {});
 		singleExport.appendChild(fileSelect);
 
-		const singleDecompression = dropdown(['No decompression', 'Backwards LZSS'], 0, () => {}, true);
+		const singleDecompression = dropdown(['No decompression', 'Backwards LZSS'], 0, () => {}, undefined, true);
 		singleExport.appendChild(singleDecompression);
 
 		const singleDump = document.createElement('button');
@@ -864,7 +876,8 @@
 		multiExport.textContent = 'Everything: ';
 		section.appendChild(multiExport);
 
-		const multiDecompression = dropdown(['Backwards LZSS only on overlays', 'No decompression'], 0, () => {}, true);
+		const multiDecompression =
+			dropdown(['Backwards LZSS only on overlays', 'No decompression'], 0, () => {}, undefined, true);
 		multiExport.appendChild(multiDecompression);
 
 		const multiDump = document.createElement('button');
@@ -901,7 +914,7 @@
 		const fsList = [];
 		for (let i = 0; i < headers.fatLength / 8; ++i) fsList.push(fs.get(i));
 
-		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => resort(), true);
+		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => resort(), undefined, true);
 		section.appendChild(sorting);
 		const sorted = document.createElement('div');
 		section.appendChild(sorted);
@@ -1442,11 +1455,12 @@
 					const flags = treasure.getUint16(0, true);
 					const itemId = treasure.getUint16(2, true);
 					const treasureId = treasure.getUint16(4, true);
-					side.treasureDisplay.innerHTML = `Treasure 0x${treasureId.toString(16)},
+					side.treasureDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+						margin-left: 1px; padding-left: 8px;">
+						Treasure 0x${treasureId.toString(16)},
 						item 0x${itemId.toString(16)},
 						quantity 0x${((flags >> 10) & 0x1f).toString(16)},
-						count/anim 0x${((flags >> 5) & 0x1f).toString(16)}
-					`;
+						count/anim 0x${((flags >> 5) & 0x1f).toString(16)}</div>`;
 				})),
 			);
 			side.treasureDisplay.innerHTML = '';
@@ -1469,20 +1483,28 @@
 					}
 
 					const o = (side.loadingZoneDropdown.value - 1) * 24;
+					const flags = room.loadingZones.getUint16(o, true);
 					const x1 = room.loadingZones.getInt16(o + 4, true);
 					const y1 = room.loadingZones.getInt16(o + 6, true);
 					const z = room.loadingZones.getInt16(o + 8, true);
 					const x2 = room.loadingZones.getInt16(o + 10, true);
 					const y2 = room.loadingZones.getInt16(o + 12, true);
-					const enterX = room.loadingZones.getInt16(o + 14, true);
-					const enterY = room.loadingZones.getInt16(o + 16, true);
+					const enterX1 = room.loadingZones.getInt16(o + 14, true);
+					const enterY1 = room.loadingZones.getInt16(o + 16, true);
 					const enterZ = room.loadingZones.getInt16(o + 18, true);
-					side.loadingZoneDisplay.innerHTML = `<ul>
-						<li><code>([${x1}..${x1 + x2}], [${y1}..${y1 + y2}], ${z})</code></li>
-						<li>Flags: <code>${bits(o, 2, room.loadingZones)}</code></li>
-						<li>Enter at: <code>(${enterX}, ${enterY}, ${enterZ})</code></li>
-						<li>Other data: <code>${bytes(o + 20, 4, room.loadingZones)}</code></li>
-					</ul>`;
+					const enterX2 = room.loadingZones.getInt16(o + 20, true);
+					const enterY2 = room.loadingZones.getInt16(o + 22, true);
+
+					const lines = [];
+					lines.push(`<code>([${x1}..${x1 + x2}], [${y1}..${y1 + y2}], ${z})</code>`);
+					const xRange = !(flags & 2) || enterX2 === 1 ? enterX1 : `[${enterX1}..${enterX1 + enterX2}]`;
+					const yRange = !(flags & 2) || enterY2 === 1 ? enterY1 : `[${enterY1}..${enterY1 + enterY2}]`;
+					lines.push(`Enter at: <code>(${xRange}, ${yRange}, ${enterZ})</code>`);
+
+					side.loadingZoneDisplay.innerHTML = `<div style="border-left: 1px solid #76f; margin-left: 1px;
+						padding-left: 8px;">${lines.map(x => '<div>' + x + '</div>').join(' ')}</div>`;
+				}, () => {
+					updateOverlay3d = updateOverlay3dTriangles = true;
 				})),
 			);
 			side.loadingZoneDisplay.innerHTML = '';
@@ -1493,7 +1515,17 @@
 				const numSpecials = room.collision.getUint32(4, true);
 
 				const options = [`${numBoxes} prisms, ${numSpecials} specials`];
-				for (let i = 0; i < numBoxes; ++i) options.push(`[${i}] Prism`);
+				for (let i = 0, o = 8; i < numBoxes; ++i, o += 40) {
+					const solidActions = room.collision.getUint16(o + 4, true);
+					const attributes = room.collision.getUint16(o + 6, true);
+
+					let color;
+					if (solidActions !== 0xffff) color = '#0ff';
+					if (attributes & 0xfffe) color = '#f90';
+					if (attributes & 1) color = '#f00';
+
+					options.push(`[${i}] Prism ${color ? `<span style="color: ${color}">◼︎</span>` : ''}`);
+				}
 				for (let i = 0; i < numSpecials; ++i) options.push(`[${i}] Special`);
 				side.collisionDropdown.replaceWith(
 					(side.collisionDropdown = dropdown(options, 0, () => {
@@ -1510,38 +1542,88 @@
 
 						if (index < numBoxes) {
 							// prism
-							const passables = room.collision.getUint16(o + 4, true);
+							const config = room.collision.getUint16(o, true);
+							const solidActions = room.collision.getUint16(o + 4, true);
 							const attributes = room.collision.getUint16(o + 6, true);
 
-							const solidForDrill = passables & 2;
-							const solidForMiniMario = passables & 4;
-							const spikeballGrippable = attributes & 4;
-							const unisolid = attributes & 0x40;
+							const html = [];
 
-							const vertexStrings = [];
+							const configStrings = [];
+							if (config & 1) configStrings.push('last');
+							// if (config & 2) configStrings.push('snaps up'); // needs more research
+							if (config & 4) configStrings.push('simple');
+							if (configStrings.length) html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
+
 							for (let i = 0; i < 4; ++i) {
 								const x = room.collision.getInt16(o + 8 + i * 8, true);
 								const y = room.collision.getInt16(o + 8 + i * 8 + 2, true);
-								const z1 = room.collision.getInt16(o + 8 + i * 8 + 4, true);
-								const z2 = room.collision.getInt16(o + 8 + i * 8 + 6, true);
-								vertexStrings.push(`${x}, ${y}, [${z2}..${z1}]`);
+								const ztop = room.collision.getInt16(o + 8 + i * 8 + 4, true);
+								const zbottom = room.collision.getInt16(o + 8 + i * 8 + 6, true);
+
+								if (i === 3 && !(config & 8)) {
+									// (config & 8) means the prism is four-pointed, 0 if three-pointed
+									// very few prisms have a fourth vertex that isn't zeroed out
+									if (x || y || ztop || zbottom) {
+										html.push(`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`);
+									}
+								} else {
+									html.push(`<div>v${i + 1} <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`);
+								}
 							}
 
-							side.collisionDisplay.innerHTML = `<ul>
-							<li>vert1: <code>${vertexStrings[0]}</code></li>
-							<li>vert2: <code>${vertexStrings[1]}</code></li>
-							<li>vert3: <code>${vertexStrings[2]}</code></li>
-							<li>vert4: <code>${vertexStrings[3]}</code></li>
-							<li>Flags: <code>${bits(o, 8, room.collision)}</code></li>
-							<li style="color: ${solidForDrill ? '#f99' : '#9f9'};">Drill ${solidForDrill ? "can't" : 'can'} pass</li>
-							<li style="color: ${solidForMiniMario ? '#f99' : '#9f9'};">Mini ${solidForMiniMario ? "can't" : 'can'} pass</li>
-							<li style="color: ${unisolid ? '#9f9' : '#f99'};">${unisolid ? 'Unisolid' : 'Not unisolid'}</li>
-							<li style="color: ${spikeballGrippable ? '#9f9' : '#f99'};">${spikeballGrippable ? 'Spike ball grippable' : 'Not spike ball grippable'}</li>
-						</ul>`;
+							html.push(`<div>Flags[1]: <code>${bits(o + 2, 2, room.collision)}</code></div>`);
+
+							const actions = [
+								'M&L Walking', // 0x1
+								'M&L Drilling', // 0x2
+								'Mini Mario', // 0x4
+								'M&L Stacked (before drill/twirl)', // 0x8
+								'M&L Twirling', // 0x10
+								, // 0x20
+								, // 0x40
+								, // 0x80
+								, // 0x100
+								, // 0x200
+								, // 0x400
+								, // 0x800
+								'M&L Hammering', // 0x1000
+							];
+							const solidNames = [];
+							const notSolidNames = [];
+							for (let bit = 1, i = 0; bit < 0xffff; bit <<= 1, ++i) {
+								if (!actions[i]) continue;
+								if (solidActions & bit) solidNames.push(actions[i]);
+								else notSolidNames.push(actions[i]);
+							}
+							if (notSolidNames.length === 0) {
+								// do nothing
+							} else if (solidNames.length === 0) {
+								// not solid at all?
+								html.push('<div style="color: #0ff;">Not solid</div>');
+							} else if (solidNames.length >= notSolidNames.length) {
+								html.push(`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`);
+							} else {
+								html.push(`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`);
+							}
+
+							const attributeStrings = [];
+							if (attributes & 1) attributeStrings.push('no-enter');
+							if (attributes & 4) attributeStrings.push('spike ball grippy');
+							if (attributes & 0x40) attributeStrings.push('unisolid');
+
+							if (attributeStrings.length)
+								html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
+									Attributes: ${attributeStrings.join(', ')}</div>`);
+
+							side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+								margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
 						} else {
 							// special
-							side.collisionDisplay.innerHTML = bytes(o, 24, room.collision);
+							side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+								margin-left: 1px; padding-left: 8px;"><code>${bytes(o, 24, room.collision)}</code></div>`;
 						}
+					}, () => {
+						updateOverlay3d = updateOverlay3dTriangles = true;
 					})),
 				);
 			} else {
@@ -1600,8 +1682,11 @@
 			addHTML(
 				bottomProperties,
 				`<div>Layers: <code>
-					BG1 ${indices.l1.toString(16)}, BG2 ${indices.l2.toString(16)}, BG3 ${indices.l3.toString(16)},
-					Props ${indices.props.toString(16)}, Treasure ${indices.treasure.toString(16)}
+					BG1 ${indices.l1 !== -1 ? '0x' + indices.l1.toString(16) : '-1'},
+					BG2 ${indices.l2 !== -1 ? '0x' + indices.l2.toString(16) : '-1'},
+					BG3 ${indices.l3 !== -1 ? '0x' + indices.l3.toString(16) : '-1'},
+					Props 0x${indices.props.toString(16)},
+					Treasure ${indices.treasure !== -1 ? '0x' + indices.treasure.toString(16) : '-1'}
 				</code></div>`,
 			);
 
@@ -1707,15 +1792,15 @@
 			const layerWidth = room.map.getUint16(0, true);
 			const layerHeight = room.map.getUint16(2, true);
 			const layerFlags = bufToU8(room.map);
+			const roomHeight = Math.max(layerHeight, room.actualHeight);
 
 			const canvasWidth = options.margins.checked ? layerWidth * 8 : layerWidth * 8 - 32;
-			const canvasHeight = options.margins.checked ? layerHeight * 8 : layerHeight * 8 - 32;
+			const canvasHeight = options.margins.checked ? roomHeight * 8 : roomHeight * 8 - 32;
 
 			if (updatePalettes) {
-				console.log('updatePalettes');
 				for (let i = 0; i < 3; ++i) {
 					const ctx = paletteCanvases[i].getContext('2d');
-					if (!room.palettes[i]) {
+					if (!room.palettes[i]?.byteLength) {
 						ctx.clearRect(0, 0, 16, 16);
 						continue;
 					}
@@ -1778,7 +1863,6 @@
 				}
 
 				if (updateTiles) {
-					console.log('updateTiles');
 					for (let i = 0; i < 3; ++i) {
 						const ctx = tilesetCanvases[i].getContext('2d');
 						if (!room.tilesets[i] || !room.palettes[i]) {
@@ -1821,17 +1905,15 @@
 				}
 
 				if (updateMaps) {
-					console.log('updateMaps');
-					const height = Math.max(layerHeight, room.actualHeight);
-					mapBitmap.fill(0, 0, layerWidth * height * 64);
+					mapBitmap.fill(room.palettes[2][0], 0, layerWidth * roomHeight * 64);
 
 					const mapLayouts = [
-						new Uint16Array(layerWidth * height),
-						new Uint16Array(layerWidth * height),
-						new Uint16Array(layerWidth * height),
+						new Uint16Array(layerWidth * roomHeight),
+						new Uint16Array(layerWidth * roomHeight),
+						new Uint16Array(layerWidth * roomHeight),
 					];
 					for (let i = 0; i < 3; ++i) {
-						for (let j = 0; j < layerWidth * height; ++j) {
+						for (let j = 0; j < layerWidth * roomHeight; ++j) {
 							mapLayouts[i][j] = room.tilemaps[i][j] || 0;
 						}
 					}
@@ -1904,21 +1986,16 @@
 					}
 
 					const imageData = new ImageData(
-						bufToU8Clamped(mapBitmap, 0, layerWidth * height * 64 * 4),
+						bufToU8Clamped(mapBitmap, 0, layerWidth * roomHeight * 64 * 4),
 						layerWidth * 8,
-						height * 8,
+						roomHeight * 8,
 					);
 					const ctx = mapCanvas.getContext('2d');
 
-					if (options.margins.checked) {
-						mapCanvas.width = layerWidth * 8;
-						mapCanvas.height = layerHeight * 8;
-						ctx.putImageData(imageData, 0, 0);
-					} else {
-						mapCanvas.width = layerWidth * 8 - 32;
-						mapCanvas.height = height * 8 - 32;
-						ctx.putImageData(imageData, -16, -16);
-					}
+					mapCanvas.width = canvasWidth;
+					mapCanvas.height = canvasHeight;
+					if (options.margins.checked) ctx.putImageData(imageData, 0, 0);
+					else ctx.putImageData(imageData, -16, -16);
 				}
 			}
 
@@ -2060,7 +2137,8 @@
 
 					if (options.collision.checked) {
 						// loading zones
-						const selectedLoadingZone = side.loadingZoneDropdown.value - 1;
+						const selectedLoadingZone =
+							(side.loadingZoneDropdown.hovered ?? side.loadingZoneDropdown.value) - 1;
 						for (let i = 0, o = 0; o < room.loadingZones.byteLength; ++i, o += 24) {
 							const flags = room.loadingZones.getUint16(o, true);
 							const x1 = room.loadingZones.getInt16(o + 4, true);
@@ -2098,7 +2176,7 @@
 						if (room.collision.byteLength > 0) {
 							const numPrisms = room.collision.getUint32(0, true);
 							const numSpecials = room.collision.getUint32(4, true);
-							const selectedPrism = side.collisionDropdown.value - 1;
+							const selectedPrism = (side.collisionDropdown.hovered ?? side.collisionDropdown.value) - 1;
 
 							for (let i = 0, o = 8; i < numPrisms; ++i, o += 40) {
 								const flags1 = room.collision.getUint16(o, true);
