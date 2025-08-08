@@ -1574,7 +1574,7 @@
 							html.push(`<div>Flags[1]: <code>${bits(o + 2, 2, room.collision)}</code></div>`);
 
 							const actions = [
-								'M&L Walking', // 0x1
+								'Walking', // 0x1
 								'M&L Drilling', // 0x2
 								'Mini Mario', // 0x4
 								'M&L Stacked (before drill/twirl)', // 0x8
@@ -1582,11 +1582,14 @@
 								, // 0x20
 								, // 0x40
 								, // 0x80
-								, // 0x100
+								'B Spike Balling', // 0x100
 								, // 0x200
 								, // 0x400
 								, // 0x800
-								'M&L Hammering', // 0x1000
+								'M&L Hammering / B Punching', // 0x1000
+								'B Flaming', // 0x2000
+								, // 0x4000
+								, // 0x8000
 							];
 							const solidNames = [];
 							const notSolidNames = [];
@@ -2658,7 +2661,7 @@
 							case 0x08:
 							case 0x09:
 								blendMode = command;
-								for (let j = 0; j <= params / 2; ++j) keyframeLengths.push(segment[o++] + 1);
+								for (let j = 0; j <= params / 2; ++j) keyframeLengths.push(segment[o++]);
 								break;
 							case 0x1f: // keyframe target brightness (0 - 0xff)
 								for (let j = 0; j < keyframeLengths.length; ++j) keyframeLuminances.push(segment[o++]);
@@ -2736,15 +2739,16 @@
 			// metadata below
 			metaPreview.innerHTML = '';
 
-			const metaLines = [];
-			metaLines.push(`tilemap sizes: ${room.tilemaps.map((dat) => dat?.byteLength).join(', ')}`);
-			metaLines.push(
+			const lines = [];
+			lines.push(`tilemap sizes: ${room.tilemaps.map((dat) => dat?.byteLength).join(', ')}`);
+
+			lines.push(
 				`paletteAnimations: <code>${bytes(0, rawRoom.paletteAnimations.byteLength, rawRoom.paletteAnimations)}</code>`,
 			);
-			metaLines.push(
+			lines.push(
 				`tileAnimations: <code>${bytes(0, rawRoom.tileAnimations.byteLength, rawRoom.tileAnimations)}</code>`,
 			);
-			for (const metaLine of metaLines) addHTML(metaPreview, '<div>' + metaLine + '</div>');
+			for (const line of lines) addHTML(metaPreview, '<div>' + line + '</div>');
 
 			updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
 		};
