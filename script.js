@@ -288,6 +288,11 @@
 		return new DataView(outbuf.buffer);
 	};
 
+	const lzssBackwardsCompress = (dat) => {
+		const outdat = Math.ceil(dat.byteLength * 9 / 8) + 12;
+
+	};
+
 	/**
 	 * Decompresses the custom lzss-like used in various BIS files
 	 */
@@ -802,8 +807,9 @@
 			const end = file.getUint32(headers.fatOffset + i * 8 + 4, true);
 			fs.set(i, {
 				index: i,
-				path: '<overlay?>',
+				path: `overlay ${i.toString().padStart(4, '0')}`,
 				name: `overlay${i.toString().padStart(4, '0')}.bin`,
+				overlay: true,
 				start,
 				end,
 			});
@@ -890,7 +896,7 @@
 				const fsentry = fs.get(i);
 				let dat = fsentry;
 				let name = fsentry.name;
-				if (multiDecompression.value === 0 && fsentry.path === '<overlay?>') {
+				if (multiDecompression.value === 0 && fsentry.overlay) {
 					dat = lzssBackwards(dat.byteLength, dat, dat.byteLength);
 					if (dat) {
 						// if decompression succeeded
@@ -1543,6 +1549,7 @@
 						if (index < numBoxes) {
 							// prism
 							const config = room.collision.getUint16(o, true);
+							const debugId = room.collision.getUint16(o + 2, true);
 							const solidActions = room.collision.getUint16(o + 4, true);
 							const attributes = room.collision.getUint16(o + 6, true);
 
@@ -1571,7 +1578,7 @@
 								}
 							}
 
-							html.push(`<div>Flags[1]: <code>${bits(o + 2, 2, room.collision)}</code></div>`);
+							html.push(`<div>Debug ID: ${debugId >> 6}</div>`);
 
 							const actions = [
 								'Walking', // 0x1
@@ -2183,6 +2190,7 @@
 
 							for (let i = 0, o = 8; i < numPrisms; ++i, o += 40) {
 								const flags1 = room.collision.getUint16(o, true);
+								const flags2 = room.collision.getUint16(o + 2, true);
 								const flags3 = room.collision.getUint16(o + 4, true);
 								const flags4 = room.collision.getUint16(o + 6, true);
 
@@ -2208,6 +2216,8 @@
 								if (flags3 !== 0xffff) color = [0, 1, 1]; // not solid in at least one action
 								if (flags4 & 1) color = [1, 0, 0]; // can't enter
 								if (flags4 & 0xfffc) color = [1, 0.6, 0.1]; // strange attributes (unisolid, grippy, ..)
+
+								color = [0, (flags2 >> 6) / 256, 0];
 
 								if (selectedPrism === i) color = [0, 0, 1];
 
@@ -2559,12 +2569,12 @@
 			})),
 		);
 		section.appendChild(
-			(options.paletteAnimations = checkbox('Palette Animations', false, () => {
+			(options.paletteAnimations = checkbox('Palette Animations', true, () => {
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
 			})),
 		);
 		section.appendChild(
-			(options.tileAnimations = checkbox('Tile Animations', false, () => {
+			(options.tileAnimations = checkbox('Tile Animations', true, () => {
 				updateTileset = updateMap = true;
 			})),
 		);
@@ -2622,53 +2632,32 @@
 					let red, green, blue;
 					let redShift, greenShift, blueShift;
 					const keyframeLengths = [];
-					const keyframeLuminances = [];
+					const keyframeIntensities = [];
 
 					commandLoop: while (o < segment.length) {
 						const command = segment[o] & 0xff;
 						const params = segment[o] >> 8;
 						++o;
 
-						switch (command) {
-							case 0x82:
-								++o; // always 0?
-								break;
-							case 0x00: // min palette index (must be same as 0x02?)
-								paletteStart = segment[o++];
-								break;
-							case 0x01: // # of palette entries to modify
-								paletteLength = segment[o++];
-								break;
-							case 0x02: // must be the same as 0x00, otherwise glitches occur?
-								if (segment[o++] !== paletteStart) throw `mismatch`;
-								break;
-							case 0x83:
-								++o; // ???
-								break;
-							case 0x1c: // red multiplier in brightness (0 - 0x1f)
-								red = segment[o++];
-								break;
-							case 0x1d: // green multiplier in brightness (0 - 0x1f)
-								green = segment[o++];
-								break;
-							case 0x1e: // blue multiplier in brightness (0 - 0x1f)
-								blue = segment[o++];
-								break;
-							case 0x04:
-							case 0x05:
-							case 0x06: // keyframe lengths (this is how long it will take to fade to the target brightness)
-							case 0x07:
-							case 0x08:
-							case 0x09:
-								blendMode = command;
-								for (let j = 0; j <= params / 2; ++j) keyframeLengths.push(segment[o++]);
-								break;
-							case 0x1f: // keyframe target brightness (0 - 0xff)
-								for (let j = 0; j < keyframeLengths.length; ++j) keyframeLuminances.push(segment[o++]);
-								break commandLoop; // exit segment right after
-							default:
-								throw `unknown command ${command.toString(16)} params ${params.toString(16)}`;
-						}
+						console.log(str8(command), str8(params), 'next', str16(segment[o]));
+
+						if (command === 0x82) ++o; // unknown
+						else if (command === 0x00) paletteStart = segment[o++];
+						else if (command === 0x01) paletteLength = segment[o++];
+						else if (command === 0x02) ++o; // must match paletteStart (TODO look into this)
+						else if (command === 0x83) ++o; // unknown
+						else if (command === 0x1c) red = segment[o++]; // red component (0 - 0x1f)
+						else if (command === 0x1d) green = segment[o++]; // green component (0 - 0x1f)
+						else if (command === 0x1e) blue = segment[o++]; // blue component (0 - 0x1f)
+						else if (4 <= command && command <= 9) {
+							// keyframe lengths
+							blendMode = command;
+							for (let j = 0; j <= params / 2; ++j) keyframeLengths.push(segment[o++]);
+						} else if (command === 0x1f) {
+							// keyframe intensity
+							for (let j = 0; j < keyframeLengths.length; ++j) keyframeIntensities.push(segment[o++]);
+							break commandLoop;
+						} else throw `unknown command 0x${str8(command)} params 0x${str8(params)}`;
 					}
 
 					room.paletteAnimations.push({
@@ -2679,7 +2668,7 @@
 						green,
 						blue,
 						keyframeLengths,
-						keyframeLuminances,
+						keyframeIntensities,
 						totalLength,
 					});
 				}
@@ -2739,15 +2728,80 @@
 			// metadata below
 			metaPreview.innerHTML = '';
 
-			const lines = [];
-			lines.push(`tilemap sizes: ${room.tilemaps.map((dat) => dat?.byteLength).join(', ')}`);
+			/*bmaps.push({
+				tileset: bmap[i],
+				palette: bmap[i + 1],
+				tilemaps: [bmap[i + 2], bmap[i + 3], bmap[i + 4]],
+				paletteAnimations: bmap[i + 5],
+				tileAnimations: bmap[i + 6],
+				tilesetAnimated: bmap[i + 7],
+			});*/
 
-			lines.push(
-				`paletteAnimations: <code>${bytes(0, rawRoom.paletteAnimations.byteLength, rawRoom.paletteAnimations)}</code>`,
-			);
-			lines.push(
-				`tileAnimations: <code>${bytes(0, rawRoom.tileAnimations.byteLength, rawRoom.tileAnimations)}</code>`,
-			);
+			const lines = [];
+			if (room.tileset) lines.push(`[0] tileset: 0x${Math.ceil(room.tileset.length / 32).toString(16)} tiles`);
+			else lines.push('[0] tileset: none');
+
+			lines.push(`[1] palette: ${room.palette ? 'exists' : ''}`);
+			lines.push(`[2] BG1: ${room.tilemaps[0] ? room.tilemaps[0].byteLength + ' bytes' : ''}`);
+			lines.push(`[3] BG1: ${room.tilemaps[1] ? room.tilemaps[1].byteLength + ' bytes' : ''}`);
+			lines.push(`[4] BG1: ${room.tilemaps[2] ? room.tilemaps[2].byteLength + ' bytes' : ''}`);
+
+			const palAnimLines = [];
+			for (let i = 0; i < room.paletteAnimations.length; ++i) {
+				const anim = room.paletteAnimations[i];
+				const parts = [];
+				parts.push(`palette <code>0x${str8(anim.paletteStart)} -
+					0x${str8(anim.paletteStart + anim.paletteLength)}</code>`);
+
+				if (anim.red !== undefined && anim.green !== undefined && anim.blue !== undefined)
+					parts.push(`RGB <code>0x${str8(anim.red)} 0x${str8(anim.green)} 0x${str8(anim.blue)}</code>`);
+
+				parts.push(`mode ${{
+					4: 'PALETTE SHIFT',
+					5: 'SET',
+					6: 'ADD',
+					7: 'SUBTRACT',
+					8: 'SET DIM',
+					9: 'INVERT',
+				}[anim.blendMode]}`);
+
+				const keyframes = [];
+				for (let i = 0; i < anim.keyframeLengths.length; ++i) {
+					const intensity = anim.keyframeIntensities[i];
+					const length = anim.keyframeLengths[i];
+					keyframes.push(`<span style="color: ${i % 2 ? '#999' : '#666'}">(${intensity}%, ${length})</span>`);
+				}
+				parts.push('keyframes (intensity, length): <code>' + keyframes.join(' ') + '</code>');
+
+				palAnimLines.push(`<code>${i}:</code> ${parts.join(', ')}`);
+			}
+			lines.push(`[5] paletteAnimations: <ul>${palAnimLines.map(x => '<li>' + x + '</li>').join('')}</ul>`);
+
+			const tileAnimLines = [];
+			for (let i = 0; i < room.tileAnimations.length; ++i) {
+				const anim = room.tileAnimations[i];
+				const parts = [];
+				parts.push(`0x${anim.replacementLength.toString(16)} tiles from
+					0x${anim.tilesetAnimatedStart.toString(16)} (animated) into 0x${anim.tilesetStart.toString(16)}`);
+
+				const keyframes = [];
+				for (let i = 0; i < anim.keyframeLengths.length; ++i) {
+					const index = anim.keyframeIndices[i];
+					const length = anim.keyframeLengths[i];
+					keyframes.push(`<span style="color: ${i % 2 ? '#999' : '#666'}">(${index}, ${length})</span>`);
+				}
+				parts.push('keyframes (index, length): <code>' + keyframes.join(' ') + '</code>');
+
+				tileAnimLines.push(`<code>${i}:</code> ${parts.join(', ')}`);
+			}
+			lines.push(`[6] tileAnimations: <ul>${tileAnimLines.map(x => '<li>' + x + '</li>').join('')}</ul>`);
+
+			if (room.tilesetAnimated) {
+				lines.push(`[7] tilesetAnimated: 0x${Math.ceil(room.tilesetAnimated.length / 32).toString(16)} tiles`);
+			} else {
+				lines.push('[7] tilesetAnimated:');
+			}
+
 			for (const line of lines) addHTML(metaPreview, '<div>' + line + '</div>');
 
 			updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
@@ -2772,19 +2826,19 @@
 					if (options.paletteAnimations.checked) {
 						for (const palAnim of room.paletteAnimations) {
 							let localTick = tick % palAnim.totalLength;
-							let fromLuminance, toLuminance, alpha;
+							let fromIntensity, toIntensity, alpha;
 							for (let j = 0; j < palAnim.keyframeLengths.length; ++j) {
 								if (localTick < palAnim.keyframeLengths[j]) {
-									fromLuminance = palAnim.keyframeLuminances[j - 1];
-									toLuminance = palAnim.keyframeLuminances[j];
+									fromIntensity = palAnim.keyframeIntensities[j - 1];
+									toIntensity = palAnim.keyframeIntensities[j];
 									alpha = localTick / palAnim.keyframeLengths[j];
 									break;
 								}
 								localTick -= palAnim.keyframeLengths[j];
 							}
 
-							if (fromLuminance === undefined || toLuminance === undefined) continue; // no net effect
-							const luminance = (fromLuminance + (toLuminance - fromLuminance) * alpha) / 100;
+							if (fromIntensity === undefined || toIntensity === undefined) continue; // no net effect
+							const intensity = (fromIntensity + (toIntensity - fromIntensity) * alpha) / 100;
 							let r = palAnim.red << 3 | palAnim.red >> 2;
 							let g = palAnim.green << 3 | palAnim.green >> 2;
 							let b = palAnim.blue << 3 | palAnim.blue >> 2;
@@ -2799,35 +2853,35 @@
 									palette[
 										palAnim.paletteStart +
 											mod(
-												Math.floor(i - palAnim.paletteLength * luminance),
+												Math.floor(i - palAnim.paletteLength * intensity),
 												palAnim.paletteLength,
 											)
 									] = lastPalette[palAnim.paletteStart + i];
 								} else if (palAnim.blendMode === 5) {
 									// true set
-									clamped[base] += (r - clamped[base]) * luminance;
-									clamped[base + 1] += (g - clamped[base + 1]) * luminance;
-									clamped[base + 2] += (b - clamped[base + 2]) * luminance;
+									clamped[base] += (r - clamped[base]) * intensity;
+									clamped[base + 1] += (g - clamped[base + 1]) * intensity;
+									clamped[base + 2] += (b - clamped[base + 2]) * intensity;
 								} else if (palAnim.blendMode === 6) {
 									// add
-									clamped[base] += r * luminance;
-									clamped[base + 1] += g * luminance;
-									clamped[base + 2] += b * luminance;
+									clamped[base] += r * intensity;
+									clamped[base + 1] += g * intensity;
+									clamped[base + 2] += b * intensity;
 								} else if (palAnim.blendMode === 7) {
 									// sub
-									clamped[base] -= r * luminance;
-									clamped[base + 1] -= g * luminance;
-									clamped[base + 2] -= b * luminance;
+									clamped[base] -= r * intensity;
+									clamped[base + 1] -= g * intensity;
+									clamped[base + 2] -= b * intensity;
 								} else if (palAnim.blendMode === 8) {
 									// set
-									clamped[base] += ((r * 0x16) / 0x1f - clamped[base]) * luminance;
-									clamped[base + 1] += ((g * 0x16) / 0x1f - clamped[base + 1]) * luminance;
-									clamped[base + 2] += ((b * 0x16) / 0x1f - clamped[base + 2]) * luminance;
+									clamped[base] += ((r * 0x16) / 0x1f - clamped[base]) * intensity;
+									clamped[base + 1] += ((g * 0x16) / 0x1f - clamped[base + 1]) * intensity;
+									clamped[base + 2] += ((b * 0x16) / 0x1f - clamped[base + 2]) * intensity;
 								} else if (palAnim.blendMode === 9) {
 									// invert
-									clamped[base] += (255 - clamped[base] * 2) * luminance;
-									clamped[base + 1] += (255 - clamped[base + 1] * 2) * luminance;
-									clamped[base + 2] += (255 - clamped[base + 2] * 2) * luminance;
+									clamped[base] += (255 - clamped[base] * 2) * intensity;
+									clamped[base + 1] += (255 - clamped[base + 1] * 2) * intensity;
+									clamped[base + 2] += (255 - clamped[base + 2] * 2) * intensity;
 								}
 							}
 						}
@@ -3089,6 +3143,188 @@
 
 		return battleGiant;
 	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Menu Maps                                                                                            |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const menu = window.menu = await createSection('Menu Maps', section => {
+		const menu = {};
+
+		const menuFile = fs.get('/MMap/MMap.dat');
+		const maps = menu.maps = unpackSegmented(menuFile);
+
+		const tilesetOptions = [];
+		const tilemapOptions = [];
+		const paletteOptions = [];
+		for (let i = 0; i < maps.length; ++i) {
+			if (maps[i].byteLength === 512) {
+				paletteOptions.push([`MMap Palette 0x${i.toString(16)}`, i]);
+			} else {
+				tilesetOptions.push([`MMap Tileset 0x${i.toString(16)}`, i]);
+				tilemapOptions.push([`MMap Tilemap 0x${i.toString(16)}`, i]);
+			}
+		}
+
+		const tilesetSelect = dropdown(tilesetOptions.map(x => x[0]), 0, () => render());
+		section.appendChild(tilesetSelect);
+		const tilemapSelect = dropdown(tilemapOptions.map(x => x[0]), 0, () => render());
+		section.appendChild(tilemapSelect);
+		const paletteSelect = dropdown(paletteOptions.map(x => x[0]), 0, () => render());
+		section.appendChild(paletteSelect);
+
+		const mapContainer = document.createElement('div');
+		mapContainer.style.cssText = 'position: relative; height: 192px;';
+		section.appendChild(mapContainer);
+
+		const mapCanvas16 = document.createElement('canvas');
+		mapCanvas16.width = 256;
+		mapCanvas16.height = 192;
+		mapCanvas16.style.cssText = 'position: absolute; top: 0; left: 0;';
+		mapContainer.appendChild(mapCanvas16);
+
+		const mapCanvas256 = document.createElement('canvas');
+		mapCanvas256.width = 256;
+		mapCanvas256.height = 192;
+		mapCanvas256.style.cssText = 'position: absolute; top: 0; left: 256px;';
+		mapContainer.appendChild(mapCanvas256);
+
+		const componentContainer = document.createElement('div');
+		componentContainer.style.cssText = 'position: relative; height: 256px;';
+		section.appendChild(componentContainer);
+
+		const tilesetCanvas16 = document.createElement('canvas');
+		tilesetCanvas16.width = tilesetCanvas16.height = 256;
+		tilesetCanvas16.style.cssText = 'position: absolute; top: 0; left: 0;';
+		componentContainer.appendChild(tilesetCanvas16);
+
+		const tilesetCanvas256 = document.createElement('canvas');
+		tilesetCanvas256.width = tilesetCanvas256.height = 256;
+		tilesetCanvas256.style.cssText = 'position: absolute; top: 0; left: 256px;';
+		componentContainer.appendChild(tilesetCanvas256);
+
+		const paletteCanvas = document.createElement('canvas');
+		paletteCanvas.width = paletteCanvas.height = 16;
+		paletteCanvas.style.cssText = 'position: absolute; top: 0; left: 512px; width: 128px; height: 128px;';
+		componentContainer.appendChild(paletteCanvas);
+
+		const render = () => {
+			// palette
+			const paletteDat = maps[paletteOptions[paletteSelect.value][1]];
+			let palette;
+			if (paletteDat.byteLength === 512) {
+				palette = rgb15To32(bufToU16(paletteDat));
+			}
+
+			{
+				const ctx = paletteCanvas.getContext('2d');
+				if (palette) {
+					ctx.putImageData(new ImageData(bufToU8Clamped(palette), 16, 16), 0, 0);
+				} else {
+					ctx.clearRect(0, 0, 16, 16);
+				}
+			}
+
+			// tileset
+			const tilesetDat = maps[tilesetOptions[tilesetSelect.value][1]];
+			let tileset;
+			try {
+				tileset = bufToU8(lzssBis(tilesetDat));
+			} catch (_) {}
+			{
+				const ctx16 = tilesetCanvas16.getContext('2d');
+				const ctx256 = tilesetCanvas256.getContext('2d');
+				if (tileset && palette) {
+					const bitmap16 = new Uint32Array(256 * 256);
+					const bitmap256 = new Uint32Array(256 * 256);
+					// 16-color
+					for (let i = 0; i * 32 < tileset.length; ++i) {
+						const basePos = ((i >> 5) << 11) | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+						for (let j = 0; j < 32; ++j) {
+							const pos = basePos | ((j >> 2) << 8) | ((j & 0x3) << 1);
+							const composite = tileset[i * 32 + j];
+							bitmap16[pos] = palette[composite & 0xf];
+							bitmap16[pos ^ 1] = palette[composite >> 4];
+						}
+					}
+
+					ctx16.putImageData(new ImageData(bufToU8Clamped(bitmap16), 256, 256), 0, 0);
+
+					// 256-color
+					for (let i = 0; i * 64 < tileset.length; ++i) {
+						const basePos = ((i >> 5) << 11) | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+						for (let j = 0; j < 64; ++j) {
+							const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
+							bitmap256[pos] = palette[tileset[i * 64 + j]];
+						}
+					}
+
+					ctx256.putImageData(new ImageData(bufToU8Clamped(bitmap256), 256, 256), 0, 0);
+				} else {
+					ctx16.clearRect(0, 0, 256, 256);
+					ctx256.clearRect(0, 0, 256, 256);
+				}
+			}
+
+			// tilemap
+			const tilemapDat = maps[tilemapOptions[tilemapSelect.value][1]];
+			let tilemap;
+			try {
+				tilemap = bufToU16(lzssBis(tilemapDat));
+			} catch (_) {}
+
+			{
+				const ctx16 = mapCanvas16.getContext('2d');
+				const ctx256 = mapCanvas256.getContext('2d');
+
+				if (tilemap && tileset && palette) {
+					// 16-color
+					const bitmap16 = new Uint32Array(256 * 192);
+					for (let i = 0; i < tilemap.length; ++i) {
+						const basePos = (i >> 6) << 12 | (i & 0x3f) << 3;
+						const tile = tilemap[i];
+						const tileOffset = (tile & 0x3ff) * 32;
+						const paletteRow = tile >> 12 << 4;
+						for (let j = 0; j < 32; ++j) {
+							let pos = basePos | (j >> 2) << 9 | (j & 0x3) << 1;
+							if (tile & 0x400) pos ^= 0x7;
+							if (tile & 0x800) pos ^= 0x7 << 8;
+
+							const composite = tileset[tileOffset + j];
+							if (composite & 0xf) bitmap16[pos] = palette[paletteRow | (composite & 0xf)];
+							if (composite >> 4) bitmap16[pos ^ 1] = palette[paletteRow | composite >> 4];
+						}
+					}
+
+					ctx16.putImageData(new ImageData(bufToU8Clamped(bitmap16), 256, 192), 0, 0);
+
+					// 256-color
+					const bitmap256 = new Uint32Array(256 * 192);
+					for (let i = 0; i < tilemap.length; ++i) {
+						const basePos = (i >> 5) << 11 | (i & 0x1f) << 3;
+						const tile = tilemap[i];
+						const tileOffset = (tile & 0x3ff) * 64;
+						for (let j = 0; j < 64; ++j) {
+							let pos = basePos | (j >> 3) << 8 | (j & 0x7);
+							if (tile & 0x400) pos ^= 0x7;
+							if (tile & 0x800) pos ^= 0x7 << 8;
+
+							const paletteIndex = tileset[tileOffset + j];
+							if (paletteIndex) bitmap256[pos] = palette[paletteIndex];
+						}
+					}
+
+					ctx256.putImageData(new ImageData(bufToU8Clamped(bitmap256), 256, 192), 0, 0);
+				} else {
+					ctx16.clearRect(0, 0, 256, 192);
+					ctx256.clearRect(0, 0, 256, 192);
+				}
+			}
+		};
+		render();
+
+		return menu;
+	});
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Fx                                                                                                   |
