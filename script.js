@@ -207,7 +207,7 @@
 	};
 
 	const bytes = (o, l, buf = file) => {
-		const slice = buf.buffer.slice(buf.byteOffset + o, buf.byteOffset + o + l);
+		const slice = buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + o + l);
 		return Array.from(new Uint8Array(slice))
 			.map((x) => x.toString(16).padStart(2, '0'))
 			.join(' ');
@@ -248,55 +248,210 @@
 	// | Compression and Packing                                                                                       |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const lzssBackwards = (end, indat, inputLen) => {
-		const composite = indat.getUint32(end - 8, true);
+	const blz = (indat) => {
+		const ops = [];
+		const composite = indat.getUint32(indat.byteLength - 8, true);
 		const offset = composite >> 24;
-		const length1 = composite & 0xffffff; // the length of the input file
-		const length2 = indat.getUint32(end - 4, true); // the extra length from decompression
+		const compressedLength = composite & 0xffffff; // could be zero
+		const additionalLength = indat.getUint32(indat.byteLength - 4, true);
 
-		if (length1 + length2 >= inputLen * 10 || offset < 8) {
-			console.log(`offset: ${offset}, length1: ${length1}, length2: ${length2}`);
-			return;
+		if (compressedLength > indat.byteLength || additionalLength > 1e6) {
+			throw new Error('data is probably not compressed');
 		}
 
-		const outbuf = new Uint8Array(length1 + length2);
-		let inoff = end - offset;
-		let outoff = length1 + length2;
-		while (outoff > 0) {
-			const flags = indat.getUint8(--inoff);
-			for (let bit = 0x80; bit > 0 && outoff > 0; bit >>= 1) {
-				if (flags & bit) {
+		const outbuf = new Uint8Array(indat.byteLength + additionalLength);
+		const inbuf = bufToU8(indat);
+		let outoff = outbuf.byteLength;
+		let inoff = inbuf.byteLength - offset;
+
+		while (inoff > inbuf.byteLength - compressedLength) {
+			const control = inbuf[--inoff];
+			ops.push(`control byte ${control?.toString(2).padStart(8, '0')}`);
+			for (let bit = 0x80; bit && inoff > inbuf.byteLength - compressedLength; bit >>= 1) {
+				if (control & bit) {
 					// back-reference
-					const composite = indat.getUint16((inoff -= 2), true);
-					const offset = (composite & 0xfff) + 2;
+					const composite = (inbuf[--inoff] << 8) | inbuf[--inoff];
+					const offset = (composite & 0xfff) + 3;
 					const length = (composite >> 12) + 3;
-					for (let i = 0; i < length && outoff > 0; ++i) {
-						if (outoff + offset < length1 + length2) {
-							outbuf[outoff - 1] = outbuf[outoff + offset];
-							--outoff;
-						} else {
-							outbuf[--outoff] = 0;
-						}
-					}
+					for (let i = 0; i < length; ++i) outbuf[--outoff] = outbuf[outoff + offset];
+					ops.push(`back-ref ${offset} len ${length}`);
 				} else {
 					// literal
-					outbuf[--outoff] = indat.getUint8(--inoff);
+					outbuf[--outoff] = inbuf[--inoff];
+					ops.push(`literal ${inbuf[inoff]}`);
 				}
+				ops.push(`> ${inoff} ${outoff}`);
 			}
 		}
 
-		return new DataView(outbuf.buffer);
+		outbuf.set(inbuf.slice(0, inbuf.byteLength - compressedLength)); // copy decompressed part
+		return Object.assign(new DataView(outbuf.buffer), { ops });
 	};
 
-	const lzssBackwardsCompress = (dat) => {
-		const outdat = Math.ceil(dat.byteLength * 9 / 8) + 12;
+	// compresses overlay files EXACTLY (i.e. blzCompress(blz(overlay)) == overlay for ALL overlays)
+	// incorrect implementations:
+	// - https://github.com/PeterLemon/Nintendo_DS_Compressors/blob/master/blz.c
+	// - https://github.com/RoadrunnerWMC/ndspy/blob/master/ndspy/codeCompression.py
+	// - 
+	const blzCompress = (indat) => {
+		const ops = [];
+		// in the worst case, blz compression results in 9/8 (112.5%) of the original input size
+		// (the size of literals and control bytes)
+		// round up to 4-byte boundaries, then add 8 bytes of header (so, may add up to 12 bytes)
+		const outbuf = new Uint8Array(Math.ceil(indat.byteLength * 9 / 8) + 12);
+		const inbuf = bufToU8(indat);
 
+		const startingOutoff = outbuf.byteLength - 12;
+		let outoff = startingOutoff;
+		let inoff = indat.byteLength - 1;
+
+		let stopState = {};
+		let lastDataLength = Infinity;
+
+		const compressionStops = [{ inoff, outoff, needed: 0 }];
+
+		const offsets = new Array(256);
+		for (let i = 0; i < 256; ++i) offsets[i] = [];
+
+		const flags = new Uint8Array(outbuf.length);
+		const FLAG_BYTE = 1;
+
+		while (inoff >= 0) {
+			const controlByteOffset = --outoff;
+			flags[controlByteOffset] = FLAG_BYTE;
+
+			for (let i = 7; i >= 0 && inoff >= 0; --i) {
+				const byte = inbuf[inoff];
+
+				// find an offset between [inoff + 2, inbuf.byteLength - 3]
+				// such that:
+				// inbuf[inoff] == inbuf[inoff + offset]
+				// inbuf[inoff - 1] == inbuf[inoff + offset - 1]
+				// inbuf[inoff - 2] == inbuf[inoff + offset - 2]
+				// ...
+				let bestBackReference, bestBackReferenceOffset;
+				for (
+					let offsetIndex = offsets[byte].length - 1, inoffsetted = offsets[byte][offsetIndex], offset = (inoffsetted ?? 0) - inoff;
+					offsetIndex >= 0 && offset < 4099;
+					inoffsetted = offsets[byte][--offsetIndex], offset = (inoffsetted ?? 0) - inoff
+				) {
+					if (offset < 3) continue;
+				/* for ( // this loop statement is functionally identical to the one above, but **much** slower
+					let offset = 3, inoffsetted = inoff + offset;
+					offset < 4099 && inoffsetted < inbuf.byteLength;
+					++offset, ++inoffsetted
+				) { */
+					let length = 1;
+					for (; length < 18 && length < offset && inoff - length >= 0; ++length) {
+						if (inbuf[inoff - length] !== inbuf[inoffsetted - length]) break;
+					}
+
+					if (length >= 3 && (!bestBackReference || length > bestBackReference)) {
+						// back-reference found; prefer smallest possible offset
+						bestBackReference = length;
+						bestBackReferenceOffset = offset;
+					}
+				}
+
+				if (bestBackReference) {
+					outbuf[controlByteOffset] |= 1 << i;
+					const composite = (bestBackReferenceOffset - 3) | ((bestBackReference - 3) << 12);
+					outbuf[--outoff] = composite >> 8;
+					outbuf[--outoff] = composite & 0xff;
+
+					for (let i = 0; i < bestBackReference; ++i, --inoff) offsets[inbuf[inoff]].push(inoff);
+
+					ops.push(`enc back-ref ${bestBackReferenceOffset} len ${bestBackReference}`);
+				} else {
+					outbuf[--outoff] = byte;
+					offsets[byte].push(inoff);
+					--inoff;
+					ops.push(`enc literal ${byte}`);
+				}
+
+				compressionStops.push({ inoff, outoff, needed: bestBackReference ? 2 : 1 });
+
+				ops.push(`> ${inoff} ${outoff}`);
+			}
+
+			ops.push(`enc last control byte ${outbuf[controlByteOffset].toString(2)}`);
+		}
+
+		const outdat = bufToDat(outbuf);
+
+		const topStop = compressionStops[compressionStops.length - 1];
+		const minOutoff = topStop.outoff;
+		let inCompressionStop = topStop.inoff;
+		let outCompressionStop = topStop.outoff;
+
+		cutoffLoop: for (let i = compressionStops.length - 1; i >= 0; --i) {
+			// assume we take this stop
+			const stop = compressionStops[i];
+			const hypoDecompressedLength = stop.inoff + 1;
+			const hypoDataStart = stop.outoff - hypoDecompressedLength;
+
+			for (let j = i - 2; j >= 0; --j) {
+				const checkStop = compressionStops[j];
+				const decompHypoInoff = checkStop.outoff - hypoDataStart;
+				const decompHypoOutoff = checkStop.inoff;
+				// make sure not overwriting compression stream
+				if (decompHypoOutoff + 1 < decompHypoInoff) continue cutoffLoop;
+			}
+
+			// ok!
+			inCompressionStop = stop.inoff;
+			outCompressionStop = stop.outoff;
+			ops.push(`= settled on in: ${inCompressionStop}, out: ${outCompressionStop}`);
+
+			compressionStops.length = i + 1;
+			break;
+		}
+
+		// filter stops(?)
+		for (let i = 0; i < compressionStops.length; ++i) {
+			const stop = compressionStops[i];
+			if (-stop.outoff + stop.inoff <= -outCompressionStop + inCompressionStop) {
+				inCompressionStop = stop.inoff;
+				outCompressionStop = stop.outoff;
+			}
+		}
+
+		// trim literals
+		if (inCompressionStop !== -1) { // this condition is necessary?
+			for (; outCompressionStop < startingOutoff; ++inCompressionStop, ++outCompressionStop) {
+				if (inbuf[inCompressionStop + 1] !== outbuf[outCompressionStop]) break;
+			}
+
+			if (flags[outCompressionStop] === FLAG_BYTE) ++outCompressionStop;
+		}
+
+		ops.push(`= trimmed in: ${inCompressionStop}, out: ${outCompressionStop}`);
+		ops.push(`initialDataStart: ${outCompressionStop - (inCompressionStop + 1)}`);
+
+		const decompressedLength = inCompressionStop + 1;
+		const dataStart = outCompressionStop - decompressedLength;
+		outbuf.set(inbuf.slice(0, decompressedLength), dataStart);
+
+		const compressedLength = outbuf.length - 12 - outCompressionStop;
+		const paddingStart = outCompressionStop + compressedLength;
+		const headerStart = dataStart + Math.ceil((decompressedLength + compressedLength) / 4) * 4;
+		const dataLength = headerStart + 8 - dataStart;
+		const additionalLength = inbuf.byteLength - dataLength;
+		if (additionalLength <= 0) return indat; // when decompressing, the header length was 0, so............?
+
+		// console.log({ decompressedLength, dataStart, compressedLength, paddingStart, headerStart, dataLength, additionalLength });
+		outbuf.fill(0xff, paddingStart, headerStart);
+
+		outdat.setUint32(headerStart, (dataLength - decompressedLength) | ((headerStart + 8 - paddingStart) << 24), true);
+		outdat.setInt32(headerStart + 4, additionalLength, true); // additional length
+
+		return Object.assign(new DataView(outbuf.buffer, dataStart, dataLength), { ops });
 	};
 
 	/**
 	 * Decompresses the custom lzss-like used in various BIS files
 	 */
-	const lzssBis = (indat) => {
+	const lzBis = (indat) => {
 		let inoff = 0;
 		const readFunnyVarLength = () => {
 			const composite = indat.getUint8(inoff++);
@@ -350,10 +505,10 @@
 
 	/**
 	 * Compresses the custom lzss-like format used in various BIS files.
-	 * The compression matches **exactly** what you would find in a ROM. (i.e. lzssBisCompress(lzssBis(dat)) = dat)
+	 * The compression matches **exactly** what you would find in a ROM. (i.e. lzBisCompress(lzBis(dat)) = dat)
 	 * Using a custom `blockSize` larger than 512 will make the output smaller, but may cause the game to crash.
 	 */
-	const lzssBisCompress = (indat, blockSize = 512) => {
+	const lzBisCompress = (indat, blockSize = 512) => {
 		const outbuf = new Uint8Array(indat.byteLength * 2);
 		let outoff = 0;
 		const writeFunnyVarLength = (x) => {
@@ -642,11 +797,13 @@
 	const bufToU16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Uint16Array(buf.buffer, off, len);
 	const bufToS16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Int16Array(buf.buffer, off, len);
 	const bufToU32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) => new Uint32Array(buf.buffer, off, len);
+	const bufToDat = (buf, off = buf.byteOffset, len = buf.byteLength) => new DataView(buf.buffer, off, len);
 
 	Object.assign(window, {
-		lzssBackwards,
-		lzssBis,
-		lzssBisCompress,
+		blz,
+		blzCompress,
+		lzBis,
+		lzBisCompress,
 		sliceDataView,
 		unpackSegmented,
 		unpackSegmented16,
@@ -825,6 +982,7 @@
 					const fsentry = fs.get(entry.id);
 					fsentry.path = prefix + entry.name;
 					fsentry.name = entry.name;
+					fsentry.overlay = false; // overlays aren't part of the file structure
 					fs.set(prefix + entry.name, fsentry);
 				}
 			}
@@ -866,8 +1024,7 @@
 
 			let output;
 			if (singleDecompression.value === 0) output = file.buffer.slice(fsentry.start, fsentry.end);
-			else if (singleDecompression.value === 1)
-				output = lzssBackwards(fsentry.end, file, fsentry.end - fsentry.start);
+			else if (singleDecompression.value === 1) output = blz(file);
 
 			if (!output) {
 				downloadOutput.textContent = 'Failed to load/decompress';
@@ -897,13 +1054,14 @@
 				let dat = fsentry;
 				let name = fsentry.name;
 				if (multiDecompression.value === 0 && fsentry.overlay) {
-					dat = lzssBackwards(dat.byteLength, dat, dat.byteLength);
+					console.log(i, fsentry);
+					dat = blz(dat);
 					if (dat) {
 						// if decompression succeeded
-						// rename /dir/file.xyz => /dir/file-dec.xyz
+						// rename /dir/file.xyz => /dir/file-decomp.xyz
 						const parts = name.split('.');
 						name = parts.pop();
-						name = `${parts.join('.')}-dec.${name}`;
+						name = `${parts.join('.')}-decomp.${name}`;
 					} else {
 						dat = fsentry;
 					}
@@ -952,9 +1110,6 @@
 	const fsext = (window.fsext = await createSection('File System (Extended)', async (section) => {
 		const fsext = {};
 
-		// JP and demo versions don't compress their overlays, but the other versions do
-		const decompressOverlay = (dat) => lzssBackwards(dat.byteLength, dat, dat.byteLength) || dat;
-
 		const varLengthSegments = (start, dat, segmentsDat) => {
 			const chunkLength = dat.getUint32(start, true);
 			const offsets = [];
@@ -976,6 +1131,9 @@
 			for (; o < end; o += 4) indices.push(dat.getInt32(o, true));
 			return indices;
 		};
+
+		// JP and demo versions don't compress their overlays, but the other versions do
+		const decompressOverlay = ['CLJJ', 'Y6PE', 'Y6PP'].includes(headers.gamecode) ? (x => x) : blz;
 
 		const overlay03 = decompressOverlay(fs.get(0x03)); // mostly field map references
 		const overlay0e = decompressOverlay(fs.get(0x0e)); // mostly battle map references
@@ -1093,7 +1251,7 @@
 		const optionRows = [0, 1].map(() => document.createElement('div'));
 		for (const row of optionRows) section.appendChild(row);
 
-		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: #111; margin-bottom: 1px;';
+		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: #11111b; margin-bottom: 1px;';
 
 		options.roomDropdown = dropdown(
 			field.rooms.map((_, i) => `Room 0x${i.toString(16)}`),
@@ -1363,9 +1521,9 @@
 
 			const room = (field.room = {
 				indices,
-				props: unpackSegmented(lzssBis(fsext.fmapdata.segments[indices.props])),
+				props: unpackSegmented(lzBis(fsext.fmapdata.segments[indices.props])),
 				tilesets: [indices.l1, indices.l2, indices.l3].map(
-					(index) => index !== -1 && bufToU8(lzssBis(fsext.fmapdata.segments[index])),
+					(index) => index !== -1 && bufToU8(lzBis(fsext.fmapdata.segments[index])),
 				),
 			});
 			Object.assign(room, {
@@ -1664,7 +1822,7 @@
 			for (let i = 0; i < tileAnimations.length; ++i) {
 				const flags = tileAnimations[i].getUint32(0, true);
 				const animeIndex = tileAnimations[i].getUint16(4, true);
-				const animTileset = lzssBis(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
+				const animTileset = lzBis(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
 				const container = {
 					nextUpdateTick: undefined,
 					startTick: undefined,
@@ -2217,8 +2375,6 @@
 								if (flags4 & 1) color = [1, 0, 0]; // can't enter
 								if (flags4 & 0xfffc) color = [1, 0.6, 0.1]; // strange attributes (unisolid, grippy, ..)
 
-								color = [0, (flags2 >> 6) / 256, 0];
-
 								if (selectedPrism === i) color = [0, 0, 1];
 
 								// random-ish but predictable shading, so depth is way easier to see
@@ -2299,7 +2455,7 @@
 		dump.textContent = 'Dump';
 		dump.addEventListener('click', () => {
 			const index = select.value;
-			const data = lzssBis(fsext.fmapdata.segments[index]);
+			const data = lzBis(fsext.fmapdata.segments[index]);
 			download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data.buffer);
 		});
 		section.appendChild(dump);
@@ -2378,7 +2534,7 @@
 		const animeToProps = (fmapdataTiles.animeToProps = new Map());
 		paletteSelectPlaceholder.addEventListener('mousedown', () => {
 			for (let i = 0; i < field.rooms.length; ++i) {
-				const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[field.rooms[i].props]));
+				const props = unpackSegmented(lzBis(fsext.fmapdata.segments[field.rooms[i].props]));
 				const passiveAnimations = unpackSegmented(props[10]);
 				for (const passiveAnime of passiveAnimations) {
 					const tileset = passiveAnime.getInt16(4, true);
@@ -2425,7 +2581,7 @@
 
 		const render = () => {
 			const index = select.value;
-			const data = lzssBis(fsext.fmapdata.segments[index]);
+			const data = lzBis(fsext.fmapdata.segments[index]);
 
 			let palettes = [
 				globalPalette256,
@@ -2438,7 +2594,7 @@
 			if (paletteOptions.length) {
 				const roomIndex = paletteOptions[paletteSelectPlaceholder.value];
 				const room = field.rooms[roomIndex];
-				const props = unpackSegmented(lzssBis(fsext.fmapdata.segments[room.props]));
+				const props = unpackSegmented(lzBis(fsext.fmapdata.segments[room.props]));
 				palettes = [props[3], props[3], props[4], props[4], props[5], props[5]];
 			}
 
@@ -2610,10 +2766,10 @@
 		const update = () => {
 			const rawRoom = bmaps[bmapDropdown.value];
 			battle.room = room = {
-				tileset: rawRoom.tileset?.byteLength && bufToU8(lzssBis(rawRoom.tileset)),
+				tileset: rawRoom.tileset?.byteLength && bufToU8(lzBis(rawRoom.tileset)),
 				palette: rawRoom.palette?.byteLength && rgb15To32(bufToU16(rawRoom.palette)),
 				tilemaps: rawRoom.tilemaps.map((x) => x?.byteLength && bufToU16(x)),
-				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength && bufToU8(lzssBis(rawRoom.tilesetAnimated)),
+				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength && bufToU8(lzBis(rawRoom.tilesetAnimated)),
 			};
 
 			// parse palette animations
@@ -2638,8 +2794,6 @@
 						const command = segment[o] & 0xff;
 						const params = segment[o] >> 8;
 						++o;
-
-						console.log(str8(command), str8(params), 'next', str16(segment[o]));
 
 						if (command === 0x82) ++o; // unknown
 						else if (command === 0x00) paletteStart = segment[o++];
@@ -3063,7 +3217,7 @@
 		section.appendChild(metaPreview);
 
 		const render = () => {
-			const room = unpackSegmented(lzssBis(fsext.bmapg.segments[bmapgSelect.value]));
+			const room = unpackSegmented(lzBis(fsext.bmapg.segments[bmapgSelect.value]));
 			const palette = room[0]?.byteLength && rgb15To32(bufToU16(room[0]));
 			const tileset = room[1]?.byteLength && bufToU8(room[1]);
 			const tilemaps = [2, 3].map((index) => room[index]?.byteLength && bufToU16(room[index]));
@@ -3229,7 +3383,7 @@
 			const tilesetDat = maps[tilesetOptions[tilesetSelect.value][1]];
 			let tileset;
 			try {
-				tileset = bufToU8(lzssBis(tilesetDat));
+				tileset = bufToU8(lzBis(tilesetDat));
 			} catch (_) {}
 			{
 				const ctx16 = tilesetCanvas16.getContext('2d');
@@ -3270,7 +3424,7 @@
 			const tilemapDat = maps[tilemapOptions[tilemapSelect.value][1]];
 			let tilemap;
 			try {
-				tilemap = bufToU16(lzssBis(tilemapDat));
+				tilemap = bufToU16(lzBis(tilemapDat));
 			} catch (_) {}
 
 			{
@@ -3409,7 +3563,7 @@
 			const tileset256Ctx = tileset256Canvas.getContext('2d');
 			const tileset16Ctx = tileset16Canvas.getContext('2d');
 			if (option.pal.byteLength >= 516) {
-				const tileset = lzssBis(option.tex);
+				const tileset = lzBis(option.tex);
 				const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
 				const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
 
@@ -3463,7 +3617,7 @@
 		`Dumping functions: \
 		\n%creadString(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \ndownload(name, mime, dat) %c \
 		\n\nCompression/Packing functions: \
-		\n%clzssBackwards(endOffset, indat, indatLength) \nlzssBis(indat) \nlzssBisCompress(indat, blockSize = 512) \
+		\n%cblz(indat) \nblzCompress(indat) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
 		\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
 		\n\nSections: \
 		\n%cheaders fs fsext font field fmapdataTiles battle battleGiant fx %c`,
