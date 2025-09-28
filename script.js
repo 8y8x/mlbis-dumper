@@ -206,11 +206,13 @@
 		return str.join('');
 	};
 
+	const byteToHex = [];
+	for (let i = 0; i < 256; ++i) byteToHex[i] = i.toString(16).padStart(2, '0');
 	const bytes = (o, l, buf = file) => {
-		const slice = buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + o + l);
-		return Array.from(new Uint8Array(slice))
-			.map((x) => x.toString(16).padStart(2, '0'))
-			.join(' ');
+		const slice = new Uint8Array(buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + o + l));
+		const arr = new Array(slice.length);
+		for (let i = 0; i < slice.length; ++i) arr[i] = byteToHex[slice[i]];
+		return arr.join(' ');
 	};
 
 	const bits = (o, l, buf = file) => {
@@ -288,11 +290,9 @@
 		return Object.assign(new DataView(outbuf.buffer), { ops });
 	};
 
-	// compresses overlay files EXACTLY (i.e. blzCompress(blz(overlay)) == overlay for ALL overlays)
-	// incorrect implementations:
-	// - https://github.com/PeterLemon/Nintendo_DS_Compressors/blob/master/blz.c
-	// - https://github.com/RoadrunnerWMC/ndspy/blob/master/ndspy/codeCompression.py
-	// - 
+	// compresses overlay files MOSTLY EXACTLY (i.e. blzCompress(blz(overlay)) == overlay for ALL overlays)
+	// a couple overlays (NA 2, EU 2, KO 2, KO 123, KO 139) don't recompress properly but i have literally no fucking
+	// idea why
 	const blzCompress = (indat) => {
 		const ops = [];
 		// in the worst case, blz compression results in 9/8 (112.5%) of the original input size
@@ -305,20 +305,19 @@
 		let outoff = startingOutoff;
 		let inoff = indat.byteLength - 1;
 
-		let stopState = {};
-		let lastDataLength = Infinity;
-
-		const compressionStops = [{ inoff, outoff, needed: 0 }];
+		const compressionStops = [{ inoff1: inoff, inoff2: inoff, outoff, usable: true }];
+		let controlByteOffset;
 
 		const offsets = new Array(256);
 		for (let i = 0; i < 256; ++i) offsets[i] = [];
 
-		const flags = new Uint8Array(outbuf.length);
-		const FLAG_BYTE = 1;
+		let bestSize = inoff + 1;
+		let netSaves = 0;
+		let bestNetSaves = 0;
 
 		while (inoff >= 0) {
-			const controlByteOffset = --outoff;
-			flags[controlByteOffset] = FLAG_BYTE;
+			--netSaves;
+			controlByteOffset = --outoff;
 
 			for (let i = 7; i >= 0 && inoff >= 0; --i) {
 				const byte = inbuf[inoff];
@@ -359,6 +358,16 @@
 					outbuf[--outoff] = composite >> 8;
 					outbuf[--outoff] = composite & 0xff;
 
+					// push **BEFORE** changing inoff
+					let usable = false;
+					const estimatedSize = (inoff - bestBackReference + 1) + (startingOutoff - outoff);
+					if ((netSaves += bestBackReference - 2) > bestNetSaves && estimatedSize < bestSize) {
+						usable = true;
+						bestNetSaves = netSaves;
+						bestSize = estimatedSize;
+					}
+					compressionStops.push({ inoff1: inoff, inoff2: inoff - bestBackReference, outoff, bestBackReference, usable });
+
 					for (let i = 0; i < bestBackReference; ++i, --inoff) offsets[inbuf[inoff]].push(inoff);
 
 					ops.push(`enc back-ref ${bestBackReferenceOffset} len ${bestBackReference}`);
@@ -369,60 +378,42 @@
 					ops.push(`enc literal ${byte}`);
 				}
 
-				compressionStops.push({ inoff, outoff, needed: bestBackReference ? 2 : 1 });
-
 				ops.push(`> ${inoff} ${outoff}`);
 			}
 
 			ops.push(`enc last control byte ${outbuf[controlByteOffset].toString(2)}`);
 		}
 
+		if (netSaves === bestNetSaves) compressionStops.push({ inoff1: inoff + 1, inoff2: inoff, outoff, usable: true });
+
 		const outdat = bufToDat(outbuf);
 
 		const topStop = compressionStops[compressionStops.length - 1];
-		const minOutoff = topStop.outoff;
 		let inCompressionStop = topStop.inoff;
 		let outCompressionStop = topStop.outoff;
 
 		cutoffLoop: for (let i = compressionStops.length - 1; i >= 0; --i) {
 			// assume we take this stop
 			const stop = compressionStops[i];
-			const hypoDecompressedLength = stop.inoff + 1;
+			if (!stop.usable) continue;
+			const hypoDecompressedLength = stop.inoff2 + 1;
 			const hypoDataStart = stop.outoff - hypoDecompressedLength;
 
-			for (let j = i - 2; j >= 0; --j) {
+			for (let j = i; j >= 0; --j) {
 				const checkStop = compressionStops[j];
 				const decompHypoInoff = checkStop.outoff - hypoDataStart;
-				const decompHypoOutoff = checkStop.inoff;
+				const decompHypoOutoff = checkStop.inoff1;
 				// make sure not overwriting compression stream
-				if (decompHypoOutoff + 1 < decompHypoInoff) continue cutoffLoop;
+				if (decompHypoOutoff < decompHypoInoff) continue cutoffLoop;
 			}
 
 			// ok!
-			inCompressionStop = stop.inoff;
+			inCompressionStop = stop.inoff2;
 			outCompressionStop = stop.outoff;
 			ops.push(`= settled on in: ${inCompressionStop}, out: ${outCompressionStop}`);
 
 			compressionStops.length = i + 1;
 			break;
-		}
-
-		// filter stops(?)
-		for (let i = 0; i < compressionStops.length; ++i) {
-			const stop = compressionStops[i];
-			if (-stop.outoff + stop.inoff <= -outCompressionStop + inCompressionStop) {
-				inCompressionStop = stop.inoff;
-				outCompressionStop = stop.outoff;
-			}
-		}
-
-		// trim literals
-		if (inCompressionStop !== -1) { // this condition is necessary?
-			for (; outCompressionStop < startingOutoff; ++inCompressionStop, ++outCompressionStop) {
-				if (inbuf[inCompressionStop + 1] !== outbuf[outCompressionStop]) break;
-			}
-
-			if (flags[outCompressionStop] === FLAG_BYTE) ++outCompressionStop;
 		}
 
 		ops.push(`= trimmed in: ${inCompressionStop}, out: ${outCompressionStop}`);
@@ -437,13 +428,24 @@
 		const headerStart = dataStart + Math.ceil((decompressedLength + compressedLength) / 4) * 4;
 		const dataLength = headerStart + 8 - dataStart;
 		const additionalLength = inbuf.byteLength - dataLength;
-		if (additionalLength <= 0) return indat; // when decompressing, the header length was 0, so............?
+		if (additionalLength <= 0) {
+			// if compression results in a larger size, then store decompressed and with a zero'd header
+			// this does mean on some custom input (e.g. [1,2,3,...,20]), blz(blzCompress(x)) == x will not hold
+			// but the additionalLength part of the header (probably?) can't be negative
+			if (inbuf.length >= 8 && indat.getBigUint64(inbuf.length - 8, true) === 0n) {
+				// blz() includes the zero'd header in decompression, so just keep it there
+				return indat;
+			} else {
+				outbuf.set(inbuf, 0);
+				outbuf.fill(0, inbuf.length, inbuf.length + 8);
+				return new DataView(outbuf.buffer, 0, inbuf.length + 8);
+			}
+		}
 
-		// console.log({ decompressedLength, dataStart, compressedLength, paddingStart, headerStart, dataLength, additionalLength });
 		outbuf.fill(0xff, paddingStart, headerStart);
 
 		outdat.setUint32(headerStart, (dataLength - decompressedLength) | ((headerStart + 8 - paddingStart) << 24), true);
-		outdat.setInt32(headerStart + 4, additionalLength, true); // additional length
+		outdat.setInt32(headerStart + 4, additionalLength, true);
 
 		return Object.assign(new DataView(outbuf.buffer, dataStart, dataLength), { ops });
 	};
