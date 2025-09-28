@@ -3655,7 +3655,10 @@
 		\n%cblz(indat) \nblzCompress(indat) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
 		\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
 		\n\nSections: \
-		\n%cheaders fs fsext font field fmapdataTiles battle battleGiant fx %c`,
+		\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx %c \
+		\n\nFile: %cfile%c`,
+		'color: #3cc;',
+		'color: unset;',
 		'color: #3cc;',
 		'color: unset;',
 		'color: #3cc;',
