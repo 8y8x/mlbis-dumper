@@ -2787,7 +2787,7 @@
 
 			// parse palette animations
 			room.paletteAnimations = [];
-			const paletteSegments = unpackSegmented16(rawRoom.paletteAnimations);
+			const paletteSegments = rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [];
 			for (let i = 0; i < paletteSegments.length - 1; ++i) {
 				const segment = bufToS16(paletteSegments[i]);
 
@@ -2849,7 +2849,7 @@
 
 			// parse tile animations
 			room.tileAnimations = [];
-			const tileSegments = unpackSegmented16(rawRoom.tileAnimations);
+			const tileSegments = rawRoom.tileAnimations ? unpackSegmented16(rawRoom.tileAnimations) : [];
 			for (let i = 0; i < tileSegments.length - 1; ++i) {
 				const segment = bufToS16(tileSegments[i]);
 				let tilesetStart;
@@ -2985,9 +2985,9 @@
 		};
 
 		const render = () => {
-			if (options.paletteAnimations.checked)
+			if (options.paletteAnimations.checked && room.paletteAnimations.length)
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
-			if (options.tileAnimations.checked) updateTileset = updateMap = true;
+			if (options.tileAnimations.checked && room.tileAnimations.length) updateTileset = updateMap = true;
 			const tick = Math.floor((performance.now() / 1000) * 60);
 
 			// palette
