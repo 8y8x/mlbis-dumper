@@ -32,119 +32,40 @@
 	--checkbox-not-fg-hover: hsl(150, 100%, 60%);
 }
 
-body {
-	background: #11111b;
-	color: #999;
-	font-family: 'Red Hat Text';
-	overflow-x: hidden;
-}
+body { background: #11111b; color: #999; font-family: 'Red Hat Text'; overflow-x: hidden; }
 
-#title {
-	padding-bottom: 10px;
-	position: absolute;
-	top: 50vh;
-	left: 50vw;
-	transform: translate(-50%, -100%);
-}
-#file-input {
-	padding-top: 10px;
-	position: absolute;
-	top: 50vh;
-	left: 50vw;
-	transform: translate(-50%, 0);
-}
+#title { padding-bottom: 10px; position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, -100%); }
+#file-input { padding-top: 10px; position: absolute; top: 50vh; left: 50vw; transform: translate(-50%, 0); }
 
-canvas {
-	display: block;
-	image-rendering: pixelated;
-}
+canvas { display: block; image-rendering: pixelated; }
 
-section {
-	border-bottom: 1px solid #666;
-	position: relative;
-	width: 100vw;
-}
-section .reveal {
-	line-height: 32px;
-	user-select: none;
-	padding: 0 5px;
-}
-section .reveal:hover {
-	color: #ccc;
-}
-section .content {
-	width: calc(100% - 32px);
-	padding: 20px;
-	padding-left: 52px;
-}
+section { border-bottom: 1px solid #666; position: relative; width: 100vw; }
+section .reveal { line-height: 32px; user-select: none; padding: 0 5px; }
+section .reveal:hover { color: #ccc; }
+section .content { width: calc(100% - 32px); padding: 20px; padding-left: 52px; }
 
-label {
-	padding: 0 5px;
-	user-select: none;
-}
+label { padding: 0 5px; user-select: none; }
 
-code {
-	font-family: 'Red Hat Mono';
-}
+code { font-family: 'Red Hat Mono'; }
 
 button {
-	background: var(--button-bg);
-	border: 1px solid var(--button-fg);
-	color: var(--button-fg);
-	display: inline-block;
-	font: inherit;
-	font-size: 0.9rem;
-	height: 1.4em;
-	line-height: 1.4em;
-	margin: 0 1px;
-	max-height: unset;
-	min-width: 1.4em;
-	padding: 0 0.5em;
+	background: var(--button-bg); border: 1px solid var(--button-fg); color: var(--button-fg);
+	display: inline-block; font: inherit; font-size: 0.9rem; height: 1.4em; line-height: 1.4em;
+	margin: 0 1px; max-height: unset; min-width: 1.4em; padding: 0 0.5em;
 }
-button:hover {
-	color: #9cf;
-}
+button:hover { color: #9cf; }
 
-.dropdown * {
-	user-select: none;
-}
-.dropdown .left:hover,
-.dropdown .selection:hover,
-.dropdown .right:hover {
-	color: var(--dropdown-fg-hover);
-}
-.dropdown:has(.selection:hover) .vee {
-	color: var(--dropdown-fg-hover);
-}
-.dropdown .option:hover {
-	color: var(--dropdown-opt-fg-hover);
-}
+.dropdown * { user-select: none; }
+.dropdown .left:hover, .dropdown .selection:hover, .dropdown .right:hover { color: var(--dropdown-fg-hover); }
+.dropdown:has(.selection:hover) .vee { color: var(--dropdown-fg-hover); }
+.dropdown .option:hover { color: var(--dropdown-opt-fg-hover); }
 
-.checkbox {
-	border: 1px solid var(--checkbox-not-fg);
-	user-select: none;
-}
-.checkbox * {
-	color: var(--checkbox-not-fg);
-}
-.checkbox .check {
-	opacity: 0;
-}
-.checkbox:hover * {
-	color: var(--checkbox-not-fg-hover);
-}
-.checkbox:not(.checked):hover .check {
-	opacity: 0.2;
-}
-.checkbox.checked {
-	border-color: var(--checkbox-fg);
-}
-.checkbox.checked .check {
-	opacity: 1;
-}
-.checkbox.checked * {
-	color: var(--checkbox-fg);
-}
-.checkbox.checked:hover * {
-	color: var(--checkbox-fg-hover);
-}
+.checkbox { border: 1px solid var(--checkbox-not-fg); user-select: none; }
+.checkbox * { color: var(--checkbox-not-fg); }
+.checkbox .check { opacity: 0; }
+.checkbox:hover * { color: var(--checkbox-not-fg-hover); }
+.checkbox:not(.checked):hover .check { opacity: 0.2; }
+.checkbox.checked { border-color: var(--checkbox-fg); }
+.checkbox.checked .check { opacity: 1; }
+.checkbox.checked * { color: var(--checkbox-fg); }
+.checkbox.checked:hover * { color: var(--checkbox-fg-hover); }
