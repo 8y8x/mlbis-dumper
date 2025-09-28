@@ -251,7 +251,6 @@
 	// +---------------------------------------------------------------------------------------------------------------+
 
 	const blz = (indat) => {
-		const ops = [];
 		const composite = indat.getUint32(indat.byteLength - 8, true);
 		const offset = composite >> 24;
 		const compressedLength = composite & 0xffffff; // could be zero
@@ -268,7 +267,6 @@
 
 		while (inoff > inbuf.byteLength - compressedLength) {
 			const control = inbuf[--inoff];
-			ops.push(`control byte ${control?.toString(2).padStart(8, '0')}`);
 			for (let bit = 0x80; bit && inoff > inbuf.byteLength - compressedLength; bit >>= 1) {
 				if (control & bit) {
 					// back-reference
@@ -276,44 +274,38 @@
 					const offset = (composite & 0xfff) + 3;
 					const length = (composite >> 12) + 3;
 					for (let i = 0; i < length; ++i) outbuf[--outoff] = outbuf[outoff + offset];
-					ops.push(`back-ref ${offset} len ${length}`);
 				} else {
 					// literal
 					outbuf[--outoff] = inbuf[--inoff];
-					ops.push(`literal ${inbuf[inoff]}`);
 				}
-				ops.push(`> ${inoff} ${outoff}`);
 			}
 		}
 
 		outbuf.set(inbuf.slice(0, inbuf.byteLength - compressedLength)); // copy decompressed part
-		return Object.assign(new DataView(outbuf.buffer), { ops });
+		return new DataView(outbuf.buffer);
 	};
 
-	// compresses overlay files MOSTLY EXACTLY (i.e. blzCompress(blz(overlay)) == overlay for ALL overlays)
-	// a couple overlays (NA 2, EU 2, KO 2, KO 123, KO 139) don't recompress properly but i have literally no fucking
-	// idea why
+	// compresses overlay files MOSTLY EXACTLY (i.e. blzCompress(blz(overlay)) == overlay for NEARLY ALL overlays)
+	// these overlays: NA 2, EU 2, KO 2, KO 123, KO 139 don't recompress exactly, there is likely some other
+	// scoring system that i haven't been able to reverse engineer
 	const blzCompress = (indat) => {
-		const ops = [];
+		const inbuf = bufToU8(indat);
 		// in the worst case, blz compression results in 9/8 (112.5%) of the original input size
 		// (the size of literals and control bytes)
 		// round up to 4-byte boundaries, then add 8 bytes of header (so, may add up to 12 bytes)
-		const outbuf = new Uint8Array(Math.ceil(indat.byteLength * 9 / 8) + 12);
-		const inbuf = bufToU8(indat);
+		const outbuf = new Uint8Array(Math.ceil((inbuf.length * 9) / 8) + 12);
 
-		const startingOutoff = outbuf.byteLength - 12;
+		const startingOutoff = outbuf.length - 12;
 		let outoff = startingOutoff;
-		let inoff = indat.byteLength - 1;
+		let inoff = inbuf.length - 1;
 
-		const compressionStops = [{ inoff1: inoff, inoff2: inoff, outoff, usable: true }];
+		const stops = [];
 		let controlByteOffset;
+		let bestNetSaves = 0;
+		let netSaves = 0;
 
 		const offsets = new Array(256);
 		for (let i = 0; i < 256; ++i) offsets[i] = [];
-
-		let bestSize = inoff + 1;
-		let netSaves = 0;
-		let bestNetSaves = 0;
 
 		while (inoff >= 0) {
 			--netSaves;
@@ -330,16 +322,18 @@
 				// ...
 				let bestBackReference, bestBackReferenceOffset;
 				for (
-					let offsetIndex = offsets[byte].length - 1, inoffsetted = offsets[byte][offsetIndex], offset = (inoffsetted ?? 0) - inoff;
+					let offsetIndex = offsets[byte].length - 1,
+						inoffsetted = offsets[byte][offsetIndex],
+						offset = (inoffsetted ?? 0) - inoff;
 					offsetIndex >= 0 && offset < 4099;
 					inoffsetted = offsets[byte][--offsetIndex], offset = (inoffsetted ?? 0) - inoff
 				) {
 					if (offset < 3) continue;
-				/* for ( // this loop statement is functionally identical to the one above, but **much** slower
-					let offset = 3, inoffsetted = inoff + offset;
-					offset < 4099 && inoffsetted < inbuf.byteLength;
-					++offset, ++inoffsetted
-				) { */
+					/* for ( // this loop statement is functionally identical to the one above, but **much** slower
+						let offset = 3, inoffsetted = inoff + offset;
+						offset < 4099 && inoffsetted < inbuf.byteLength;
+						++offset, ++inoffsetted
+					) { */
 					let length = 1;
 					for (; length < 18 && length < offset && inoff - length >= 0; ++length) {
 						if (inbuf[inoff - length] !== inbuf[inoffsetted - length]) break;
@@ -358,76 +352,58 @@
 					outbuf[--outoff] = composite >> 8;
 					outbuf[--outoff] = composite & 0xff;
 
-					// push **BEFORE** changing inoff
-					let usable = false;
-					const estimatedSize = (inoff - bestBackReference + 1) + (startingOutoff - outoff);
-					if ((netSaves += bestBackReference - 2) > bestNetSaves && estimatedSize < bestSize) {
+					let usable = false; // unusable stops still need to be checked for decompression overwrites
+					if ((netSaves += bestBackReference - 2) > bestNetSaves) {
 						usable = true;
 						bestNetSaves = netSaves;
-						bestSize = estimatedSize;
 					}
-					compressionStops.push({ inoff1: inoff, inoff2: inoff - bestBackReference, outoff, bestBackReference, usable });
+					stops.push({ inoffStart: inoff, inoffEnd: inoff - bestBackReference, outoff, usable });
 
 					for (let i = 0; i < bestBackReference; ++i, --inoff) offsets[inbuf[inoff]].push(inoff);
-
-					ops.push(`enc back-ref ${bestBackReferenceOffset} len ${bestBackReference}`);
 				} else {
 					outbuf[--outoff] = byte;
 					offsets[byte].push(inoff);
 					--inoff;
-					ops.push(`enc literal ${byte}`);
 				}
-
-				ops.push(`> ${inoff} ${outoff}`);
 			}
-
-			ops.push(`enc last control byte ${outbuf[controlByteOffset].toString(2)}`);
 		}
 
-		if (netSaves === bestNetSaves) compressionStops.push({ inoff1: inoff + 1, inoff2: inoff, outoff, usable: true });
+		// if there are just a few more literals remaining, just include them all in compression
+		if (netSaves === bestNetSaves) stops.push({ inoffStart: inoff + 1, inoffEnd: inoff, outoff, usable: true });
 
 		const outdat = bufToDat(outbuf);
 
-		const topStop = compressionStops[compressionStops.length - 1];
-		let inCompressionStop = topStop.inoff;
-		let outCompressionStop = topStop.outoff;
+		let instop = inoff;
+		let outstop = outoff;
 
-		cutoffLoop: for (let i = compressionStops.length - 1; i >= 0; --i) {
+		cutoff: for (let i = stops.length - 1; i >= 0; --i) {
 			// assume we take this stop
-			const stop = compressionStops[i];
-			if (!stop.usable) continue;
-			const hypoDecompressedLength = stop.inoff2 + 1;
-			const hypoDataStart = stop.outoff - hypoDecompressedLength;
+			if (!stops[i].usable) continue;
+			const hypoDecompressedLength = stops[i].inoffEnd + 1;
+			const hypoDataStart = stops[i].outoff - hypoDecompressedLength;
 
 			for (let j = i; j >= 0; --j) {
-				const checkStop = compressionStops[j];
-				const decompHypoInoff = checkStop.outoff - hypoDataStart;
-				const decompHypoOutoff = checkStop.inoff1;
+				const decompHypoInoff = stops[j].outoff - hypoDataStart;
+				const decompHypoOutoff = stops[j].inoffStart;
 				// make sure not overwriting compression stream
-				if (decompHypoOutoff < decompHypoInoff) continue cutoffLoop;
+				if (decompHypoOutoff < decompHypoInoff) continue cutoff;
 			}
 
-			// ok!
-			inCompressionStop = stop.inoff2;
-			outCompressionStop = stop.outoff;
-			ops.push(`= settled on in: ${inCompressionStop}, out: ${outCompressionStop}`);
-
-			compressionStops.length = i + 1;
+			// this stop is fine
+			instop = stops[i].inoffEnd;
+			outstop = stops[i].outoff;
 			break;
 		}
 
-		ops.push(`= trimmed in: ${inCompressionStop}, out: ${outCompressionStop}`);
-		ops.push(`initialDataStart: ${outCompressionStop - (inCompressionStop + 1)}`);
-
-		const decompressedLength = inCompressionStop + 1;
-		const dataStart = outCompressionStop - decompressedLength;
+		const decompressedLength = instop + 1;
+		const dataStart = outstop - decompressedLength;
 		outbuf.set(inbuf.slice(0, decompressedLength), dataStart);
 
-		const compressedLength = outbuf.length - 12 - outCompressionStop;
-		const paddingStart = outCompressionStop + compressedLength;
+		const compressedLength = outbuf.length - 12 - outstop;
+		const paddingStart = outstop + compressedLength;
 		const headerStart = dataStart + Math.ceil((decompressedLength + compressedLength) / 4) * 4;
 		const dataLength = headerStart + 8 - dataStart;
-		const additionalLength = inbuf.byteLength - dataLength;
+		const additionalLength = inbuf.length - dataLength;
 		if (additionalLength <= 0) {
 			// if compression results in a larger size, then store decompressed and with a zero'd header
 			// this does mean on some custom input (e.g. [1,2,3,...,20]), blz(blzCompress(x)) == x will not hold
@@ -444,10 +420,14 @@
 
 		outbuf.fill(0xff, paddingStart, headerStart);
 
-		outdat.setUint32(headerStart, (dataLength - decompressedLength) | ((headerStart + 8 - paddingStart) << 24), true);
-		outdat.setInt32(headerStart + 4, additionalLength, true);
+		outdat.setUint32(
+			headerStart,
+			(dataLength - decompressedLength) | ((headerStart + 8 - paddingStart) << 24),
+			true,
+		);
+		outdat.setUint32(headerStart + 4, additionalLength, true);
 
-		return Object.assign(new DataView(outbuf.buffer, dataStart, dataLength), { ops });
+		return new DataView(outbuf.buffer, dataStart, dataLength);
 	};
 
 	/**
@@ -1041,8 +1021,13 @@
 		multiExport.textContent = 'Everything: ';
 		section.appendChild(multiExport);
 
-		const multiDecompression =
-			dropdown(['Backwards LZSS only on overlays', 'No decompression'], 0, () => {}, undefined, true);
+		const multiDecompression = dropdown(
+			['Backwards LZSS only on overlays', 'No decompression'],
+			0,
+			() => {},
+			undefined,
+			true,
+		);
 		multiExport.appendChild(multiDecompression);
 
 		const multiDump = document.createElement('button');
@@ -1135,7 +1120,7 @@
 		};
 
 		// JP and demo versions don't compress their overlays, but the other versions do
-		const decompressOverlay = ['CLJJ', 'Y6PE', 'Y6PP'].includes(headers.gamecode) ? (x => x) : blz;
+		const decompressOverlay = ['CLJJ', 'Y6PE', 'Y6PP'].includes(headers.gamecode) ? (x) => x : blz;
 
 		const overlay03 = decompressOverlay(fs.get(0x03)); // mostly field map references
 		const overlay0e = decompressOverlay(fs.get(0x0e)); // mostly battle map references
@@ -1641,37 +1626,42 @@
 			}
 
 			side.loadingZoneDropdown.replaceWith(
-				(side.loadingZoneDropdown = dropdown(loadingZoneOptions, 0, () => {
-					updateOverlay3d = updateOverlay3dTriangles = true;
-					if (side.loadingZoneDropdown.value === 0) {
-						side.loadingZoneDisplay.innerHTML = '';
-						return;
-					}
+				(side.loadingZoneDropdown = dropdown(
+					loadingZoneOptions,
+					0,
+					() => {
+						updateOverlay3d = updateOverlay3dTriangles = true;
+						if (side.loadingZoneDropdown.value === 0) {
+							side.loadingZoneDisplay.innerHTML = '';
+							return;
+						}
 
-					const o = (side.loadingZoneDropdown.value - 1) * 24;
-					const flags = room.loadingZones.getUint16(o, true);
-					const x1 = room.loadingZones.getInt16(o + 4, true);
-					const y1 = room.loadingZones.getInt16(o + 6, true);
-					const z = room.loadingZones.getInt16(o + 8, true);
-					const x2 = room.loadingZones.getInt16(o + 10, true);
-					const y2 = room.loadingZones.getInt16(o + 12, true);
-					const enterX1 = room.loadingZones.getInt16(o + 14, true);
-					const enterY1 = room.loadingZones.getInt16(o + 16, true);
-					const enterZ = room.loadingZones.getInt16(o + 18, true);
-					const enterX2 = room.loadingZones.getInt16(o + 20, true);
-					const enterY2 = room.loadingZones.getInt16(o + 22, true);
+						const o = (side.loadingZoneDropdown.value - 1) * 24;
+						const flags = room.loadingZones.getUint16(o, true);
+						const x1 = room.loadingZones.getInt16(o + 4, true);
+						const y1 = room.loadingZones.getInt16(o + 6, true);
+						const z = room.loadingZones.getInt16(o + 8, true);
+						const x2 = room.loadingZones.getInt16(o + 10, true);
+						const y2 = room.loadingZones.getInt16(o + 12, true);
+						const enterX1 = room.loadingZones.getInt16(o + 14, true);
+						const enterY1 = room.loadingZones.getInt16(o + 16, true);
+						const enterZ = room.loadingZones.getInt16(o + 18, true);
+						const enterX2 = room.loadingZones.getInt16(o + 20, true);
+						const enterY2 = room.loadingZones.getInt16(o + 22, true);
 
-					const lines = [];
-					lines.push(`<code>([${x1}..${x1 + x2}], [${y1}..${y1 + y2}], ${z})</code>`);
-					const xRange = !(flags & 2) || enterX2 === 1 ? enterX1 : `[${enterX1}..${enterX1 + enterX2}]`;
-					const yRange = !(flags & 2) || enterY2 === 1 ? enterY1 : `[${enterY1}..${enterY1 + enterY2}]`;
-					lines.push(`Enter at: <code>(${xRange}, ${yRange}, ${enterZ})</code>`);
+						const lines = [];
+						lines.push(`<code>([${x1}..${x1 + x2}], [${y1}..${y1 + y2}], ${z})</code>`);
+						const xRange = !(flags & 2) || enterX2 === 1 ? enterX1 : `[${enterX1}..${enterX1 + enterX2}]`;
+						const yRange = !(flags & 2) || enterY2 === 1 ? enterY1 : `[${enterY1}..${enterY1 + enterY2}]`;
+						lines.push(`Enter at: <code>(${xRange}, ${yRange}, ${enterZ})</code>`);
 
-					side.loadingZoneDisplay.innerHTML = `<div style="border-left: 1px solid #76f; margin-left: 1px;
-						padding-left: 8px;">${lines.map(x => '<div>' + x + '</div>').join(' ')}</div>`;
-				}, () => {
-					updateOverlay3d = updateOverlay3dTriangles = true;
-				})),
+						side.loadingZoneDisplay.innerHTML = `<div style="border-left: 1px solid #76f; margin-left: 1px;
+						padding-left: 8px;">${lines.map((x) => '<div>' + x + '</div>').join(' ')}</div>`;
+					},
+					() => {
+						updateOverlay3d = updateOverlay3dTriangles = true;
+					},
+				)),
 			);
 			side.loadingZoneDisplay.innerHTML = '';
 
@@ -1694,107 +1684,128 @@
 				}
 				for (let i = 0; i < numSpecials; ++i) options.push(`[${i}] Special`);
 				side.collisionDropdown.replaceWith(
-					(side.collisionDropdown = dropdown(options, 0, () => {
-						updateOverlay3d = updateOverlay3dTriangles = true;
-						if (side.collisionDropdown.value === 0) {
-							side.collisionDisplay.innerHTML = '';
-							return;
-						}
+					(side.collisionDropdown = dropdown(
+						options,
+						0,
+						() => {
+							updateOverlay3d = updateOverlay3dTriangles = true;
+							if (side.collisionDropdown.value === 0) {
+								side.collisionDisplay.innerHTML = '';
+								return;
+							}
 
-						const index = side.collisionDropdown.value - 1;
-						let o = 8;
-						o += Math.min(index, numBoxes) * 40; // first chunk of prisms
-						o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
+							const index = side.collisionDropdown.value - 1;
+							let o = 8;
+							o += Math.min(index, numBoxes) * 40; // first chunk of prisms
+							o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
 
-						if (index < numBoxes) {
-							// prism
-							const config = room.collision.getUint16(o, true);
-							const debugId = room.collision.getUint16(o + 2, true);
-							const solidActions = room.collision.getUint16(o + 4, true);
-							const attributes = room.collision.getUint16(o + 6, true);
+							if (index < numBoxes) {
+								// prism
+								const config = room.collision.getUint16(o, true);
+								const debugId = room.collision.getUint16(o + 2, true);
+								const solidActions = room.collision.getUint16(o + 4, true);
+								const attributes = room.collision.getUint16(o + 6, true);
 
-							const html = [];
+								const html = [];
 
-							const configStrings = [];
-							if (config & 1) configStrings.push('last');
-							// if (config & 2) configStrings.push('snaps up'); // needs more research
-							if (config & 4) configStrings.push('simple');
-							if (configStrings.length) html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
+								const configStrings = [];
+								if (config & 1) configStrings.push('last');
+								// if (config & 2) configStrings.push('snaps up'); // needs more research
+								if (config & 4) configStrings.push('simple');
+								if (configStrings.length) html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
 
-							for (let i = 0; i < 4; ++i) {
-								const x = room.collision.getInt16(o + 8 + i * 8, true);
-								const y = room.collision.getInt16(o + 8 + i * 8 + 2, true);
-								const ztop = room.collision.getInt16(o + 8 + i * 8 + 4, true);
-								const zbottom = room.collision.getInt16(o + 8 + i * 8 + 6, true);
+								for (let i = 0; i < 4; ++i) {
+									const x = room.collision.getInt16(o + 8 + i * 8, true);
+									const y = room.collision.getInt16(o + 8 + i * 8 + 2, true);
+									const ztop = room.collision.getInt16(o + 8 + i * 8 + 4, true);
+									const zbottom = room.collision.getInt16(o + 8 + i * 8 + 6, true);
 
-								if (i === 3 && !(config & 8)) {
-									// (config & 8) means the prism is four-pointed, 0 if three-pointed
-									// very few prisms have a fourth vertex that isn't zeroed out
-									if (x || y || ztop || zbottom) {
-										html.push(`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`);
+									if (i === 3 && !(config & 8)) {
+										// (config & 8) means the prism is four-pointed, 0 if three-pointed
+										// very few prisms have a fourth vertex that isn't zeroed out
+										if (x || y || ztop || zbottom) {
+											html.push(
+												`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
+											);
+										}
+									} else {
+										html.push(
+											`<div>v${i + 1} <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
+										);
 									}
-								} else {
-									html.push(`<div>v${i + 1} <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`);
 								}
-							}
 
-							html.push(`<div>Debug ID: ${debugId >> 6}</div>`);
+								html.push(`<div>Debug ID: ${debugId >> 6}</div>`);
 
-							const actions = [
-								'Walking', // 0x1
-								'M&L Drilling', // 0x2
-								'Mini Mario', // 0x4
-								'M&L Stacked (before drill/twirl)', // 0x8
-								'M&L Twirling', // 0x10
-								, // 0x20
-								, // 0x40
-								, // 0x80
-								'B Spike Balling', // 0x100
-								, // 0x200
-								, // 0x400
-								, // 0x800
-								'M&L Hammering / B Punching', // 0x1000
-								'B Flaming', // 0x2000
-								, // 0x4000
-								, // 0x8000
-							];
-							const solidNames = [];
-							const notSolidNames = [];
-							for (let bit = 1, i = 0; bit < 0xffff; bit <<= 1, ++i) {
-								if (!actions[i]) continue;
-								if (solidActions & bit) solidNames.push(actions[i]);
-								else notSolidNames.push(actions[i]);
-							}
-							if (notSolidNames.length === 0) {
-								// do nothing
-							} else if (solidNames.length === 0) {
-								// not solid at all?
-								html.push('<div style="color: #0ff;">Not solid</div>');
-							} else if (solidNames.length >= notSolidNames.length) {
-								html.push(`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`);
-							} else {
-								html.push(`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`);
-							}
+								const actions = [
+									'Walking', // 0x1
+									'M&L Drilling', // 0x2
+									'Mini Mario', // 0x4
+									'M&L Stacked (before drill/twirl)', // 0x8
+									'M&L Twirling', // 0x10
+									,
+									,
+									,
+									// 0x20
+									// 0x40
+									// 0x80
+									'B Spike Balling', // 0x100
+									,
+									,
+									,
+									// 0x200
+									// 0x400
+									// 0x800
+									'M&L Hammering / B Punching', // 0x1000
+									'B Flaming', // 0x2000
+									// 0x4000
+									// 0x8000
+									,
+									,
+								];
+								const solidNames = [];
+								const notSolidNames = [];
+								for (let bit = 1, i = 0; bit < 0xffff; bit <<= 1, ++i) {
+									if (!actions[i]) continue;
+									if (solidActions & bit) solidNames.push(actions[i]);
+									else notSolidNames.push(actions[i]);
+								}
+								if (notSolidNames.length === 0) {
+									// do nothing
+								} else if (solidNames.length === 0) {
+									// not solid at all?
+									html.push('<div style="color: #0ff;">Not solid</div>');
+								} else if (solidNames.length >= notSolidNames.length) {
+									html.push(
+										`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`,
+									);
+								} else {
+									html.push(
+										`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`,
+									);
+								}
 
-							const attributeStrings = [];
-							if (attributes & 1) attributeStrings.push('no-enter');
-							if (attributes & 4) attributeStrings.push('spike ball grippy');
-							if (attributes & 0x40) attributeStrings.push('unisolid');
+								const attributeStrings = [];
+								if (attributes & 1) attributeStrings.push('no-enter');
+								if (attributes & 4) attributeStrings.push('spike ball grippy');
+								if (attributes & 0x40) attributeStrings.push('unisolid');
 
-							if (attributeStrings.length)
-								html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
+								if (attributeStrings.length)
+									html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
 									Attributes: ${attributeStrings.join(', ')}</div>`);
 
-							side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+								side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
 								margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
-						} else {
-							// special
-							side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+							} else {
+								// special
+								side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
 								margin-left: 1px; padding-left: 8px;"><code>${bytes(o, 24, room.collision)}</code></div>`;
-						}
-					}, () => {
-						updateOverlay3d = updateOverlay3dTriangles = true;
-					})),
+							}
+						},
+						() => {
+							updateOverlay3d = updateOverlay3dTriangles = true;
+						},
+					)),
 				);
 			} else {
 				side.collisionDropdown.replaceWith(
@@ -2797,14 +2808,20 @@
 						const params = segment[o] >> 8;
 						++o;
 
-						if (command === 0x82) ++o; // unknown
+						if (command === 0x82)
+							++o; // unknown
 						else if (command === 0x00) paletteStart = segment[o++];
 						else if (command === 0x01) paletteLength = segment[o++];
-						else if (command === 0x02) ++o; // must match paletteStart (TODO look into this)
-						else if (command === 0x83) ++o; // unknown
-						else if (command === 0x1c) red = segment[o++]; // red component (0 - 0x1f)
-						else if (command === 0x1d) green = segment[o++]; // green component (0 - 0x1f)
-						else if (command === 0x1e) blue = segment[o++]; // blue component (0 - 0x1f)
+						else if (command === 0x02)
+							++o; // must match paletteStart (TODO look into this)
+						else if (command === 0x83)
+							++o; // unknown
+						else if (command === 0x1c)
+							red = segment[o++]; // red component (0 - 0x1f)
+						else if (command === 0x1d)
+							green = segment[o++]; // green component (0 - 0x1f)
+						else if (command === 0x1e)
+							blue = segment[o++]; // blue component (0 - 0x1f)
 						else if (4 <= command && command <= 9) {
 							// keyframe lengths
 							blendMode = command;
@@ -2912,14 +2929,18 @@
 				if (anim.red !== undefined && anim.green !== undefined && anim.blue !== undefined)
 					parts.push(`RGB <code>0x${str8(anim.red)} 0x${str8(anim.green)} 0x${str8(anim.blue)}</code>`);
 
-				parts.push(`mode ${{
-					4: 'PALETTE SHIFT',
-					5: 'SET',
-					6: 'ADD',
-					7: 'SUBTRACT',
-					8: 'SET DIM',
-					9: 'INVERT',
-				}[anim.blendMode]}`);
+				parts.push(
+					`mode ${
+						{
+							4: 'PALETTE SHIFT',
+							5: 'SET',
+							6: 'ADD',
+							7: 'SUBTRACT',
+							8: 'SET DIM',
+							9: 'INVERT',
+						}[anim.blendMode]
+					}`,
+				);
 
 				const keyframes = [];
 				for (let i = 0; i < anim.keyframeLengths.length; ++i) {
@@ -2931,7 +2952,7 @@
 
 				palAnimLines.push(`<code>${i}:</code> ${parts.join(', ')}`);
 			}
-			lines.push(`[5] paletteAnimations: <ul>${palAnimLines.map(x => '<li>' + x + '</li>').join('')}</ul>`);
+			lines.push(`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li>' + x + '</li>').join('')}</ul>`);
 
 			const tileAnimLines = [];
 			for (let i = 0; i < room.tileAnimations.length; ++i) {
@@ -2950,7 +2971,7 @@
 
 				tileAnimLines.push(`<code>${i}:</code> ${parts.join(', ')}`);
 			}
-			lines.push(`[6] tileAnimations: <ul>${tileAnimLines.map(x => '<li>' + x + '</li>').join('')}</ul>`);
+			lines.push(`[6] tileAnimations: <ul>${tileAnimLines.map((x) => '<li>' + x + '</li>').join('')}</ul>`);
 
 			if (room.tilesetAnimated) {
 				lines.push(`[7] tilesetAnimated: 0x${Math.ceil(room.tilesetAnimated.length / 32).toString(16)} tiles`);
@@ -2995,9 +3016,9 @@
 
 							if (fromIntensity === undefined || toIntensity === undefined) continue; // no net effect
 							const intensity = (fromIntensity + (toIntensity - fromIntensity) * alpha) / 100;
-							let r = palAnim.red << 3 | palAnim.red >> 2;
-							let g = palAnim.green << 3 | palAnim.green >> 2;
-							let b = palAnim.blue << 3 | palAnim.blue >> 2;
+							let r = (palAnim.red << 3) | (palAnim.red >> 2);
+							let g = (palAnim.green << 3) | (palAnim.green >> 2);
+							let b = (palAnim.blue << 3) | (palAnim.blue >> 2);
 
 							lastPalette.set(palette, 0);
 							for (let i = 0; i < palAnim.paletteLength; ++i) {
@@ -3304,11 +3325,11 @@
 	// | Section: Menu Maps                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const menu = window.menu = await createSection('Menu Maps', section => {
+	const menu = (window.menu = await createSection('Menu Maps', (section) => {
 		const menu = {};
 
 		const menuFile = fs.get('/MMap/MMap.dat');
-		const maps = menu.maps = unpackSegmented(menuFile);
+		const maps = (menu.maps = unpackSegmented(menuFile));
 
 		const tilesetOptions = [];
 		const tilemapOptions = [];
@@ -3322,11 +3343,23 @@
 			}
 		}
 
-		const tilesetSelect = dropdown(tilesetOptions.map(x => x[0]), 0, () => render());
+		const tilesetSelect = dropdown(
+			tilesetOptions.map((x) => x[0]),
+			0,
+			() => render(),
+		);
 		section.appendChild(tilesetSelect);
-		const tilemapSelect = dropdown(tilemapOptions.map(x => x[0]), 0, () => render());
+		const tilemapSelect = dropdown(
+			tilemapOptions.map((x) => x[0]),
+			0,
+			() => render(),
+		);
 		section.appendChild(tilemapSelect);
-		const paletteSelect = dropdown(paletteOptions.map(x => x[0]), 0, () => render());
+		const paletteSelect = dropdown(
+			paletteOptions.map((x) => x[0]),
+			0,
+			() => render(),
+		);
 		section.appendChild(paletteSelect);
 
 		const mapContainer = document.createElement('div');
@@ -3395,7 +3428,7 @@
 					const bitmap256 = new Uint32Array(256 * 256);
 					// 16-color
 					for (let i = 0; i * 32 < tileset.length; ++i) {
-						const basePos = ((i >> 5) << 11) | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+						const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
 						for (let j = 0; j < 32; ++j) {
 							const pos = basePos | ((j >> 2) << 8) | ((j & 0x3) << 1);
 							const composite = tileset[i * 32 + j];
@@ -3408,7 +3441,7 @@
 
 					// 256-color
 					for (let i = 0; i * 64 < tileset.length; ++i) {
-						const basePos = ((i >> 5) << 11) | (i & 0x1f) << 3; // y = i >> 5, x = i & 0x1f
+						const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
 						for (let j = 0; j < 64; ++j) {
 							const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
 							bitmap256[pos] = palette[tileset[i * 64 + j]];
@@ -3437,18 +3470,18 @@
 					// 16-color
 					const bitmap16 = new Uint32Array(256 * 192);
 					for (let i = 0; i < tilemap.length; ++i) {
-						const basePos = (i >> 6) << 12 | (i & 0x3f) << 3;
+						const basePos = ((i >> 6) << 12) | ((i & 0x3f) << 3);
 						const tile = tilemap[i];
 						const tileOffset = (tile & 0x3ff) * 32;
-						const paletteRow = tile >> 12 << 4;
+						const paletteRow = (tile >> 12) << 4;
 						for (let j = 0; j < 32; ++j) {
-							let pos = basePos | (j >> 2) << 9 | (j & 0x3) << 1;
+							let pos = basePos | ((j >> 2) << 9) | ((j & 0x3) << 1);
 							if (tile & 0x400) pos ^= 0x7;
 							if (tile & 0x800) pos ^= 0x7 << 8;
 
 							const composite = tileset[tileOffset + j];
 							if (composite & 0xf) bitmap16[pos] = palette[paletteRow | (composite & 0xf)];
-							if (composite >> 4) bitmap16[pos ^ 1] = palette[paletteRow | composite >> 4];
+							if (composite >> 4) bitmap16[pos ^ 1] = palette[paletteRow | (composite >> 4)];
 						}
 					}
 
@@ -3457,11 +3490,11 @@
 					// 256-color
 					const bitmap256 = new Uint32Array(256 * 192);
 					for (let i = 0; i < tilemap.length; ++i) {
-						const basePos = (i >> 5) << 11 | (i & 0x1f) << 3;
+						const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3);
 						const tile = tilemap[i];
 						const tileOffset = (tile & 0x3ff) * 64;
 						for (let j = 0; j < 64; ++j) {
-							let pos = basePos | (j >> 3) << 8 | (j & 0x7);
+							let pos = basePos | ((j >> 3) << 8) | (j & 0x7);
 							if (tile & 0x400) pos ^= 0x7;
 							if (tile & 0x800) pos ^= 0x7 << 8;
 
@@ -3480,7 +3513,7 @@
 		render();
 
 		return menu;
-	});
+	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Fx                                                                                                   |
