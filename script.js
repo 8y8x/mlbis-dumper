@@ -801,7 +801,7 @@
 	// | Misc                                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const download = (name, mime, dat) => {
+	const download = (name, dat, mime = 'application/octet-stream') => {
 		const blob = new Blob([dat], { type: mime });
 		const link = document.createElement('a');
 		link.href = URL.createObjectURL(blob);
@@ -810,6 +810,39 @@
 		link.click();
 		link.remove();
 		setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
+	};
+
+	const applyPaletteAnimations = (palette16, segments, tick) => {
+		// TODO: why segments.length - 1? what if you include a 0-length segment somewhere?
+		for (let i = 0; i < segments.length - 1; ++i) {
+			const segment = bufToS16(segments[i]);
+			let o = 0;
+
+			const totalLength = segment[o++]; // all keyframe lengths must add up to this
+			let blendMode, paletteStart, paletteLength, red, green, blue;
+			const keyframeLengths = [];
+
+			commandLoop: while (o < segment.length) {
+				const command = segment[o] & 0xff;
+				const params = segment[o++] >> 8;
+
+				// these are listed in the order they come in by default, but you can rearrange things
+				if (command === 0x82) ++o; // unknown, always zero
+				else if (command === 0x00) paletteStart = segment[o++];
+				else if (command === 0x01) paletteLength = segment[o++];
+				else if (command === 0x02) ++o; // TODO must match paletteStart
+				else if (command === 0x83) ++o; // unknown
+				else if (command === 0x1c) red = segment[o++]; // 0x00 - 0x1f
+				else if (command === 0x1d) green = segment[o++]; // 0x00 - 0x1f
+				else if (command === 0x1e) blue = segment[o++]; // 0x00 - 0x1f
+				else if (4 <= command && command <= 9) { // TODO: are there more?
+					// keyframe lengths
+					blendMode = command;
+					let maxTick = 0;
+					for (let j = 2; j < params; j += 2) keyframeLengths.push(segment[o++]);
+				}
+			}
+		}
 	};
 
 	Object.assign(window, { download });
@@ -1006,7 +1039,7 @@
 
 			let output;
 			if (singleDecompression.value === 0) output = file.buffer.slice(fsentry.start, fsentry.end);
-			else if (singleDecompression.value === 1) output = blz(file);
+			else if (singleDecompression.value === 1) output = blz(file); // no caching
 
 			if (!output) {
 				downloadOutput.textContent = 'Failed to load/decompress';
@@ -1041,8 +1074,7 @@
 				let dat = fsentry;
 				let name = fsentry.name;
 				if (multiDecompression.value === 0 && fsentry.overlay) {
-					console.log(i, fsentry);
-					dat = blz(dat);
+					dat = blz(dat); // no caching
 					if (dat) {
 						// if decompression succeeded
 						// rename /dir/file.xyz => /dir/file-decomp.xyz
@@ -1087,6 +1119,20 @@
 		};
 		resort();
 
+		// JP and demo versions don't compress their overlays, but the others do
+		const SHOULD_DECOMPRESS = !['CLJJ', 'Y6PE', 'Y6PP'].includes(headers.gamecode);
+		const overlayCache = new Map();
+		fs.overlay = index => {
+			if (!SHOULD_DECOMPRESS) return fs.get(index);
+
+			const cached = overlayCache.get(index);
+			if (cached) return cached;
+
+			const decomp = blz(fs.get(index));
+			overlayCache.set(index, decomp);
+			return decomp;
+		};
+
 		return fs;
 	}));
 
@@ -1119,11 +1165,6 @@
 			return indices;
 		};
 
-		// JP and demo versions don't compress their overlays, but the other versions do
-		const decompressOverlay = ['CLJJ', 'Y6PE', 'Y6PP'].includes(headers.gamecode) ? (x) => x : blz;
-
-		const overlay03 = decompressOverlay(fs.get(0x03)); // mostly field map references
-		const overlay0e = decompressOverlay(fs.get(0x0e)); // mostly battle map references
 		const fmapdata = fs.get('/FMap/FMapData.dat');
 
 		// i'm not sure how these file structures work, but this should cover all versions of MLBIS
@@ -1134,59 +1175,60 @@
 		if (headers.gamecode === 'CLJE') {
 			// US/AU
 			// two more tables of chunk length 0xc, that i can't be bothered to try and guess
-			fsext.bofxtex = varLengthSegments(0x7c90, overlay0e, fs.get('/BRfx/BOfxTex.dat')); // tile data is probably right next to it, again
-			fsext.bofxpal = varLengthSegments(0x7ca8, overlay0e, fs.get('/BRfx/BOfxPal.dat')); // seems like palette data
-			fsext.bmapg = varLengthSegments(0x7cc0, overlay0e, fs.get('/BMapG/BMapG.dat'));
-			fsext.bdfxtex = varLengthSegments(0x7cd8, overlay0e, fs.get('/BRfx/BDfxTex.dat')); // might be BDfxGAll.dat instead
-			fsext.bdfxpal = varLengthSegments(0x7d0c, overlay0e, fs.get('/BRfx/BDfxPal.dat')); // all segments seem to be 514 in length, so probably palettes
-			fsext.bai_atk_yy = varLengthSegments(0x7d40, overlay0e); // *might* be /BAI/BMes_ji.dat
-			fsext.bai_mon_cf = varLengthSegments(0x7d7c, overlay0e);
-			fsext.bai_mon_yo = varLengthSegments(0x8210, overlay0e);
-			fsext.bai_scn_ji = varLengthSegments(0x82a4, overlay0e);
-			fsext.bai_atk_nh = varLengthSegments(0x834c, overlay0e);
-			fsext.bai_mon_ji = varLengthSegments(0x8480, overlay0e);
-			fsext.bobjmap = varLengthSegments(0x859c, overlay0e);
-			fsext.bai_atk_hk = varLengthSegments(0x875c, overlay0e);
-			fsext.bai_scn_yo = varLengthSegments(0x8998, overlay0e);
-			fsext.bobjpc = varLengthSegments(0x8c1c, overlay0e);
-			fsext.bobjui = varLengthSegments(0x91c0, overlay0e);
-			fsext.bobjmon = varLengthSegments(0x9c18, overlay0e);
+			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat')); // tile data is probably right next to it, again
+			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxPal.dat')); // seems like palette data
+			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat')); // might be BDfxGAll.dat instead
+			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat')); // all segments seem to be 514 in length, so probably palettes
+			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14)); // *might* be /BAI/BMes_ji.dat
+			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14));
+			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14));
+			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14));
+			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14));
+			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14));
+			fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
+			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14));
+			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14));
+			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
+			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
+			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
 
-			fsext.fevent = varLengthSegments(0xc8ac, overlay03);
-			fsext.fmapdata = varLengthSegments(0x11310, overlay03, fmapdata);
-			fsext.fobj = varLengthSegments(0xe8a0, overlay03);
-			fsext.fobjmon = varLengthSegments(0xba3c, overlay03);
-			fsext.fobjpc = varLengthSegments(0xbdb0, overlay03);
-			fsext.fpaf = varLengthSegments(0xb8a0, overlay03);
-			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, overlay03);
-			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, overlay03);
+			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
+			fsext.fmapmetadata = 0x98a0;
+			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fmapdata);
+			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
+			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
+			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
+			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3));
+			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
+			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
-			fsext.fmapdata = varLengthSegments(0x11310, overlay03, fmapdata);
-			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, overlay03);
-			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, overlay03);
+			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fmapdata);
+			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
+			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJJ') {
 			// JP
-			fsext.fmapdata = varLengthSegments(0x11544, overlay03, fmapdata);
-			fsext.fieldAnimeIndices = fixedIndices(0x19710, 0x1a85c, overlay03);
-			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, overlay03);
+			fsext.fmapdata = varLengthSegments(0x11544, fs.overlay(3), fmapdata);
+			fsext.fieldAnimeIndices = fixedIndices(0x19710, 0x1a85c, fs.overlay(3));
+			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
-			fsext.fmapdata = varLengthSegments(0x11310, overlay03, fmapdata);
-			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, overlay03);
-			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, overlay03);
+			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fmapdata);
+			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
+			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 		} else if (headers.gamecode === 'Y6PP') {
 			// EU Demo
-			fsext.fmapdata = varLengthSegments(0x9a3c, overlay03, fmapdata);
-			fsext.fobj = varLengthSegments(0x9cb0, overlay03);
-			fsext.fieldAnimeIndices = fixedIndices(0xe220, 0xe318, overlay03);
-			fsext.fieldRoomIndices = fixedIndices(0xe498, 0xe72c, overlay03);
+			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fmapdata);
+			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3));
+			fsext.fieldAnimeIndices = fixedIndices(0xe220, 0xe318, fs.overlay(3));
+			fsext.fieldRoomIndices = fixedIndices(0xe498, 0xe72c, fs.overlay(3));
 		} else if (headers.gamecode === 'Y6PE') {
 			// US Demo
-			fsext.fmapdata = varLengthSegments(0x9a3c, overlay03, fmapdata);
-			fsext.fobj = varLengthSegments(0x9cb0, overlay03);
-			fsext.fieldAnimeIndices = fixedIndices(0xe164, 0xe25c, overlay03);
-			fsext.fieldRoomIndices = fixedIndices(0xe3dc, 0xe670, overlay03);
+			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fmapdata);
+			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3));
+			fsext.fieldAnimeIndices = fixedIndices(0xe164, 0xe25c, fs.overlay(3));
+			fsext.fieldRoomIndices = fixedIndices(0xe3dc, 0xe670, fs.overlay(3));
 		} else {
 			addHTML(section, `<b style="color: #f99">Unknown gamecode ${headers.gamecode}</b>`);
 		}
@@ -1224,6 +1266,13 @@
 			const packed = treasureFile.getUint16(i * 12, true);
 			field.treasure[field.treasure.length - 1].push(sliceDataView(treasureFile, i * 12, i * 12 + 12));
 			if (packed & 1) field.treasure.push([]); // end of this room's treasure
+		}
+
+		field.metadata = [];
+		const overlay3 = fs.overlay(3);
+		for (let i = 0; i < field.rooms.length; ++i) {
+			const start = fsext.fmapmetadata + i * 12;
+			field.metadata.push(sliceDataView(overlay3, start, start + 12));
 		}
 
 		let updatePalettes = true;
@@ -1381,7 +1430,7 @@
 		sideProperties.appendChild((side.collisionDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.layerAnimList = document.createElement('div')));
 		sideProperties.appendChild((side.tileAnimList = document.createElement('div')));
-		sideProperties.appendChild((side.animDisplay = document.createElement('div')));
+		sideProperties.appendChild((side.metadataDisplay = document.createElement('div')));
 
 		// setup basic 3d overlay
 		const map3d = (() => {
@@ -1857,6 +1906,21 @@
 				});
 				side.tileAnimList.appendChild(check);
 			}
+
+			// side properties map metadata
+			side.metadataDisplay.innerHTML = 'Metadata:';
+			const metadata = bufToU32(field.metadata[options.roomDropdown.value]);
+			addHTML(side.metadataDisplay, `<ul>
+				<li>X.b1: ${metadata[0] & 1}</li>
+				<li>X.b2: ${metadata[0] & 2}</li>
+				<li>X.SELECT map ID: 0x${(metadata[0] >> 2 & 0x3ff).toString(16)}</li>
+				<li>X.SELECT map anim: ${metadata[0] >> 12 & 0x3ff}</li>
+				<li>X.variable: ${metadata[0] >> 22}</li>
+				<li>Y.unknown: ${metadata[1] & 0x3ffff}</li>
+				<li>Y.baseX: ${metadata[1] >> 20}</li>
+				<li>Z.baseY: ${metadata[2] & 0xfff}</li>
+				<li>Z.musicID: ${metadata[2] >> 12}</li>
+			</ul>`);
 
 			// bottom properties
 			bottomProperties.innerHTML = '';
@@ -3650,7 +3714,8 @@
 	// devtools console help
 	console.log(
 		`Dumping functions: \
-		\n%creadString(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \ndownload(name, mime, dat) %c \
+		\n%creadString(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \
+		\ndownload(name, dat, mime = 'application/octet-stream') %c \
 		\n\nCompression/Packing functions: \
 		\n%cblz(indat) \nblzCompress(indat) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
 		\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
