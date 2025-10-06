@@ -163,7 +163,7 @@
 			label.remove();
 		}
 
-		const set = (newChecked, silent) => {
+		checkbox.set = (newChecked, silent) => {
 			checked = newChecked;
 			checkbox.checked = checked;
 			if (checked) checkbox.classList.add('checked');
@@ -171,8 +171,8 @@
 			if (!silent) onchange();
 		};
 
-		set(checked, true);
-		checkbox.addEventListener('mousedown', () => set(!checked));
+		checkbox.set(checked, true);
+		checkbox.addEventListener('mousedown', () => checkbox.set(!checked));
 
 		return checkbox;
 	};
@@ -288,14 +288,16 @@
 	// compresses overlay files MOSTLY EXACTLY (i.e. blzCompress(blz(overlay)) == overlay for NEARLY ALL overlays)
 	// these overlays: NA 2, EU 2, KO 2, KO 123, KO 139 don't recompress exactly, there is likely some other
 	// scoring system that i haven't been able to reverse engineer
-	const blzCompress = (indat) => {
+	// `minimumSize` is useful for modding overlays without having to change the FAT or overlay tables or anything else
+	const blzCompress = (indat, minimumSize) => {
+		const rightPadding = minimumSize === undefined ? 12 : 256;
 		const inbuf = bufToU8(indat);
 		// in the worst case, blz compression results in 9/8 (112.5%) of the original input size
 		// (the size of literals and control bytes)
 		// round up to 4-byte boundaries, then add 8 bytes of header (so, may add up to 12 bytes)
-		const outbuf = new Uint8Array(Math.ceil((inbuf.length * 9) / 8) + 12);
+		const outbuf = new Uint8Array(Math.ceil((inbuf.length * 9) / 8) + rightPadding);
 
-		const startingOutoff = outbuf.length - 12;
+		const startingOutoff = outbuf.length - rightPadding;
 		let outoff = startingOutoff;
 		let inoff = inbuf.length - 1;
 
@@ -389,9 +391,20 @@
 				if (decompHypoOutoff < decompHypoInoff) continue cutoff;
 			}
 
-			// this stop is fine
-			instop = stops[i].inoffEnd;
-			outstop = stops[i].outoff;
+			if (minimumSize !== undefined) {
+				const hypoNextDecompLength = stops[i].inoffEnd + 1;
+				const hypoNextCompLength = startingOutoff - stops[i].outoff;
+				const estimatedSize = Math.ceil((hypoNextDecompLength + hypoNextCompLength) / 4) * 4 + 8;
+				if (estimatedSize <= minimumSize) {
+					instop = stops[i].inoffEnd;
+					outstop = stops[i].outoff;
+					continue;
+				}
+			} else {
+				// this stop is fine
+				instop = stops[i].inoffEnd;
+				outstop = stops[i].outoff;
+			}
 			break;
 		}
 
@@ -399,9 +412,13 @@
 		const dataStart = outstop - decompressedLength;
 		outbuf.set(inbuf.slice(0, decompressedLength), dataStart);
 
-		const compressedLength = outbuf.length - 12 - outstop;
-		const paddingStart = outstop + compressedLength;
-		const headerStart = dataStart + Math.ceil((decompressedLength + compressedLength) / 4) * 4;
+		const compressedLength = startingOutoff - outstop;
+		const paddingStart = startingOutoff;
+		let headerStart = dataStart + Math.ceil((decompressedLength + compressedLength) / 4) * 4;
+		if (minimumSize !== undefined) {
+			const estimatedSize = headerStart - dataStart + 8;
+			headerStart += minimumSize - estimatedSize;
+		}
 		const dataLength = headerStart + 8 - dataStart;
 		const additionalLength = inbuf.length - dataLength;
 		if (additionalLength <= 0) {
@@ -812,15 +829,17 @@
 		setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
 	};
 
-	const applyPaletteAnimations = (palette16, segments, tick) => {
-		// TODO: why segments.length - 1? what if you include a 0-length segment somewhere?
-		for (let i = 0; i < segments.length - 1; ++i) {
-			const segment = bufToS16(segments[i]);
-			let o = 0;
+	const applyPaletteAnimations = (palette, segments, tick) => {
+		if (!segments.length) return;
 
-			const totalLength = segment[o++]; // all keyframe lengths must add up to this
-			let blendMode, paletteStart, paletteLength, red, green, blue;
-			const keyframeLengths = [];
+		const segment = bufToS16(segments[0]); // other segments appear to be ignored
+		let o = 0;
+		const totalLength = segment[o++];
+		while (o < segment.length) {
+			let blendMode, paletteStart, paletteLength, red = 0, green = 0, blue = 0;
+			let keyframe, keyframeDistance, keyframes = 0, percent = 0;
+
+			let relativeTick = tick % totalLength;
 
 			commandLoop: while (o < segment.length) {
 				const command = segment[o] & 0xff;
@@ -832,17 +851,135 @@
 				else if (command === 0x01) paletteLength = segment[o++];
 				else if (command === 0x02) ++o; // TODO must match paletteStart
 				else if (command === 0x83) ++o; // unknown
-				else if (command === 0x1c) red = segment[o++]; // 0x00 - 0x1f
-				else if (command === 0x1d) green = segment[o++]; // 0x00 - 0x1f
-				else if (command === 0x1e) blue = segment[o++]; // 0x00 - 0x1f
+				else if (command === 0x1c) red = segment[o++] & 0x1f; // 0x00 - 0x1f; params has to be 4?
+				else if (command === 0x1d) green = segment[o++] & 0x1f; // 0x00 - 0x1f
+				else if (command === 0x1e) blue = segment[o++] & 0x1f; // 0x00 - 0x1f
 				else if (4 <= command && command <= 9) { // TODO: are there more?
 					// keyframe lengths
 					blendMode = command;
-					let maxTick = 0;
-					for (let j = 2; j < params; j += 2) keyframeLengths.push(segment[o++]);
+					let startTick = 0;
+					keyframes = params / 2 + 1;
+					for (let i = 0; i < keyframes; ++i) {
+						const length = segment[o++];
+						if (relativeTick < length && keyframe === undefined) {
+							keyframe = i;
+							keyframeDistance = relativeTick / length;
+						}
+						relativeTick -= length;
+					}
+				} else if (command === 0x1f) {
+					// keyframe values (0 - 100)
+					let from = 0, to = 0;
+					if (keyframe !== undefined) {
+						from = keyframe === 0 ? 0 : segment[o + keyframe - 1];
+						to = segment[o + keyframe];
+					}
+					percent = Math.min(100, from + (to - from) * keyframeDistance); // TODO: is clamping done *after* interpolation?
+					o += keyframes;
+					break commandLoop;
+				} else {
+					throw `unknown command 0x${str8(command)} params 0x${str8(params)}`;
+				}
+			}
+
+			// apply to palette
+			if (blendMode === 4) { // palette rotate
+				const old = new Uint32Array(paletteLength);
+				old.set(palette.slice(paletteStart, paletteStart + paletteLength), 0);
+				for (let j = 0; j < paletteLength; ++j) {
+					palette[paletteStart + j] = old[(j + ~~(percent / 100 * paletteLength)) % paletteLength];
+				}
+			} else if (blendMode === 5) { // set
+				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+					const r = (palette[j] & 0xf8) * (100 - percent) / 100 + red * percent / 100;
+					const g = ((palette[j] >> 8) & 0xf8) * (100 - percent) / 100 + green * percent / 100;
+					const b = ((palette[j] >> 16) & 0xf8) * (100 - percent) / 100 + blue * percent / 100;
+					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
+				}
+			} else if (blendMode === 6) { // additive
+				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+					const r = Math.min(0xf8, (palette[j] & 0xf8) + (red << 3) * percent / 100);
+					const g = Math.min(0xf8, ((palette[j] >> 8) & 0xf8) + (green << 3) * percent / 100);
+					const b = Math.min(0xf8, ((palette[j] >> 16) & 0xf8) + (blue << 3) * percent / 100);
+					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
+				}
+			} else if (blendMode === 7) { // subtractive
+				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+					const r = Math.max(0, (palette[j] & 0xf8) - (red << 3) * percent / 100);
+					const g = Math.max(0, ((palette[j] >> 8) & 0xf8) - (green << 3) * percent / 100);
+					const b = Math.max(0, ((palette[j] >> 16) & 0xf8) - (blue << 3) * percent / 100);
+					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
+				}
+			} else if (blendMode === 8) { // set dimmed (not really sure why this exists)
+				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+					const r = ((palette[j]) & 0xf8) * (100 - percent) / 100 + ((red / 0x1f * 0x16) << 3) * percent / 100;
+					const g = ((palette[j] >> 8) & 0xf8) * (100 - percent) / 100 + ((green / 0x1f * 0x16) << 3) * percent / 100;
+					const b = ((palette[j] >> 16) & 0xf8) * (100 - percent) / 100 + ((blue / 0x1f * 0x16) << 3) * percent / 100;
+					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
+				}
+			} else if (blendMode === 9) { // invert
+				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+					let r = palette[j] & 0xf8;
+					let g = (palette[j] >> 8) & 0xf8;
+					let b = (palette[j] >> 16) & 0xf8;
+					r += (0xf8 - r * 2) * percent / 100;
+					g += (0xf8 - g * 2) * percent / 100;
+					b += (0xf8 - b * 2) * percent / 100;
+					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
 				}
 			}
 		}
+
+		// make RGB15 brighter (so 0x1f in 5-bit corresponds to 0xff in 8-bit)
+		for (let i = 0; i < 256; ++i) {
+			palette[i] &= 0xfff8f8f8;
+			palette[i] |= (palette[i] >> 5) & 0x070707;
+		}
+	};
+
+	const stringifyPaletteAnimations = segments => {
+		if (!segments.length) return [];
+		const segment = bufToU16(segments[0]);
+		let o = 0;
+		const totalLength = segment[o++];
+		const strings = [`(totalLength ${totalLength})`];
+		while (o < segment.length) {
+			let parts = [];
+
+			let keyframes = 0;
+			commandLoop: while (o < segment.length) {
+				const command = segment[o] & 0xff;
+				const params = segment[o++] >> 8;
+				const commandStr = params ? str16(command | params << 8) : str8(command);
+
+				if (command === 0x82) parts.push(`(0x${commandStr} 0x${str16(segment[o++])})`);
+				else if (command === 0x00) parts.push(`(palFrom 0x${str8(segment[o++])})`);
+				else if (command === 0x01) parts.push(`(palLen 0x${str8(segment[o++])})`);
+				else if (command === 0x02) parts.push(`(palTo 0x${str8(segment[o++])})`);
+				else if (command === 0x83) parts.push(`(0x${commandStr} 0x${str16(segment[o++])})`);
+				else if (command === 0x1c) parts.push(`(red${params ? '[' + params + ']' : ''} 0x${str8(segment[o++])})`);
+				else if (command === 0x1d) parts.push(`(green${params ? '[' + params + ']' : ''} 0x${str8(segment[o++])})`);
+				else if (command === 0x1e) parts.push(`(blue${params ? '[' + params + ']' : ''} 0x${str8(segment[o++])})`);
+				else if (4 <= command && command <= 9) {
+					const mode = ['ROTATE', 'SET', 'ADD', 'SUB', 'SET_DIMMED', 'INVERT'][command - 4] ?? ('0x' + str8(command));
+					const lengths = [];
+					keyframes = params / 2 + 1;
+					for (let i = 0; i < keyframes; ++i) lengths.push(segment[o++]);
+					parts.push(`(${mode} lengths ${lengths.join(' ')})`);
+				} else if (command === 0x1f) {
+					const percents = [];
+					for (let i = 0; i < keyframes; ++i) percents.push(segment[o++] + '%');
+					parts.push(`(values ${percents.join(' ')})`);
+					break commandLoop;
+				} else {
+					parts.push(`(0x${commandStr} 0x${str16(segment[o++])}`);
+				}
+			}
+
+			strings.push(parts.map((s,i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`).join(' '));
+		}
+
+		return strings;
 	};
 
 	Object.assign(window, { download });
@@ -1313,12 +1450,10 @@
 				() => (updateMaps = updateOverlay2d = updateOverlay3d = true),
 			)),
 		);
+		let animationsToggledCallback = () => {};
 		optionRows[0].appendChild(
-			(options.animations = checkbox('Animations', false, () => {
-				/* options.dumpButton.innerHTML = options.animations.checked ? 'Dump APNG' : 'Dump PNG'; */
-			})),
+			(options.animations = checkbox('Animations', false, () => { animationsToggledCallback() })),
 		);
-		// optionRows[0].appendChild((options.dumpButton = button('Dump PNG', () => dump())));
 
 		// options about overlays of extra data, put on top of the map
 		optionRows[1].appendChild((options.treasure = checkbox('Treasure', false, () => (updateOverlay2d = true))));
@@ -1569,6 +1704,7 @@
 				loadingZones: room.props[7],
 				layerAnimations: room.props[9],
 				tileAnimations: room.props[10],
+				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map((buf) => unpackSegmented16(buf)),
 				collision: room.props[14],
 				depth: room.props[15],
 			});
@@ -1881,6 +2017,7 @@
 			// side properties tile animations
 			const tileAnimations = unpackSegmented(room.tileAnimations);
 			side.tileAnimList.innerHTML = 'Tile Animations: ';
+			const tileAnimationsDefault = [];
 			for (let i = 0; i < tileAnimations.length; ++i) {
 				const flags = tileAnimations[i].getUint32(0, true);
 				const animeIndex = tileAnimations[i].getUint16(4, true);
@@ -1893,19 +2030,35 @@
 				};
 
 				// only auto-enable if animation is "immediately looping" (flags & 4 == 0, flags & 8 == 0)
-				const autoEnable = options.animations.checked && !(flags & 0xc);
-				if (autoEnable) room.enabledTileAnimations.add(container);
-				const check = checkbox('', autoEnable, () => {
+				if (!(flags & 0xc)) {
+					tileAnimationsDefault.push(container);
+					if (options.animations.checked) room.enabledTileAnimations.add(container);
+				}
+				const check = checkbox('', options.animations.checked && !(flags & 0xc), () => {
 					if (check.checked) {
 						container.startTick = Math.floor((performance.now() / 1000) * 60);
 						room.enabledTileAnimations.add(container);
+						if (room.enabledTileAnimations.size === 1) options.animations.set(true, true);
 					} else {
 						room.enabledTileAnimations.delete(container);
+						if (room.enabledTileAnimations.size === 0) options.animations.set(false, true);
 					}
-					updateMaps = true;
+					updateTiles = updateMaps = true;
 				});
+				container.check = check;
 				side.tileAnimList.appendChild(check);
 			}
+
+			animationsToggledCallback = () => {
+				for (const { check } of room.enabledTileAnimations) check.set(false, true);
+				room.enabledTileAnimations.clear();
+				updatePalettes = updateTiles = updateMaps = true;
+				if (!options.animations.checked) return;
+				for (const container of tileAnimationsDefault) {
+					room.enabledTileAnimations.add(container);
+					container.check.set(true, true);
+				}
+			};
 
 			// side properties map metadata
 			side.metadataDisplay.innerHTML = 'Metadata:';
@@ -2018,9 +2171,9 @@
 				`[8] blending: <code>${bytes(0, Math.min(1024, room.props[8].byteLength), room.props[8])}</code>`,
 				`[9] layerAnimations: <ul>${layerAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[10] tileAnimations: <ul>${tileAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
-				`[11] paletteAnimations BG1: <code>${bytes(0, Math.min(1024, room.props[11].byteLength), room.props[11])}</code>`,
-				`[12] paletteAnimations BG2: <code>${bytes(0, Math.min(1024, room.props[12].byteLength), room.props[12])}</code>`,
-				`[13] paletteAnimations BG3: <code>${bytes(0, Math.min(1024, room.props[13].byteLength), room.props[13])}</code>`,
+				`[11] paletteAnimations BG1: <ul>${stringifyPaletteAnimations(room.paletteAnimations[0]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
+				`[12] paletteAnimations BG2: <ul>${stringifyPaletteAnimations(room.paletteAnimations[1]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
+				`[13] paletteAnimations BG3: <ul>${stringifyPaletteAnimations(room.paletteAnimations[2]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
 				`[16] unused: <code>${bytes(0, Math.min(1024, room.props[16].byteLength), room.props[16])}</code>`,
 				`[17] unused: <code>${bytes(0, Math.min(1024, room.props[17].byteLength), room.props[17])}</code>`,
 			];
@@ -2028,6 +2181,7 @@
 		};
 		roomPicked();
 
+		const palettes = [];
 		const render = () => {
 			const { room } = field;
 
@@ -2042,15 +2196,28 @@
 			const canvasWidth = options.margins.checked ? layerWidth * 8 : layerWidth * 8 - 32;
 			const canvasHeight = options.margins.checked ? roomHeight * 8 : roomHeight * 8 - 32;
 
+			if (options.animations.checked && room.paletteAnimations.some(x => x.length)) {
+				updatePalettes = updateTiles = updateMaps = true;
+			}
 			if (updatePalettes) {
 				for (let i = 0; i < 3; ++i) {
 					const ctx = paletteCanvases[i].getContext('2d');
 					if (!room.palettes[i]?.byteLength) {
+						palettes[i] = room.palettes[i];
 						ctx.clearRect(0, 0, 16, 16);
 						continue;
 					}
 
-					paletteImages[i].data.set(bufToU8(room.palettes[i]));
+					if (room.paletteAnimations[i].length) {
+						const palette = new Uint32Array(256);
+						palette.set(room.palettes[i], 0);
+						applyPaletteAnimations(palette, room.paletteAnimations[i], tick);
+						palettes[i] = palette;
+					} else {
+						palettes[i] = room.palettes[i];
+					}
+
+					paletteImages[i].data.set(bufToU8(palettes[i]));
 					ctx.putImageData(paletteImages[i], 0, 0);
 				}
 			}
@@ -2063,15 +2230,12 @@
 			}
 
 			if (updateTiles || updateMaps) {
-				// each will be an array 0-1023 referencing the original tileset,
-				// unless there's a tile animation that's replacing some tiles with its own tileset
-				const tilesetLayouts = [new Uint16Array(1024), new Uint16Array(1024), new Uint16Array(1024)];
-				const tilesetReferences = [new Array(1024), new Array(1024), new Array(1024)];
+				const layouts = [new Array(1024), new Array(1024), new Array(1024)];
 				for (let i = 0; i < 3; ++i) {
 					if (!room.tilesets[i]) continue;
+					const tileSize = (layerFlags[5] & (1 << i)) ? 64 : 32;
 					for (let j = 0; j < 1024; ++j) {
-						tilesetLayouts[i][j] = j;
-						tilesetReferences[i][j] = room.tilesets[i];
+						layouts[i][j] = room.tilesets[i].slice(j * tileSize, (j + 1) * tileSize);
 					}
 				}
 
@@ -2101,22 +2265,24 @@
 
 					const replacementStart = (field >> 4) & 0x3ff;
 					const replacementLength = (field >> 14) & 0x3ff;
+					const tileSize = (layerFlags[5] & (1 << layer)) ? 64 : 32;
 					for (let i = 0; i < replacementLength; ++i) {
-						tilesetLayouts[layer][replacementStart + i] = replacementLength * animationFrame + i;
-						tilesetReferences[layer][replacementStart + i] = tileset;
+						layouts[layer][replacementStart + i] = tileset.slice(
+							(replacementLength * animationFrame + i) * tileSize,
+							(replacementLength * animationFrame + i + 1) * tileSize,
+						);
 					}
 				}
 
 				if (updateTiles) {
 					for (let i = 0; i < 3; ++i) {
 						const ctx = tilesetCanvases[i].getContext('2d');
-						if (!room.tilesets[i] || !room.palettes[i]) {
+						if (!room.tilesets[i] || !palettes[i]) {
 							ctx.clearRect(0, 0, 256, 256);
 							continue;
 						}
 
 						const bitmap = bufToU32(tilesetImages[i].data);
-						const palette = room.palettes[i];
 						const tileByteSize = layerFlags[5] & (1 << i) ? 64 : 32; // 256-color or 16-color
 						const numTiles = Math.ceil(room.tilesets[i].length / tileByteSize);
 
@@ -2124,23 +2290,21 @@
 
 						for (let j = 0; j < numTiles; ++j) {
 							const basePos = ((j >> 5) << 11) | ((j & 0x1f) << 3); // y << 8 | x
-							const tilesetIndex = tilesetLayouts[i][j];
-							const tileset = tilesetReferences[i][j];
 
+							const tile = layouts[i][j];
 							if (layerFlags[5] & (1 << i)) {
 								// 256-color
 								for (let k = 0; k < 64; ++k) {
 									const pos = basePos | ((k >> 3) << 8) | (k & 7);
-									const paletteIndex = tileset[tilesetIndex * 64 + k] || 0;
-									bitmap[pos] = palette[paletteIndex];
+									bitmap[pos] = palettes[i][tile[k] || 0];
 								}
 							} else {
 								// 16-color
 								for (let k = 0, o = 0; k < 64; k += 2, ++o) {
 									const pos = basePos | ((k >> 3) << 8) | (k & 7);
-									const composite = tileset[tilesetIndex * 32 + o] || 0;
-									bitmap[pos] = palette[composite & 0xf];
-									bitmap[pos ^ 1] = palette[composite >> 4];
+									const composite = tile[o] || 0;
+									bitmap[pos] = palettes[i][composite & 0xf];
+									bitmap[pos ^ 1] = palettes[i][composite >> 4];
 								}
 							}
 						}
@@ -2150,7 +2314,8 @@
 				}
 
 				if (updateMaps) {
-					mapBitmap.fill(room.palettes[2][0], 0, layerWidth * roomHeight * 64);
+					// rooms are always cleared with BG3's 0th color
+					mapBitmap.fill(palettes[2][0], 0, layerWidth * roomHeight * 64);
 
 					const mapLayouts = [
 						new Uint16Array(layerWidth * roomHeight),
@@ -2159,7 +2324,7 @@
 					];
 					for (let i = 0; i < 3; ++i) {
 						for (let j = 0; j < layerWidth * roomHeight; ++j) {
-							mapLayouts[i][j] = room.tilemaps[i][j] || 0;
+							mapLayouts[i][j] = room.tilemaps[i][j];
 						}
 					}
 
@@ -2185,12 +2350,11 @@
 						if (
 							!room.tilemaps[i] ||
 							!room.tilesets[i] ||
-							!room.palettes[i] ||
+							!palettes[i] ||
 							![options.bg1, options.bg2, options.bg3][i].checked
 						)
 							continue;
 						const layout = mapLayouts[i];
-						const palette = room.palettes[i];
 
 						for (let j = 0; j < layout.length; ++j) {
 							const tileX = j % layerWidth;
@@ -2198,12 +2362,10 @@
 							const basePos = tileY * 64 * layerWidth + tileX * 8;
 
 							const baseTile = layout[j] & 0x3ff;
-							const tilesetIndex = tilesetLayouts[i][baseTile];
-							const tileset = tilesetReferences[i][baseTile];
+							const tile = layouts[i][baseTile];
 
 							const horizontalFlip = layout[j] & 0x400 ? 7 : 0;
 							const verticalFlip = layout[j] & 0x800 ? 7 : 0;
-
 							if (layerFlags[5] & (1 << i)) {
 								// 256-color
 								for (let o = 0; o < 64; ++o) {
@@ -2211,8 +2373,7 @@
 										basePos +
 										((o >> 3) ^ verticalFlip) * 8 * layerWidth +
 										((o & 7) ^ horizontalFlip);
-									const paletteIndex = tileset[tilesetIndex * 64 + o] || 0;
-									if (paletteIndex) mapBitmap[pos] = palette[paletteIndex];
+									if (tile[o]) mapBitmap[pos] = palettes[i][tile[o]];
 								}
 							} else {
 								// 16-color
@@ -2222,9 +2383,9 @@
 										basePos +
 										((k >> 3) ^ verticalFlip) * 8 * layerWidth +
 										((k & 7) ^ horizontalFlip);
-									const composite = tileset[tilesetIndex * 32 + o] || 0;
-									if (composite & 0xf) mapBitmap[pos] = palette[paletteShift | (composite & 0xf)];
-									if (composite >> 4) mapBitmap[pos ^ 1] = palette[paletteShift | (composite >> 4)];
+									const composite = tile[o] || 0;
+									if (composite & 0xf) mapBitmap[pos] = palettes[i][paletteShift | (composite & 0xf)];
+									if (composite >> 4) mapBitmap[pos ^ 1] = palettes[i][paletteShift | (composite >> 4)];
 								}
 							}
 						}
@@ -2847,13 +3008,15 @@
 				palette: rawRoom.palette?.byteLength && rgb15To32(bufToU16(rawRoom.palette)),
 				tilemaps: rawRoom.tilemaps.map((x) => x?.byteLength && bufToU16(x)),
 				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength && bufToU8(lzBis(rawRoom.tilesetAnimated)),
+				paletteAnimations: rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [],
 			};
 
 			// parse palette animations
-			room.paletteAnimations = [];
+			/* room.paletteAnimations = [];
 			const paletteSegments = rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [];
 			for (let i = 0; i < paletteSegments.length - 1; ++i) {
 				const segment = bufToS16(paletteSegments[i]);
+				console.log(segment);
 
 				const totalLength = segment[0]; // all keyframe lengths must add up to this
 
@@ -2909,7 +3072,7 @@
 						totalLength,
 					});
 				}
-			}
+			} */
 
 			// parse tile animations
 			room.tileAnimations = [];
@@ -2965,15 +3128,6 @@
 			// metadata below
 			metaPreview.innerHTML = '';
 
-			/*bmaps.push({
-				tileset: bmap[i],
-				palette: bmap[i + 1],
-				tilemaps: [bmap[i + 2], bmap[i + 3], bmap[i + 4]],
-				paletteAnimations: bmap[i + 5],
-				tileAnimations: bmap[i + 6],
-				tilesetAnimated: bmap[i + 7],
-			});*/
-
 			const lines = [];
 			if (room.tileset) lines.push(`[0] tileset: 0x${Math.ceil(room.tileset.length / 32).toString(16)} tiles`);
 			else lines.push('[0] tileset: none');
@@ -2983,40 +3137,8 @@
 			lines.push(`[3] BG1: ${room.tilemaps[1] ? room.tilemaps[1].byteLength + ' bytes' : ''}`);
 			lines.push(`[4] BG1: ${room.tilemaps[2] ? room.tilemaps[2].byteLength + ' bytes' : ''}`);
 
-			const palAnimLines = [];
-			for (let i = 0; i < room.paletteAnimations.length; ++i) {
-				const anim = room.paletteAnimations[i];
-				const parts = [];
-				parts.push(`palette <code>0x${str8(anim.paletteStart)} -
-					0x${str8(anim.paletteStart + anim.paletteLength)}</code>`);
-
-				if (anim.red !== undefined && anim.green !== undefined && anim.blue !== undefined)
-					parts.push(`RGB <code>0x${str8(anim.red)} 0x${str8(anim.green)} 0x${str8(anim.blue)}</code>`);
-
-				parts.push(
-					`mode ${
-						{
-							4: 'PALETTE SHIFT',
-							5: 'SET',
-							6: 'ADD',
-							7: 'SUBTRACT',
-							8: 'SET DIM',
-							9: 'INVERT',
-						}[anim.blendMode]
-					}`,
-				);
-
-				const keyframes = [];
-				for (let i = 0; i < anim.keyframeLengths.length; ++i) {
-					const intensity = anim.keyframeIntensities[i];
-					const length = anim.keyframeLengths[i];
-					keyframes.push(`<span style="color: ${i % 2 ? '#999' : '#666'}">(${intensity}%, ${length})</span>`);
-				}
-				parts.push('keyframes (intensity, length): <code>' + keyframes.join(' ') + '</code>');
-
-				palAnimLines.push(`<code>${i}:</code> ${parts.join(', ')}`);
-			}
-			lines.push(`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li>' + x + '</li>').join('')}</ul>`);
+			const palAnimLines = stringifyPaletteAnimations(room.paletteAnimations);
+			lines.push(`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`);
 
 			const tileAnimLines = [];
 			for (let i = 0; i < room.tileAnimations.length; ++i) {
@@ -3048,6 +3170,7 @@
 			updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
 		};
 
+		const palette = new Uint32Array(256);
 		const render = () => {
 			if (options.paletteAnimations.checked && room.paletteAnimations.length)
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
@@ -3055,93 +3178,24 @@
 			const tick = Math.floor((performance.now() / 1000) * 60);
 
 			// palette
-			const palette = new Uint32Array(256);
-			if (room.palette) palette.set(room.palette, 0);
 			if (updatePalette) {
 				const paletteCtx = paletteCanvas.getContext('2d');
 				if (room.palette) {
-					const clamped = bufToU8Clamped(palette);
-					const lastPalette = new Uint32Array(256);
-					lastPalette.set(palette, 0);
-
+					palette.set(room.palette, 0);
 					if (options.paletteAnimations.checked) {
-						for (const palAnim of room.paletteAnimations) {
-							let localTick = tick % palAnim.totalLength;
-							let fromIntensity, toIntensity, alpha;
-							for (let j = 0; j < palAnim.keyframeLengths.length; ++j) {
-								if (localTick < palAnim.keyframeLengths[j]) {
-									fromIntensity = palAnim.keyframeIntensities[j - 1];
-									toIntensity = palAnim.keyframeIntensities[j];
-									alpha = localTick / palAnim.keyframeLengths[j];
-									break;
-								}
-								localTick -= palAnim.keyframeLengths[j];
-							}
-
-							if (fromIntensity === undefined || toIntensity === undefined) continue; // no net effect
-							const intensity = (fromIntensity + (toIntensity - fromIntensity) * alpha) / 100;
-							let r = (palAnim.red << 3) | (palAnim.red >> 2);
-							let g = (palAnim.green << 3) | (palAnim.green >> 2);
-							let b = (palAnim.blue << 3) | (palAnim.blue >> 2);
-
-							lastPalette.set(palette, 0);
-							for (let i = 0; i < palAnim.paletteLength; ++i) {
-								const base = (palAnim.paletteStart + i) * 4;
-								// TODO: overlay effects rgb15 correction
-								if (palAnim.blendMode === 4) {
-									// palette shift
-									const mod = (a, b) => ((a % b) + b) % b;
-									palette[
-										palAnim.paletteStart +
-											mod(
-												Math.floor(i - palAnim.paletteLength * intensity),
-												palAnim.paletteLength,
-											)
-									] = lastPalette[palAnim.paletteStart + i];
-								} else if (palAnim.blendMode === 5) {
-									// true set
-									clamped[base] += (r - clamped[base]) * intensity;
-									clamped[base + 1] += (g - clamped[base + 1]) * intensity;
-									clamped[base + 2] += (b - clamped[base + 2]) * intensity;
-								} else if (palAnim.blendMode === 6) {
-									// add
-									clamped[base] += r * intensity;
-									clamped[base + 1] += g * intensity;
-									clamped[base + 2] += b * intensity;
-								} else if (palAnim.blendMode === 7) {
-									// sub
-									clamped[base] -= r * intensity;
-									clamped[base + 1] -= g * intensity;
-									clamped[base + 2] -= b * intensity;
-								} else if (palAnim.blendMode === 8) {
-									// set
-									clamped[base] += ((r * 0x16) / 0x1f - clamped[base]) * intensity;
-									clamped[base + 1] += ((g * 0x16) / 0x1f - clamped[base + 1]) * intensity;
-									clamped[base + 2] += ((b * 0x16) / 0x1f - clamped[base + 2]) * intensity;
-								} else if (palAnim.blendMode === 9) {
-									// invert
-									clamped[base] += (255 - clamped[base] * 2) * intensity;
-									clamped[base + 1] += (255 - clamped[base + 1] * 2) * intensity;
-									clamped[base + 2] += (255 - clamped[base + 2] * 2) * intensity;
-								}
-							}
-						}
+						applyPaletteAnimations(palette, room.paletteAnimations, tick);
 					}
-
-					paletteCtx.putImageData(new ImageData(clamped, 16, 16), 0, 0);
+					paletteCtx.putImageData(new ImageData(bufToU8Clamped(palette), 16, 16), 0, 0);
 				} else {
+					palette.fill(0, 0, 256);
 					paletteCtx.clearRect(0, 0, 16, 16);
 				}
 			}
 
-			// tileset
 			if (updateTileset || updateTilesetAnimated || updateMap) {
+				// tileset
 				const layout = new Array(1024);
-				const layoutAnimated = new Array(1024);
-				for (let i = 0; i < 1024; ++i) {
-					layout[i] = i;
-					layoutAnimated[i] = false;
-				}
+				for (let i = 0; i < 1024; ++i) layout[i] = room.tileset.slice(i * 32, i * 32 + 32);
 
 				if (options.tileAnimations.checked) {
 					for (let i = 0; i < room.tileAnimations.length; ++i) {
@@ -3157,10 +3211,8 @@
 							localTick -= tileAnim.keyframeLengths[j];
 						}
 
-						for (let j = 0; j < tileAnim.replacementLength; ++j) {
-							layout[tileAnim.tilesetStart + j] =
-								tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength + j;
-							layoutAnimated[tileAnim.tilesetStart + j] = true;
+						for (let j = 0, o = (tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength) * 32; j < tileAnim.replacementLength; ++j, o += 32) {
+							layout[tileAnim.tilesetStart + j] = room.tilesetAnimated.slice(o, o + 32);
 						}
 					}
 				}
@@ -3170,13 +3222,10 @@
 					const tilesetBitmap = new Uint32Array(256 * 256);
 					for (let i = 0; i * 32 < room.tileset.length; ++i) {
 						const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
-						const tileset = layoutAnimated[i] ? room.tilesetAnimated : room.tileset;
-						const tileOffset = layout[i] * 32;
-
 						// 16-color
 						for (let j = 0; j < 32; ++j) {
 							const pos = basePos | ((j >> 2) << 8) | ((j & 0x3) << 1);
-							const composite = tileset[tileOffset + j] ?? 0;
+							const composite = layout[i][j] ?? 0;
 							tilesetBitmap[pos] = palette[composite & 0xf];
 							tilesetBitmap[pos ^ 1] = palette[composite >> 4];
 						}
@@ -3220,8 +3269,6 @@
 							for (let j = 0; j < tilemap.length; ++j) {
 								const tile = tilemap[j];
 								const paletteRow = (tile >> 12) << 4;
-								const tileOffset = layout[tile & 0x3ff] * 32;
-								const tileset = layoutAnimated[tile & 0x3ff] ? room.tilesetAnimated : room.tileset;
 
 								const basePos = ((j >> 6) << 12) | ((j & 0x3f) << 3); // y = i >> 6, x = i & 0x3f
 								for (let k = 0; k < 32; ++k) {
@@ -3229,7 +3276,7 @@
 									if (tile & 0x400) pos ^= 0x7; // horizontal flip
 									if (tile & 0x800) pos ^= 0x7 << 9; // vertical flip
 
-									const composite = tileset[tileOffset + k] ?? 0;
+									const composite = layout[tile & 0x3ff][k] ?? 0;
 									if (composite & 0xf) mapBitmap[pos] = palette[paletteRow | (composite & 0xf)];
 									if (composite >> 4) mapBitmap[pos ^ 1] = palette[paletteRow | (composite >> 4)];
 								}
