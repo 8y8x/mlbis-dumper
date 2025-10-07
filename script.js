@@ -225,7 +225,7 @@
 	const sanitize = (s) => s.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 	const addHTML = (el, html) => {
-		const container = document.createElement('div');
+		const container = document.createElement(el.tagName);
 		container.innerHTML = html;
 		for (const child of container.childNodes) el.appendChild(child);
 	};
@@ -244,7 +244,7 @@
 	const str16 = (x) => x.toString(16).padStart(4, '0');
 	const str32 = (x) => x.toString(16).padStart(8, '0');
 
-	Object.assign(window, { file, readString, bytes });
+	Object.assign(window, { file, readString, bytes, bits, sanitize, addHTML, str8, str16, str32 });
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Compression and Packing                                                                                       |
@@ -847,14 +847,14 @@
 
 				// these are listed in the order they come in by default, but you can rearrange things
 				if (command === 0x82) ++o; // unknown, always zero
-				else if (command === 0x00) paletteStart = segment[o++];
+				else if (command === 0x00) paletteStart = segment[o++]; // (source)
 				else if (command === 0x01) paletteLength = segment[o++];
-				else if (command === 0x02) ++o; // TODO must match paletteStart
-				else if (command === 0x83) ++o; // unknown
-				else if (command === 0x1c) red = segment[o++] & 0x1f; // 0x00 - 0x1f; params has to be 4?
+				else if (command === 0x02) ++o; // paletteTo (destination)
+				else if (command === 0x83) ++o; // color keyframe lengths (TODO)
+				else if (command === 0x1c) red = segment[o++] & 0x1f; // 0x00 - 0x1f
 				else if (command === 0x1d) green = segment[o++] & 0x1f; // 0x00 - 0x1f
 				else if (command === 0x1e) blue = segment[o++] & 0x1f; // 0x00 - 0x1f
-				else if (4 <= command && command <= 9) { // TODO: are there more?
+				else if (4 <= command && command <= 0xa) { // TODO: are there more?
 					// keyframe lengths
 					blendMode = command;
 					let startTick = 0;
@@ -891,9 +891,9 @@
 				}
 			} else if (blendMode === 5) { // set
 				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-					const r = (palette[j] & 0xf8) * (100 - percent) / 100 + red * percent / 100;
-					const g = ((palette[j] >> 8) & 0xf8) * (100 - percent) / 100 + green * percent / 100;
-					const b = ((palette[j] >> 16) & 0xf8) * (100 - percent) / 100 + blue * percent / 100;
+					const r = (palette[j] & 0xf8) * (100 - percent) / 100 + (red << 3) * percent / 100;
+					const g = ((palette[j] >> 8) & 0xf8) * (100 - percent) / 100 + (green << 3) * percent / 100;
+					const b = ((palette[j] >> 16) & 0xf8) * (100 - percent) / 100 + (blue << 3) * percent / 100;
 					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
 				}
 			} else if (blendMode === 6) { // additive
@@ -946,33 +946,50 @@
 		while (o < segment.length) {
 			let parts = [];
 
-			let keyframes = 0;
+			let colors = 0, keyframes = 0;
 			commandLoop: while (o < segment.length) {
 				const command = segment[o] & 0xff;
 				const params = segment[o++] >> 8;
 				const commandStr = params ? str16(command | params << 8) : str8(command);
 
-				if (command === 0x82) parts.push(`(0x${commandStr} 0x${str16(segment[o++])})`);
-				else if (command === 0x00) parts.push(`(palFrom 0x${str8(segment[o++])})`);
-				else if (command === 0x01) parts.push(`(palLen 0x${str8(segment[o++])})`);
-				else if (command === 0x02) parts.push(`(palTo 0x${str8(segment[o++])})`);
-				else if (command === 0x83) parts.push(`(0x${commandStr} 0x${str16(segment[o++])})`);
-				else if (command === 0x1c) parts.push(`(red${params ? '[' + params + ']' : ''} 0x${str8(segment[o++])})`);
-				else if (command === 0x1d) parts.push(`(green${params ? '[' + params + ']' : ''} 0x${str8(segment[o++])})`);
-				else if (command === 0x1e) parts.push(`(blue${params ? '[' + params + ']' : ''} 0x${str8(segment[o++])})`);
-				else if (4 <= command && command <= 9) {
+				if (command === 0x82) {
+					parts.push(`(palette 0x${str16(segment[o++])})`), o += params;
+				} else if (command === 0x00) {
+					parts.push(`(palFrom 0x${str8(segment[o++])})`);
+				} else if (command === 0x01) {
+					parts.push(`(palLen 0x${str8(segment[o++])})`);
+				} else if (command === 0x02) {
+					parts.push(`(palTo 0x${str8(segment[o++])})`);
+				} else if (command === 0x83) {
+					const unknown = [];
+					colors = params / 2 + 1;
+					for (let i = 0; i < colors; ++i) unknown.push(segment[o++]);
+					parts.push(`(color lengths ${unknown.join(' ')})`);
+				} else if (command === 0x1c) {
+					const reds = [];
+					for (let i = 0; i < colors; ++i) reds.push('0x' + str8(segment[o++]));
+					parts.push(`(red${params ? '[' + params + ']' : ''} ${reds.join(' ')})`);
+				} else if (command === 0x1d) {
+					const greens = [];
+					for (let i = 0; i < colors; ++i) greens.push('0x' + str8(segment[o++]));
+					parts.push(`(green${params ? '[' + params + ']' : ''} ${greens.join(' ')})`);
+				} else if (command === 0x1e) {
+					const blues = [];
+					for (let i = 0; i < colors; ++i) blues.push('0x' + str8(segment[o++]));
+					parts.push(`(blue${params ? '[' + params + ']' : ''} ${blues.join(' ')})`);
+				} else if (4 <= command && command <= 0xa) {
 					const mode = ['ROTATE', 'SET', 'ADD', 'SUB', 'SET_DIMMED', 'INVERT'][command - 4] ?? ('0x' + str8(command));
 					const lengths = [];
 					keyframes = params / 2 + 1;
 					for (let i = 0; i < keyframes; ++i) lengths.push(segment[o++]);
 					parts.push(`(${mode} lengths ${lengths.join(' ')})`);
-				} else if (command === 0x1f) {
+				} else if (command === 0x1f || command === 0x1b) {
 					const percents = [];
 					for (let i = 0; i < keyframes; ++i) percents.push(segment[o++] + '%');
 					parts.push(`(values ${percents.join(' ')})`);
 					break commandLoop;
 				} else {
-					parts.push(`(0x${commandStr} 0x${str16(segment[o++])}`);
+					parts.push(`(0x${commandStr} 0x${str16(segment[o++] ?? 0)})`);
 				}
 			}
 
@@ -982,7 +999,7 @@
 		return strings;
 	};
 
-	Object.assign(window, { download });
+	Object.assign(window, { download, applyPaletteAnimations, stringifyPaletteAnimations });
 
 	const createSection = async (title, cb) => {
 		const section = document.createElement('section');
@@ -1184,7 +1201,7 @@
 			}
 
 			downloadOutput.textContent = '';
-			download(fsentry.name, 'application/octet-stream', output);
+			download(fsentry.name, output);
 		});
 
 		const multiExport = document.createElement('div');
@@ -1226,7 +1243,7 @@
 			}
 
 			const zip = zipStore(files);
-			download(`${headers.gamecode}.zip`, 'application/zip', zip);
+			download(`${headers.gamecode}.zip`, zip, 'application/zip');
 		});
 
 		addHTML(section, '<div style="height: 1em;"></div>'); // separator
@@ -1302,15 +1319,21 @@
 			return indices;
 		};
 
+		const fixedSegments = (o, end, size, dat) => {
+			const segments = [];
+			for (; o < end; o += size) segments.push(sliceDataView(dat, o, o + size));
+			return segments;
+		};
+
 		const fmapdata = fs.get('/FMap/FMapData.dat');
 
 		// i'm not sure how these file structures work, but this should cover all versions of MLBIS
 		// you can find these offsets yourself by going through overlay 0x03, which has lists of increasing
 		// pointers into each file. these pointers stop right before the end of the file length, so it's easy to tell
 		// which pointer list belongs to which file
-		// (for example, in US /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
+		// (for example, in NA /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
 		if (headers.gamecode === 'CLJE') {
-			// US/AU
+			// NA/AU
 			// two more tables of chunk length 0xc, that i can't be bothered to try and guess
 			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat')); // tile data is probably right next to it, again
 			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxPal.dat')); // seems like palette data
@@ -1331,39 +1354,67 @@
 			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
 
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
-			fsext.fmapmetadata = 0x98a0;
-			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fmapdata);
+			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
 			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
 			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
-			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3));
+			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
-			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fmapdata);
+			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
+			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
+			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
+			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
+			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJJ') {
 			// JP
-			fsext.fmapdata = varLengthSegments(0x11544, fs.overlay(3), fmapdata);
+			fsext.fevent = varLengthSegments(0xcb18, fs.overlay(3));
+			fsext.fmapdata = varLengthSegments(0x11544, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = varLengthSegments(0xeb0c, fs.overlay(3));
+			fsext.fobjmon = varLengthSegments(0xbca8, fs.overlay(3));
+			fsext.fobjpc = varLengthSegments(0xc01c, fs.overlay(3));
+			fsext.fpaf = varLengthSegments(0xbb0c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fmapmetadata = fixedSegments(0x9b00, 0x9b00 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x19710, 0x1a85c, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
-			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fmapdata);
+			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
+			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
+			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
+			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
+			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 		} else if (headers.gamecode === 'Y6PP') {
 			// EU Demo
-			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fmapdata);
+			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
+			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3));
+			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
+			fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
+			fsext.fpaf = varLengthSegments(0x965c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fmapmetadata = fixedSegments(0x92bc, 0x92bc + 12 * 0x21, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0xe220, 0xe318, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0xe498, 0xe72c, fs.overlay(3));
 		} else if (headers.gamecode === 'Y6PE') {
-			// US Demo
-			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fmapdata);
+			// NA Demo
+			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
+			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3));
+			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
+			fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
+			fsext.fpaf = varLengthSegments(0x965c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fmapmetadata = fixedSegments(0x92bc, 0x92bc + 12 * 0x21, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0xe164, 0xe25c, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0xe3dc, 0xe670, fs.overlay(3));
 		} else {
@@ -1403,13 +1454,6 @@
 			const packed = treasureFile.getUint16(i * 12, true);
 			field.treasure[field.treasure.length - 1].push(sliceDataView(treasureFile, i * 12, i * 12 + 12));
 			if (packed & 1) field.treasure.push([]); // end of this room's treasure
-		}
-
-		field.metadata = [];
-		const overlay3 = fs.overlay(3);
-		for (let i = 0; i < field.rooms.length; ++i) {
-			const start = fsext.fmapmetadata + i * 12;
-			field.metadata.push(sliceDataView(overlay3, start, start + 12));
 		}
 
 		let updatePalettes = true;
@@ -2061,19 +2105,21 @@
 			};
 
 			// side properties map metadata
-			side.metadataDisplay.innerHTML = 'Metadata:';
-			const metadata = bufToU32(field.metadata[options.roomDropdown.value]);
-			addHTML(side.metadataDisplay, `<ul>
-				<li>X.b1: ${metadata[0] & 1}</li>
-				<li>X.b2: ${metadata[0] & 2}</li>
-				<li>X.SELECT map ID: 0x${(metadata[0] >> 2 & 0x3ff).toString(16)}</li>
-				<li>X.SELECT map anim: ${metadata[0] >> 12 & 0x3ff}</li>
-				<li>X.variable: ${metadata[0] >> 22}</li>
-				<li>Y.unknown: ${metadata[1] & 0x3ffff}</li>
-				<li>Y.baseX: ${metadata[1] >> 20}</li>
-				<li>Z.baseY: ${metadata[2] & 0xfff}</li>
-				<li>Z.musicID: ${metadata[2] >> 12}</li>
-			</ul>`);
+			if (fsext.fmapmetadata) {
+				side.metadataDisplay.innerHTML = 'Metadata:';
+				const metadata = bufToU32(fsext.fmapmetadata[options.roomDropdown.value]);
+				addHTML(side.metadataDisplay, `<ul>
+					<li>X.b1: ${metadata[0] & 1}</li>
+					<li>X.b2: ${metadata[0] & 2}</li>
+					<li>X.SELECT map ID: 0x${(metadata[0] >> 2 & 0x3ff).toString(16)}</li>
+					<li>X.SELECT map anim: ${metadata[0] >> 12 & 0x3ff}</li>
+					<li>X.variable: ${metadata[0] >> 22}</li>
+					<li>Y.unknown: ${metadata[1] & 0x3ffff}</li>
+					<li>Y.baseX: ${metadata[1] >> 20}</li>
+					<li>Z.baseY: ${metadata[2] & 0xfff}</li>
+					<li>Z.musicID: ${metadata[2] >> 12}</li>
+				</ul>`);
+			}
 
 			// bottom properties
 			bottomProperties.innerHTML = '';
@@ -2694,7 +2740,7 @@
 		dump.addEventListener('click', () => {
 			const index = select.value;
 			const data = lzBis(fsext.fmapdata.segments[index]);
-			download(`FMapData-${index.toString(16)}.bin`, 'application/octet-stream', data.buffer);
+			download(`FMapData-${index.toString(16)}.bin`, data.buffer);
 		});
 		section.appendChild(dump);
 
@@ -3010,69 +3056,6 @@
 				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength && bufToU8(lzBis(rawRoom.tilesetAnimated)),
 				paletteAnimations: rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [],
 			};
-
-			// parse palette animations
-			/* room.paletteAnimations = [];
-			const paletteSegments = rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [];
-			for (let i = 0; i < paletteSegments.length - 1; ++i) {
-				const segment = bufToS16(paletteSegments[i]);
-				console.log(segment);
-
-				const totalLength = segment[0]; // all keyframe lengths must add up to this
-
-				let o = 1;
-				while (o < segment.length) {
-					let blendMode;
-					let paletteStart;
-					let paletteLength;
-					let red, green, blue;
-					let redShift, greenShift, blueShift;
-					const keyframeLengths = [];
-					const keyframeIntensities = [];
-
-					commandLoop: while (o < segment.length) {
-						const command = segment[o] & 0xff;
-						const params = segment[o] >> 8;
-						++o;
-
-						if (command === 0x82)
-							++o; // unknown
-						else if (command === 0x00) paletteStart = segment[o++];
-						else if (command === 0x01) paletteLength = segment[o++];
-						else if (command === 0x02)
-							++o; // must match paletteStart (TODO look into this)
-						else if (command === 0x83)
-							++o; // unknown
-						else if (command === 0x1c)
-							red = segment[o++]; // red component (0 - 0x1f)
-						else if (command === 0x1d)
-							green = segment[o++]; // green component (0 - 0x1f)
-						else if (command === 0x1e)
-							blue = segment[o++]; // blue component (0 - 0x1f)
-						else if (4 <= command && command <= 9) {
-							// keyframe lengths
-							blendMode = command;
-							for (let j = 0; j <= params / 2; ++j) keyframeLengths.push(segment[o++]);
-						} else if (command === 0x1f) {
-							// keyframe intensity
-							for (let j = 0; j < keyframeLengths.length; ++j) keyframeIntensities.push(segment[o++]);
-							break commandLoop;
-						} else throw `unknown command 0x${str8(command)} params 0x${str8(params)}`;
-					}
-
-					room.paletteAnimations.push({
-						blendMode,
-						paletteStart,
-						paletteLength,
-						red,
-						green,
-						blue,
-						keyframeLengths,
-						keyframeIntensities,
-						totalLength,
-					});
-				}
-			} */
 
 			// parse tile animations
 			room.tileAnimations = [];
@@ -3751,6 +3734,21 @@
 			}
 		};
 		render();
+	}));
+
+	const fpaf = (window.fpaf = await createSection('FPaf', (section) => {
+		const table = document.createElement('table');
+		table.style.cssText = 'border-collapse: collapse;';
+		section.appendChild(table);
+		for (let i = 0; i < fsext.fpaf.segments.length - 1; ++i) {
+			const s = unpackSegmented16(fsext.fpaf.segments[i]);
+			addHTML(table, `<tr style="${i < fsext.fpaf.segments.length - 2 ? 'border-bottom: 1px solid #666;' : ''}">
+				<td><code>${i}</code></td>
+				<td style="padding: 10px 0;"><ul>${stringifyPaletteAnimations(s).map(x => '<li><code>' + x + '</code></li>').join('')}</ul></td>
+			</tr>`);
+		}
+
+		return {};
 	}));
 
 	// add spacing to the bottom of the page, for better scrolling
