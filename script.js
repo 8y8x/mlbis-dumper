@@ -190,7 +190,7 @@
 
 	const readString = (o, l, buf = file) => {
 		let end;
-		if (l) {
+		if (l !== undefined) {
 			end = o + l;
 		} else {
 			end = o;
@@ -200,9 +200,11 @@
 		const str = [];
 		for (let i = 0; i < end - o; i += 16384) {
 			const slice = buf.buffer.slice(buf.byteOffset + o + i, buf.byteOffset + Math.min(end, o + i + 16384));
+			console.log('>', slice);
 			str.push(String.fromCharCode(...new Uint8Array(slice).map((x) => (x < 0x20 ? 46 : x))));
 		}
 
+		console.log(str);
 		return str.join('');
 	};
 
@@ -634,7 +636,8 @@
 		const segments = [];
 		for (let o = 4; o < offsetsEnd; o += 4) {
 			const split = dat.getUint32(o, true);
-			segments.push(sliceDataView(dat, lastSplit, split));
+			if (lastSplit >= dat.byteLength) segments.push(sliceDataView(dat, 0, 0));
+			else segments.push(sliceDataView(dat, lastSplit, split));
 			lastSplit = split;
 		}
 
@@ -999,6 +1002,24 @@
 		return strings;
 	};
 
+	const readMessage = (o, dat) => {
+		const u8 = bufToU8(dat);
+		const s = [];
+		for (; o < u8.length;) {
+			const byte = u8[o++];
+			if (byte === 0xff) {
+				const next = u8[o++];
+				if (next === 0) s.push('\n');
+				else if (next === 0x0a) break; // end
+				else s.push(`<${str8(next)}>`);
+			} else if (byte === 0x00) s.push('(00)');
+			else s.push(String.fromCharCode(byte));
+		}
+
+		console.log(s);
+		return s.join('');
+	};
+
 	Object.assign(window, { download, applyPaletteAnimations, stringifyPaletteAnimations });
 
 	const createSection = async (title, cb) => {
@@ -1341,19 +1362,19 @@
 			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat')); // might be BDfxGAll.dat instead
 			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat')); // all segments seem to be 514 in length, so probably palettes
 			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14)); // *might* be /BAI/BMes_ji.dat
-			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14));
-			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14));
-			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14));
-			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14));
-			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14));
+			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
 			fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
-			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14));
-			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14));
+			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
 			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
 			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
 			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
 
-			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
+			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
 			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
@@ -1866,17 +1887,8 @@
 						}
 
 						const o = (side.loadingZoneDropdown.value - 1) * 24;
-						const flags = room.loadingZones.getUint16(o, true);
-						const x1 = room.loadingZones.getInt16(o + 4, true);
-						const y1 = room.loadingZones.getInt16(o + 6, true);
-						const z = room.loadingZones.getInt16(o + 8, true);
-						const x2 = room.loadingZones.getInt16(o + 10, true);
-						const y2 = room.loadingZones.getInt16(o + 12, true);
-						const enterX1 = room.loadingZones.getInt16(o + 14, true);
-						const enterY1 = room.loadingZones.getInt16(o + 16, true);
-						const enterZ = room.loadingZones.getInt16(o + 18, true);
-						const enterX2 = room.loadingZones.getInt16(o + 20, true);
-						const enterY2 = room.loadingZones.getInt16(o + 22, true);
+						const [flags, roomId, x1, y1, z, x2, y2, enterX1, enterY1, enterZ, enterX2, enterY2]
+							= bufToU16(sliceDataView(room.loadingZones, o, o + 24));
 
 						const lines = [];
 						lines.push(`<code>([${x1}..${x1 + x2}], [${y1}..${y1 + y2}], ${z})</code>`);
@@ -2134,18 +2146,11 @@
 				</code></div>`,
 			);
 
-			/*
-			Object.assign(room, {
-				tilemaps: [room.props[0], room.props[1], room.props[2]].map((buf) => bufToU16(buf)),
-				palettes: [room.props[3], room.props[4], room.props[5]].map((buf) => rgb15To32(bufToU16(buf))),
-				map: room.props[6],
-				loadingZones: room.props[7],
-				layerAnimations: room.props[9],
-				tileAnimations: room.props[10],
-				collision: room.props[14],
-				depth: room.props[15],
-			});
-			*/
+			const blendingItems = [];
+			const blending = unpackSegmented(room.props[8]);
+			for (let i = 0; i < blending.length; ++i) {
+				blendingItems.push(`<code>${bytes(0, blending[i].byteLength, blending[i])}</code>`);
+			}
 
 			const layerAnimationItems = [];
 			for (let i = 0, j = 1; j < layerAnimations.length; ++i, j += 3) {
@@ -2214,18 +2219,27 @@
 			const lines = [
 				`[6] map: <code>${bytes(0, room.map.byteLength, room.map)}</code>`,
 				`[7] loadingZones: ${room.loadingZones.byteLength} bytes`,
-				`[8] blending: <code>${bytes(0, Math.min(1024, room.props[8].byteLength), room.props[8])}</code>`,
+				`[8] blending: <ul>${blendingItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[9] layerAnimations: <ul>${layerAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[10] tileAnimations: <ul>${tileAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[11] paletteAnimations BG1: <ul>${stringifyPaletteAnimations(room.paletteAnimations[0]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
 				`[12] paletteAnimations BG2: <ul>${stringifyPaletteAnimations(room.paletteAnimations[1]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
 				`[13] paletteAnimations BG3: <ul>${stringifyPaletteAnimations(room.paletteAnimations[2]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
+				`[14] collision:`,
+				`[15] depth:`,
 				`[16] unused: <code>${bytes(0, Math.min(1024, room.props[16].byteLength), room.props[16])}</code>`,
 				`[17] unused: <code>${bytes(0, Math.min(1024, room.props[17].byteLength), room.props[17])}</code>`,
 			];
 			for (const line of lines) addHTML(bottomProperties, '<div>' + line + '</div>');
 		};
 		roomPicked();
+
+		// i write this boilerplate a LOT so this is a nice shorthand for the devtools console
+		field.props = function*() {
+			for (let i = 0; i < field.rooms.length; ++i) {
+				yield [i, unpackSegmented(lzBis(fsext.fmapdata.segments[field.rooms[i].props]))];
+			}
+		}
 
 		const palettes = [];
 		const render = () => {
@@ -2254,11 +2268,11 @@
 						continue;
 					}
 
-					if (room.paletteAnimations[i].length) {
+					if (options.animations.checked && room.paletteAnimations[i].length) {
 						const palette = new Uint32Array(256);
 						palette.set(room.palettes[i], 0);
-						applyPaletteAnimations(palette, room.paletteAnimations[i], tick);
 						palettes[i] = palette;
+						applyPaletteAnimations(palette, room.paletteAnimations[i], tick);
 					} else {
 						palettes[i] = room.palettes[i];
 					}
@@ -2630,7 +2644,8 @@
 							const numSpecials = room.collision.getUint32(4, true);
 							const selectedPrism = (side.collisionDropdown.hovered ?? side.collisionDropdown.value) - 1;
 
-							for (let i = 0, o = 8; i < numPrisms; ++i, o += 40) {
+							let o = 8;
+							for (let i = 0; i < numPrisms; ++i, o += 40) {
 								const flags1 = room.collision.getUint16(o, true);
 								const flags2 = room.collision.getUint16(o + 2, true);
 								const flags3 = room.collision.getUint16(o + 4, true);
@@ -2678,6 +2693,15 @@
 								} else {
 									prism(...bottom, ...top, lowColor, midColor, midColor, midColor, color);
 								}
+							}
+
+							for (let i = 0; i < numSpecials; ++i, o += 24) {
+								const x1 = room.collision.getUint16(o + 4, true);
+								const x2 = room.collision.getUint16(o + 6, true);
+								const y1 = room.collision.getUint16(o + 8, true);
+								const y2 = room.collision.getUint16(o + 10, true);
+								const z = room.collision.getUint16(o + 12, true);
+								quad([x1,y1,z], [x2,y1,z], [x2,y2,z], [x1,y2,z], [0.25,1,0.25]);
 							}
 						}
 					}
@@ -2745,7 +2769,7 @@
 		section.appendChild(dump);
 
 		// generate a rainbow color palette, with later values using darker colors (0 - 0xf instead of 0 - 0x1f)
-		const globalPalette256 = new DataView(new ArrayBuffer(512));
+		const globalPalette256 = fmapdataTiles.globalPalette256 = new DataView(new ArrayBuffer(512));
 		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(i * 2, (0x1f << 10) | (i << 5) | 0, true);
 		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x40 + i * 2, (i << 10) | (0x1f << 5) | 0, true);
 		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x80 + i * 2, (0 << 10) | (0x1f << 5) | i, true);
@@ -2757,7 +2781,7 @@
 		for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x1c0 + i * 2, 0 | (0xf << 5) | i, true);
 		for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1e0 + i * 2, 0 | (i << 5) | 0xf, true);
 
-		const globalPalette16 = new DataView(new ArrayBuffer(512));
+		const globalPalette16 = fmapdataTiles.globalPalette16 = new DataView(new ArrayBuffer(512));
 		const rgb16s = [
 			[31, 0, 0],
 			[31, 10, 0],
@@ -3749,6 +3773,66 @@
 		}
 
 		return {};
+	}));
+
+	const mfset = (window.mfset = await createSection('MFSet', (section) => {
+		const mfset = {};
+
+		const mfsetFiles = [];
+		for (const name of fs.keys()) {
+			if (typeof name === 'string' && name.includes('mfset')) mfsetFiles.push(name);
+		}
+
+		const fileSelect = dropdown(mfsetFiles, 0, () => update());
+		section.appendChild(fileSelect);
+
+		const table = document.createElement('table');
+		table.style.cssText = 'border-collapse: collapse;';
+		section.appendChild(table);
+
+		const update = () => {
+			const file = fs.get(mfsetFiles[fileSelect.value]);
+			const segments = unpackSegmented(file);
+			table.innerHTML = `<tr><td>${segments.length} segments: ${segments.map(x => x.byteLength).join(',')}</td><tr>`;
+
+			const filteredSegments = segments.filter(x => {
+				if (!x.byteLength) return false;
+				// some columns are just a bunch of zeroes with nothing useful
+				const u8 = bufToU8(x);
+				for (let i = 0; i < u8.length; ++i) {
+					if (u8[i] !== 0) return true;
+				}
+
+				return false;
+			});
+			const rows = [];
+			for (let i = 0; i < filteredSegments.length; ++i) {
+				let entries;
+				try {
+					entries = unpackSegmented(filteredSegments[i]);
+				} catch (_) {
+					rows[0] ??= new Array(filteredSegments.length);
+					rows[0][i] = '(failed to read)';
+					continue;
+				}
+				for (let j = 0; j < entries.length; ++j) {
+					rows[j] ??= new Array(filteredSegments.length);
+					const message = readMessage(0, entries[j]);
+					rows[j][i] = message;
+				}
+			}
+			mfset.selected = { segments, filteredSegments, rows };
+
+			if (rows.length === 0) {
+				table.innerHTML = '(nothing but zeroes)';
+			} else {
+				// tables suck bro
+				table.innerHTML = rows.map((row,i) => `<tr><td>${i}</td>${row.map(message => `<td style="border: 1px solid #666; padding: 5px;">${sanitize(message).replaceAll('\n', '<br>')}</td>`).join('')}</tr>`).join('');
+			}
+		};
+		update();
+
+		return mfset;
 	}));
 
 	// add spacing to the bottom of the page, for better scrolling
