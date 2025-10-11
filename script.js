@@ -3,17 +3,13 @@
 (async () => {
 	const fileBlob = await new Promise((resolve) => {
 		const input = document.querySelector('#file-input');
-		input.addEventListener('input', (e) => {
-			resolve(input.files[0]);
-		});
+		input.addEventListener('input', (e) => resolve(input.files[0]));
 	});
 
 	const file = new DataView(
 		await new Promise((resolve) => {
 			const reader = new FileReader();
-			reader.addEventListener('load', () => {
-				resolve(reader.result);
-			});
+			reader.addEventListener('load', () => resolve(reader.result));
 			reader.readAsArrayBuffer(fileBlob);
 		}),
 	);
@@ -200,11 +196,9 @@
 		const str = [];
 		for (let i = 0; i < end - o; i += 16384) {
 			const slice = buf.buffer.slice(buf.byteOffset + o + i, buf.byteOffset + Math.min(end, o + i + 16384));
-			console.log('>', slice);
 			str.push(String.fromCharCode(...new Uint8Array(slice).map((x) => (x < 0x20 ? 46 : x))));
 		}
 
-		console.log(str);
 		return str.join('');
 	};
 
@@ -334,10 +328,10 @@
 				) {
 					if (offset < 3) continue;
 					/* for ( // this loop statement is functionally identical to the one above, but **much** slower
-						let offset = 3, inoffsetted = inoff + offset;
-						offset < 4099 && inoffsetted < inbuf.byteLength;
-						++offset, ++inoffsetted
-					) { */
+					let offset = 3, inoffsetted = inoff + offset;
+					offset < 4099 && inoffsetted < inbuf.byteLength;
+					++offset, ++inoffsetted
+				) { */
 					let length = 1;
 					for (; length < 18 && length < offset && inoff - length >= 0; ++length) {
 						if (inbuf[inoff - length] !== inbuf[inoffsetted - length]) break;
@@ -832,195 +826,25 @@
 		setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
 	};
 
-	const applyPaletteAnimations = (palette, segments, tick) => {
-		if (!segments.length) return;
-
-		const segment = bufToS16(segments[0]); // other segments appear to be ignored
-		let o = 0;
-		const totalLength = segment[o++];
-		while (o < segment.length) {
-			let blendMode, paletteStart, paletteLength, red = 0, green = 0, blue = 0;
-			let keyframe, keyframeDistance, keyframes = 0, percent = 0;
-
-			let relativeTick = tick % totalLength;
-
-			commandLoop: while (o < segment.length) {
-				const command = segment[o] & 0xff;
-				const params = segment[o++] >> 8;
-
-				// these are listed in the order they come in by default, but you can rearrange things
-				if (command === 0x82) ++o; // unknown, always zero
-				else if (command === 0x00) paletteStart = segment[o++]; // (source)
-				else if (command === 0x01) paletteLength = segment[o++];
-				else if (command === 0x02) ++o; // paletteTo (destination)
-				else if (command === 0x83) ++o; // color keyframe lengths (TODO)
-				else if (command === 0x1c) red = segment[o++] & 0x1f; // 0x00 - 0x1f
-				else if (command === 0x1d) green = segment[o++] & 0x1f; // 0x00 - 0x1f
-				else if (command === 0x1e) blue = segment[o++] & 0x1f; // 0x00 - 0x1f
-				else if (4 <= command && command <= 0xa) { // TODO: are there more?
-					// keyframe lengths
-					blendMode = command;
-					let startTick = 0;
-					keyframes = params / 2 + 1;
-					for (let i = 0; i < keyframes; ++i) {
-						const length = segment[o++];
-						if (relativeTick < length && keyframe === undefined) {
-							keyframe = i;
-							keyframeDistance = relativeTick / length;
-						}
-						relativeTick -= length;
-					}
-				} else if (command === 0x1f) {
-					// keyframe values (0 - 100)
-					let from = 0, to = 0;
-					if (keyframe !== undefined) {
-						from = keyframe === 0 ? 0 : segment[o + keyframe - 1];
-						to = segment[o + keyframe];
-					}
-					percent = Math.min(100, from + (to - from) * keyframeDistance); // TODO: is clamping done *after* interpolation?
-					o += keyframes;
-					break commandLoop;
-				} else {
-					throw `unknown command 0x${str8(command)} params 0x${str8(params)}`;
-				}
-			}
-
-			// apply to palette
-			if (blendMode === 4) { // palette rotate
-				const old = new Uint32Array(paletteLength);
-				old.set(palette.slice(paletteStart, paletteStart + paletteLength), 0);
-				for (let j = 0; j < paletteLength; ++j) {
-					palette[paletteStart + j] = old[(j + ~~(percent / 100 * paletteLength)) % paletteLength];
-				}
-			} else if (blendMode === 5) { // set
-				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-					const r = (palette[j] & 0xf8) * (100 - percent) / 100 + (red << 3) * percent / 100;
-					const g = ((palette[j] >> 8) & 0xf8) * (100 - percent) / 100 + (green << 3) * percent / 100;
-					const b = ((palette[j] >> 16) & 0xf8) * (100 - percent) / 100 + (blue << 3) * percent / 100;
-					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
-				}
-			} else if (blendMode === 6) { // additive
-				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-					const r = Math.min(0xf8, (palette[j] & 0xf8) + (red << 3) * percent / 100);
-					const g = Math.min(0xf8, ((palette[j] >> 8) & 0xf8) + (green << 3) * percent / 100);
-					const b = Math.min(0xf8, ((palette[j] >> 16) & 0xf8) + (blue << 3) * percent / 100);
-					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
-				}
-			} else if (blendMode === 7) { // subtractive
-				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-					const r = Math.max(0, (palette[j] & 0xf8) - (red << 3) * percent / 100);
-					const g = Math.max(0, ((palette[j] >> 8) & 0xf8) - (green << 3) * percent / 100);
-					const b = Math.max(0, ((palette[j] >> 16) & 0xf8) - (blue << 3) * percent / 100);
-					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
-				}
-			} else if (blendMode === 8) { // set dimmed (not really sure why this exists)
-				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-					const r = ((palette[j]) & 0xf8) * (100 - percent) / 100 + ((red / 0x1f * 0x16) << 3) * percent / 100;
-					const g = ((palette[j] >> 8) & 0xf8) * (100 - percent) / 100 + ((green / 0x1f * 0x16) << 3) * percent / 100;
-					const b = ((palette[j] >> 16) & 0xf8) * (100 - percent) / 100 + ((blue / 0x1f * 0x16) << 3) * percent / 100;
-					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
-				}
-			} else if (blendMode === 9) { // invert
-				for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-					let r = palette[j] & 0xf8;
-					let g = (palette[j] >> 8) & 0xf8;
-					let b = (palette[j] >> 16) & 0xf8;
-					r += (0xf8 - r * 2) * percent / 100;
-					g += (0xf8 - g * 2) * percent / 100;
-					b += (0xf8 - b * 2) * percent / 100;
-					palette[j] = 0xff << 24 | b << 16 | g << 8 | r;
-				}
-			}
-		}
-
-		// make RGB15 brighter (so 0x1f in 5-bit corresponds to 0xff in 8-bit)
-		for (let i = 0; i < 256; ++i) {
-			palette[i] &= 0xfff8f8f8;
-			palette[i] |= (palette[i] >> 5) & 0x070707;
-		}
-	};
-
-	const stringifyPaletteAnimations = segments => {
-		if (!segments.length) return [];
-		const segment = bufToU16(segments[0]);
-		let o = 0;
-		const totalLength = segment[o++];
-		const strings = [`(totalLength ${totalLength})`];
-		while (o < segment.length) {
-			let parts = [];
-
-			let colors = 0, keyframes = 0;
-			commandLoop: while (o < segment.length) {
-				const command = segment[o] & 0xff;
-				const params = segment[o++] >> 8;
-				const commandStr = params ? str16(command | params << 8) : str8(command);
-
-				if (command === 0x82) {
-					parts.push(`(palette 0x${str16(segment[o++])})`), o += params;
-				} else if (command === 0x00) {
-					parts.push(`(palFrom 0x${str8(segment[o++])})`);
-				} else if (command === 0x01) {
-					parts.push(`(palLen 0x${str8(segment[o++])})`);
-				} else if (command === 0x02) {
-					parts.push(`(palTo 0x${str8(segment[o++])})`);
-				} else if (command === 0x83) {
-					const unknown = [];
-					colors = params / 2 + 1;
-					for (let i = 0; i < colors; ++i) unknown.push(segment[o++]);
-					parts.push(`(color lengths ${unknown.join(' ')})`);
-				} else if (command === 0x1c) {
-					const reds = [];
-					for (let i = 0; i < colors; ++i) reds.push('0x' + str8(segment[o++]));
-					parts.push(`(red${params ? '[' + params + ']' : ''} ${reds.join(' ')})`);
-				} else if (command === 0x1d) {
-					const greens = [];
-					for (let i = 0; i < colors; ++i) greens.push('0x' + str8(segment[o++]));
-					parts.push(`(green${params ? '[' + params + ']' : ''} ${greens.join(' ')})`);
-				} else if (command === 0x1e) {
-					const blues = [];
-					for (let i = 0; i < colors; ++i) blues.push('0x' + str8(segment[o++]));
-					parts.push(`(blue${params ? '[' + params + ']' : ''} ${blues.join(' ')})`);
-				} else if (4 <= command && command <= 0xa) {
-					const mode = ['ROTATE', 'SET', 'ADD', 'SUB', 'SET_DIMMED', 'INVERT'][command - 4] ?? ('0x' + str8(command));
-					const lengths = [];
-					keyframes = params / 2 + 1;
-					for (let i = 0; i < keyframes; ++i) lengths.push(segment[o++]);
-					parts.push(`(${mode} lengths ${lengths.join(' ')})`);
-				} else if (command === 0x1f || command === 0x1b) {
-					const percents = [];
-					for (let i = 0; i < keyframes; ++i) percents.push(segment[o++] + '%');
-					parts.push(`(values ${percents.join(' ')})`);
-					break commandLoop;
-				} else {
-					parts.push(`(0x${commandStr} 0x${str16(segment[o++] ?? 0)})`);
-				}
-			}
-
-			strings.push(parts.map((s,i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`).join(' '));
-		}
-
-		return strings;
-	};
-
 	const readMessage = (o, dat) => {
 		const u8 = bufToU8(dat);
 		const s = [];
-		for (; o < u8.length;) {
+		for (; o < u8.length; ) {
 			const byte = u8[o++];
 			if (byte === 0xff) {
 				const next = u8[o++];
 				if (next === 0) s.push('\n');
-				else if (next === 0x0a) break; // end
+				else if (next === 0x0a)
+					break; // end
 				else s.push(`<${str8(next)}>`);
-			} else if (byte === 0x00) s.push('(00)');
+			} else if (byte <= 0x1f) s.push(`(${str8(byte)})`);
 			else s.push(String.fromCharCode(byte));
 		}
 
-		console.log(s);
 		return s.join('');
 	};
 
-	Object.assign(window, { download, applyPaletteAnimations, stringifyPaletteAnimations });
+	Object.assign(window, { download, readMessage });
 
 	const createSection = async (title, cb) => {
 		const section = document.createElement('section');
@@ -1297,7 +1121,7 @@
 		// JP and demo versions don't compress their overlays, but the others do
 		const SHOULD_DECOMPRESS = !['CLJJ', 'Y6PE', 'Y6PP'].includes(headers.gamecode);
 		const overlayCache = new Map();
-		fs.overlay = index => {
+		fs.overlay = (index) => {
 			if (!SHOULD_DECOMPRESS) return fs.get(index);
 
 			const cached = overlayCache.get(index);
@@ -1446,6 +1270,238 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Field Palette Animations                                                                             |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const fpaf = (window.fpaf = await createSection('Field Palette Animations', (section) => {
+		const fpaf = {};
+
+		const table = document.createElement('table');
+		table.style.cssText = 'border-collapse: collapse;';
+		section.appendChild(table);
+
+		fpaf.apply = (palette, segments, tick) => {
+			if (!segments.length) return;
+
+			const segment = bufToS16(segments[0]); // other segments appear to be ignored
+			let o = 0;
+			const totalLength = segment[o++];
+			while (o < segment.length) {
+				let blendMode,
+					paletteStart,
+					paletteLength,
+					red = 0,
+					green = 0,
+					blue = 0;
+				let keyframe,
+					keyframeDistance,
+					keyframes = 0,
+					percent = 0;
+
+				let relativeTick = tick % totalLength;
+
+				commandLoop: while (o < segment.length) {
+					const command = segment[o] & 0xff;
+					const params = segment[o++] >> 8;
+
+					// these are listed in the order they come in by default, but you can rearrange things
+					if (command === 0x82)
+						++o; // unknown, always zero
+					else if (command === 0x00)
+						paletteStart = segment[o++]; // (source)
+					else if (command === 0x01) paletteLength = segment[o++];
+					else if (command === 0x02)
+						++o; // paletteTo (destination)
+					else if (command === 0x83)
+						++o; // color keyframe lengths (TODO)
+					else if (command === 0x1c)
+						red = segment[o++] & 0x1f; // 0x00 - 0x1f
+					else if (command === 0x1d)
+						green = segment[o++] & 0x1f; // 0x00 - 0x1f
+					else if (command === 0x1e)
+						blue = segment[o++] & 0x1f; // 0x00 - 0x1f
+					else if (4 <= command && command <= 0xa) {
+						// TODO: are there more?
+						// keyframe lengths
+						blendMode = command;
+						let startTick = 0;
+						keyframes = params / 2 + 1;
+						for (let i = 0; i < keyframes; ++i) {
+							const length = segment[o++];
+							if (relativeTick < length && keyframe === undefined) {
+								keyframe = i;
+								keyframeDistance = relativeTick / length;
+							}
+							relativeTick -= length;
+						}
+					} else if (command === 0x1f) {
+						// keyframe values (0 - 100)
+						let from = 0,
+							to = 0;
+						if (keyframe !== undefined) {
+							from = keyframe === 0 ? 0 : segment[o + keyframe - 1];
+							to = segment[o + keyframe];
+						}
+						percent = Math.min(100, from + (to - from) * keyframeDistance); // TODO: is clamping done *after* interpolation?
+						o += keyframes;
+						break commandLoop;
+					} else {
+						throw `unknown command 0x${str8(command)} params 0x${str8(params)}`;
+					}
+				}
+
+				// apply to palette
+				if (blendMode === 4) {
+					// palette rotate
+					const old = new Uint32Array(paletteLength);
+					old.set(palette.slice(paletteStart, paletteStart + paletteLength), 0);
+					for (let j = 0; j < paletteLength; ++j) {
+						palette[paletteStart + j] = old[(j + ~~((percent / 100) * paletteLength)) % paletteLength];
+					}
+				} else if (blendMode === 5) {
+					// set
+					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+						const r = ((palette[j] & 0xf8) * (100 - percent)) / 100 + ((red << 3) * percent) / 100;
+						const g = (((palette[j] >> 8) & 0xf8) * (100 - percent)) / 100 + ((green << 3) * percent) / 100;
+						const b = (((palette[j] >> 16) & 0xf8) * (100 - percent)) / 100 + ((blue << 3) * percent) / 100;
+						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
+					}
+				} else if (blendMode === 6) {
+					// additive
+					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+						const r = Math.min(0xf8, (palette[j] & 0xf8) + ((red << 3) * percent) / 100);
+						const g = Math.min(0xf8, ((palette[j] >> 8) & 0xf8) + ((green << 3) * percent) / 100);
+						const b = Math.min(0xf8, ((palette[j] >> 16) & 0xf8) + ((blue << 3) * percent) / 100);
+						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
+					}
+				} else if (blendMode === 7) {
+					// subtractive
+					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+						const r = Math.max(0, (palette[j] & 0xf8) - ((red << 3) * percent) / 100);
+						const g = Math.max(0, ((palette[j] >> 8) & 0xf8) - ((green << 3) * percent) / 100);
+						const b = Math.max(0, ((palette[j] >> 16) & 0xf8) - ((blue << 3) * percent) / 100);
+						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
+					}
+				} else if (blendMode === 8) {
+					// set dimmed (not really sure why this exists)
+					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+						const r =
+							((palette[j] & 0xf8) * (100 - percent)) / 100 +
+							((((red / 0x1f) * 0x16) << 3) * percent) / 100;
+						const g =
+							(((palette[j] >> 8) & 0xf8) * (100 - percent)) / 100 +
+							((((green / 0x1f) * 0x16) << 3) * percent) / 100;
+						const b =
+							(((palette[j] >> 16) & 0xf8) * (100 - percent)) / 100 +
+							((((blue / 0x1f) * 0x16) << 3) * percent) / 100;
+						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
+					}
+				} else if (blendMode === 9) {
+					// invert
+					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
+						let r = palette[j] & 0xf8;
+						let g = (palette[j] >> 8) & 0xf8;
+						let b = (palette[j] >> 16) & 0xf8;
+						r += ((0xf8 - r * 2) * percent) / 100;
+						g += ((0xf8 - g * 2) * percent) / 100;
+						b += ((0xf8 - b * 2) * percent) / 100;
+						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
+					}
+				}
+			}
+
+			// make RGB15 brighter (so 0x1f in 5-bit corresponds to 0xff in 8-bit)
+			for (let i = 0; i < 256; ++i) {
+				palette[i] &= 0xfff8f8f8;
+				palette[i] |= (palette[i] >> 5) & 0x070707;
+			}
+		};
+
+		fpaf.stringify = (segments) => {
+			if (!segments.length) return [];
+			const segment = bufToU16(segments[0]);
+			let o = 0;
+			const totalLength = segment[o++];
+			const strings = [`(totalLength ${totalLength})`];
+			while (o < segment.length) {
+				let parts = [];
+
+				let colors = 0,
+					keyframes = 0;
+				commandLoop: while (o < segment.length) {
+					const command = segment[o] & 0xff;
+					const params = segment[o++] >> 8;
+					const commandStr = params ? str16(command | (params << 8)) : str8(command);
+
+					if (command === 0x82) {
+						(parts.push(`(palette 0x${str16(segment[o++])})`), (o += params));
+					} else if (command === 0x00) {
+						parts.push(`(palFrom 0x${str8(segment[o++])})`);
+					} else if (command === 0x01) {
+						parts.push(`(palLen 0x${str8(segment[o++])})`);
+					} else if (command === 0x02) {
+						parts.push(`(palTo 0x${str8(segment[o++])})`);
+					} else if (command === 0x83) {
+						const unknown = [];
+						colors = params / 2 + 1;
+						for (let i = 0; i < colors; ++i) unknown.push(segment[o++]);
+						parts.push(`(color lengths ${unknown.join(' ')})`);
+					} else if (command === 0x1c) {
+						const reds = [];
+						for (let i = 0; i < colors; ++i) reds.push('0x' + str8(segment[o++]));
+						parts.push(`(red${params ? '[' + params + ']' : ''} ${reds.join(' ')})`);
+					} else if (command === 0x1d) {
+						const greens = [];
+						for (let i = 0; i < colors; ++i) greens.push('0x' + str8(segment[o++]));
+						parts.push(`(green${params ? '[' + params + ']' : ''} ${greens.join(' ')})`);
+					} else if (command === 0x1e) {
+						const blues = [];
+						for (let i = 0; i < colors; ++i) blues.push('0x' + str8(segment[o++]));
+						parts.push(`(blue${params ? '[' + params + ']' : ''} ${blues.join(' ')})`);
+					} else if (4 <= command && command <= 0xa) {
+						const mode =
+							['ROTATE', 'SET', 'ADD', 'SUB', 'SET_DIMMED', 'INVERT'][command - 4] ??
+							'0x' + str8(command);
+						const lengths = [];
+						keyframes = params / 2 + 1;
+						for (let i = 0; i < keyframes; ++i) lengths.push(segment[o++]);
+						parts.push(`(${mode} lengths ${lengths.join(' ')})`);
+					} else if (command === 0x1f || command === 0x1b) {
+						const percents = [];
+						for (let i = 0; i < keyframes; ++i) percents.push(segment[o++] + '%');
+						parts.push(`(values ${percents.join(' ')})`);
+						break commandLoop;
+					} else {
+						parts.push(`(0x${commandStr} 0x${str16(segment[o++] ?? 0)})`);
+					}
+				}
+
+				strings.push(
+					parts.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`).join(' '),
+				);
+			}
+
+			return strings;
+		};
+
+		for (let i = 0; i < fsext.fpaf.segments.length - 1; ++i) {
+			const s = unpackSegmented16(fsext.fpaf.segments[i]);
+			addHTML(
+				table,
+				`<tr style="${i < fsext.fpaf.segments.length - 2 ? 'border-bottom: 1px solid #666;' : ''}">
+			<td><code>${i}</code></td>
+			<td style="padding: 10px 0;"><ul>${fpaf
+				.stringify(s)
+				.map((x) => '<li><code>' + x + '</code></li>')
+				.join('')}</ul></td>
+		</tr>`,
+			);
+		}
+
+		return fpaf;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Field Maps                                                                                           |
 	// +---------------------------------------------------------------------------------------------------------------+
 
@@ -1517,7 +1573,9 @@
 		);
 		let animationsToggledCallback = () => {};
 		optionRows[0].appendChild(
-			(options.animations = checkbox('Animations', false, () => { animationsToggledCallback() })),
+			(options.animations = checkbox('Animations', false, () => {
+				animationsToggledCallback();
+			})),
 		);
 
 		// options about overlays of extra data, put on top of the map
@@ -1662,7 +1720,7 @@
 					pos = vec3(pos.xy / canvas_size * 2.0, pos.z);
 					gl_Position = vec4(pos.x, -pos.y, 1.0 / (pos.z + 1000.0), 1);
 				}
-			`.trim(),
+				`.trim(),
 			);
 			gl.compileShader(vs);
 			if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS))
@@ -1680,7 +1738,7 @@
 				void main() {
 					out_color = v_color;
 				}
-			`.trim(),
+				`.trim(),
 			);
 			gl.compileShader(fs);
 			if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS))
@@ -1769,7 +1827,9 @@
 				loadingZones: room.props[7],
 				layerAnimations: room.props[9],
 				tileAnimations: room.props[10],
-				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map((buf) => unpackSegmented16(buf)),
+				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map((buf) =>
+					unpackSegmented16(buf),
+				),
 				collision: room.props[14],
 				depth: room.props[15],
 			});
@@ -1857,11 +1917,11 @@
 					const itemId = treasure.getUint16(2, true);
 					const treasureId = treasure.getUint16(4, true);
 					side.treasureDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-						margin-left: 1px; padding-left: 8px;">
-						Treasure 0x${treasureId.toString(16)},
-						item 0x${itemId.toString(16)},
-						quantity 0x${((flags >> 10) & 0x1f).toString(16)},
-						count/anim 0x${((flags >> 5) & 0x1f).toString(16)}</div>`;
+					margin-left: 1px; padding-left: 8px;">
+					Treasure 0x${treasureId.toString(16)},
+					item 0x${itemId.toString(16)},
+					quantity 0x${((flags >> 10) & 0x1f).toString(16)},
+					count/anim 0x${((flags >> 5) & 0x1f).toString(16)}</div>`;
 				})),
 			);
 			side.treasureDisplay.innerHTML = '';
@@ -1887,8 +1947,9 @@
 						}
 
 						const o = (side.loadingZoneDropdown.value - 1) * 24;
-						const [flags, roomId, x1, y1, z, x2, y2, enterX1, enterY1, enterZ, enterX2, enterY2]
-							= bufToU16(sliceDataView(room.loadingZones, o, o + 24));
+						const [flags, roomId, x1, y1, z, x2, y2, enterX1, enterY1, enterZ, enterX2, enterY2] = bufToU16(
+							sliceDataView(room.loadingZones, o, o + 24),
+						);
 
 						const lines = [];
 						lines.push(`<code>([${x1}..${x1 + x2}], [${y1}..${y1 + y2}], ${z})</code>`);
@@ -1897,7 +1958,7 @@
 						lines.push(`Enter at: <code>(${xRange}, ${yRange}, ${enterZ})</code>`);
 
 						side.loadingZoneDisplay.innerHTML = `<div style="border-left: 1px solid #76f; margin-left: 1px;
-						padding-left: 8px;">${lines.map((x) => '<div>' + x + '</div>').join(' ')}</div>`;
+					padding-left: 8px;">${lines.map((x) => '<div>' + x + '</div>').join(' ')}</div>`;
 					},
 					() => {
 						updateOverlay3d = updateOverlay3dTriangles = true;
@@ -2033,14 +2094,14 @@
 
 								if (attributeStrings.length)
 									html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
-									Attributes: ${attributeStrings.join(', ')}</div>`);
+								Attributes: ${attributeStrings.join(', ')}</div>`);
 
 								side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-								margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
+							margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
 							} else {
 								// special
 								side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-								margin-left: 1px; padding-left: 8px;"><code>${bytes(o, 24, room.collision)}</code></div>`;
+							margin-left: 1px; padding-left: 8px;"><code>${bytes(o, 24, room.collision)}</code></div>`;
 							}
 						},
 						() => {
@@ -2120,17 +2181,20 @@
 			if (fsext.fmapmetadata) {
 				side.metadataDisplay.innerHTML = 'Metadata:';
 				const metadata = bufToU32(fsext.fmapmetadata[options.roomDropdown.value]);
-				addHTML(side.metadataDisplay, `<ul>
-					<li>X.b1: ${metadata[0] & 1}</li>
-					<li>X.b2: ${metadata[0] & 2}</li>
-					<li>X.SELECT map ID: 0x${(metadata[0] >> 2 & 0x3ff).toString(16)}</li>
-					<li>X.SELECT map anim: ${metadata[0] >> 12 & 0x3ff}</li>
-					<li>X.variable: ${metadata[0] >> 22}</li>
-					<li>Y.unknown: ${metadata[1] & 0x3ffff}</li>
-					<li>Y.baseX: ${metadata[1] >> 20}</li>
-					<li>Z.baseY: ${metadata[2] & 0xfff}</li>
-					<li>Z.musicID: ${metadata[2] >> 12}</li>
-				</ul>`);
+				addHTML(
+					side.metadataDisplay,
+					`<ul>
+				<li>X.b1: ${metadata[0] & 1}</li>
+				<li>X.b2: ${metadata[0] & 2}</li>
+				<li>X.SELECT map ID: 0x${((metadata[0] >> 2) & 0x3ff).toString(16)}</li>
+				<li>X.SELECT map anim: ${(metadata[0] >> 12) & 0x3ff}</li>
+				<li>X.variable: ${metadata[0] >> 22}</li>
+				<li>Y.unknown: ${metadata[1] & 0x3ffff}</li>
+				<li>Y.baseX: ${metadata[1] >> 20}</li>
+				<li>Z.baseY: ${metadata[2] & 0xfff}</li>
+				<li>Z.musicID: ${metadata[2] >> 12}</li>
+			</ul>`,
+				);
 			}
 
 			// bottom properties
@@ -2138,12 +2202,12 @@
 			addHTML(
 				bottomProperties,
 				`<div>Layers: <code>
-					BG1 ${indices.l1 !== -1 ? '0x' + indices.l1.toString(16) : '-1'},
-					BG2 ${indices.l2 !== -1 ? '0x' + indices.l2.toString(16) : '-1'},
-					BG3 ${indices.l3 !== -1 ? '0x' + indices.l3.toString(16) : '-1'},
-					Props 0x${indices.props.toString(16)},
-					Treasure ${indices.treasure !== -1 ? '0x' + indices.treasure.toString(16) : '-1'}
-				</code></div>`,
+				BG1 ${indices.l1 !== -1 ? '0x' + indices.l1.toString(16) : '-1'},
+				BG2 ${indices.l2 !== -1 ? '0x' + indices.l2.toString(16) : '-1'},
+				BG3 ${indices.l3 !== -1 ? '0x' + indices.l3.toString(16) : '-1'},
+				Props 0x${indices.props.toString(16)},
+				Treasure ${indices.treasure !== -1 ? '0x' + indices.treasure.toString(16) : '-1'}
+			</code></div>`,
 			);
 
 			const blendingItems = [];
@@ -2222,9 +2286,18 @@
 				`[8] blending: <ul>${blendingItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[9] layerAnimations: <ul>${layerAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[10] tileAnimations: <ul>${tileAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
-				`[11] paletteAnimations BG1: <ul>${stringifyPaletteAnimations(room.paletteAnimations[0]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
-				`[12] paletteAnimations BG2: <ul>${stringifyPaletteAnimations(room.paletteAnimations[1]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
-				`[13] paletteAnimations BG3: <ul>${stringifyPaletteAnimations(room.paletteAnimations[2]).map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
+				`[11] paletteAnimations BG1: <ul>${fpaf
+					.stringify(room.paletteAnimations[0])
+					.map((x) => '<li><code>' + x + '</code></li>')
+					.join('')}</ul>`,
+				`[12] paletteAnimations BG2: <ul>${fpaf
+					.stringify(room.paletteAnimations[1])
+					.map((x) => '<li><code>' + x + '</code></li>')
+					.join('')}</ul>`,
+				`[13] paletteAnimations BG3: <ul>${fpaf
+					.stringify(room.paletteAnimations[2])
+					.map((x) => '<li><code>' + x + '</code></li>')
+					.join('')}</ul>`,
 				`[14] collision:`,
 				`[15] depth:`,
 				`[16] unused: <code>${bytes(0, Math.min(1024, room.props[16].byteLength), room.props[16])}</code>`,
@@ -2235,11 +2308,11 @@
 		roomPicked();
 
 		// i write this boilerplate a LOT so this is a nice shorthand for the devtools console
-		field.props = function*() {
+		field.props = function* () {
 			for (let i = 0; i < field.rooms.length; ++i) {
 				yield [i, unpackSegmented(lzBis(fsext.fmapdata.segments[field.rooms[i].props]))];
 			}
-		}
+		};
 
 		const palettes = [];
 		const render = () => {
@@ -2256,7 +2329,7 @@
 			const canvasWidth = options.margins.checked ? layerWidth * 8 : layerWidth * 8 - 32;
 			const canvasHeight = options.margins.checked ? roomHeight * 8 : roomHeight * 8 - 32;
 
-			if (options.animations.checked && room.paletteAnimations.some(x => x.length)) {
+			if (options.animations.checked && room.paletteAnimations.some((x) => x.length)) {
 				updatePalettes = updateTiles = updateMaps = true;
 			}
 			if (updatePalettes) {
@@ -2272,7 +2345,7 @@
 						const palette = new Uint32Array(256);
 						palette.set(room.palettes[i], 0);
 						palettes[i] = palette;
-						applyPaletteAnimations(palette, room.paletteAnimations[i], tick);
+						fpaf.apply(palette, room.paletteAnimations[i], tick);
 					} else {
 						palettes[i] = room.palettes[i];
 					}
@@ -2293,7 +2366,7 @@
 				const layouts = [new Array(1024), new Array(1024), new Array(1024)];
 				for (let i = 0; i < 3; ++i) {
 					if (!room.tilesets[i]) continue;
-					const tileSize = (layerFlags[5] & (1 << i)) ? 64 : 32;
+					const tileSize = layerFlags[5] & (1 << i) ? 64 : 32;
 					for (let j = 0; j < 1024; ++j) {
 						layouts[i][j] = room.tilesets[i].slice(j * tileSize, (j + 1) * tileSize);
 					}
@@ -2325,7 +2398,7 @@
 
 					const replacementStart = (field >> 4) & 0x3ff;
 					const replacementLength = (field >> 14) & 0x3ff;
-					const tileSize = (layerFlags[5] & (1 << layer)) ? 64 : 32;
+					const tileSize = layerFlags[5] & (1 << layer) ? 64 : 32;
 					for (let i = 0; i < replacementLength; ++i) {
 						layouts[layer][replacementStart + i] = tileset.slice(
 							(replacementLength * animationFrame + i) * tileSize,
@@ -2445,7 +2518,8 @@
 										((k & 7) ^ horizontalFlip);
 									const composite = tile[o] || 0;
 									if (composite & 0xf) mapBitmap[pos] = palettes[i][paletteShift | (composite & 0xf)];
-									if (composite >> 4) mapBitmap[pos ^ 1] = palettes[i][paletteShift | (composite >> 4)];
+									if (composite >> 4)
+										mapBitmap[pos ^ 1] = palettes[i][paletteShift | (composite >> 4)];
 								}
 							}
 						}
@@ -2701,7 +2775,7 @@
 								const y1 = room.collision.getUint16(o + 8, true);
 								const y2 = room.collision.getUint16(o + 10, true);
 								const z = room.collision.getUint16(o + 12, true);
-								quad([x1,y1,z], [x2,y1,z], [x2,y2,z], [x1,y2,z], [0.25,1,0.25]);
+								quad([x1, y1, z], [x2, y1, z], [x2, y2, z], [x1, y2, z], [0.25, 1, 0.25]);
 							}
 						}
 					}
@@ -2769,7 +2843,7 @@
 		section.appendChild(dump);
 
 		// generate a rainbow color palette, with later values using darker colors (0 - 0xf instead of 0 - 0x1f)
-		const globalPalette256 = fmapdataTiles.globalPalette256 = new DataView(new ArrayBuffer(512));
+		const globalPalette256 = (fmapdataTiles.globalPalette256 = new DataView(new ArrayBuffer(512)));
 		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(i * 2, (0x1f << 10) | (i << 5) | 0, true);
 		for (let i = 31; i >= 0; --i) globalPalette256.setUint16(0x40 + i * 2, (i << 10) | (0x1f << 5) | 0, true);
 		for (let i = 0; i < 32; ++i) globalPalette256.setUint16(0x80 + i * 2, (0 << 10) | (0x1f << 5) | i, true);
@@ -2781,7 +2855,7 @@
 		for (let i = 0; i < 16; ++i) globalPalette256.setUint16(0x1c0 + i * 2, 0 | (0xf << 5) | i, true);
 		for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1e0 + i * 2, 0 | (i << 5) | 0xf, true);
 
-		const globalPalette16 = fmapdataTiles.globalPalette16 = new DataView(new ArrayBuffer(512));
+		const globalPalette16 = (fmapdataTiles.globalPalette16 = new DataView(new ArrayBuffer(512)));
 		const rgb16s = [
 			[31, 0, 0],
 			[31, 10, 0],
@@ -3144,15 +3218,17 @@
 			lines.push(`[3] BG1: ${room.tilemaps[1] ? room.tilemaps[1].byteLength + ' bytes' : ''}`);
 			lines.push(`[4] BG1: ${room.tilemaps[2] ? room.tilemaps[2].byteLength + ' bytes' : ''}`);
 
-			const palAnimLines = stringifyPaletteAnimations(room.paletteAnimations);
-			lines.push(`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`);
+			const palAnimLines = fpaf.stringify(room.paletteAnimations);
+			lines.push(
+				`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
+			);
 
 			const tileAnimLines = [];
 			for (let i = 0; i < room.tileAnimations.length; ++i) {
 				const anim = room.tileAnimations[i];
 				const parts = [];
 				parts.push(`0x${anim.replacementLength.toString(16)} tiles from
-					0x${anim.tilesetAnimatedStart.toString(16)} (animated) into 0x${anim.tilesetStart.toString(16)}`);
+				0x${anim.tilesetAnimatedStart.toString(16)} (animated) into 0x${anim.tilesetStart.toString(16)}`);
 
 				const keyframes = [];
 				for (let i = 0; i < anim.keyframeLengths.length; ++i) {
@@ -3189,9 +3265,7 @@
 				const paletteCtx = paletteCanvas.getContext('2d');
 				if (room.palette) {
 					palette.set(room.palette, 0);
-					if (options.paletteAnimations.checked) {
-						applyPaletteAnimations(palette, room.paletteAnimations, tick);
-					}
+					if (options.paletteAnimations.checked) fpaf.apply(palette, room.paletteAnimations, tick);
 					paletteCtx.putImageData(new ImageData(bufToU8Clamped(palette), 16, 16), 0, 0);
 				} else {
 					palette.fill(0, 0, 256);
@@ -3218,7 +3292,11 @@
 							localTick -= tileAnim.keyframeLengths[j];
 						}
 
-						for (let j = 0, o = (tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength) * 32; j < tileAnim.replacementLength; ++j, o += 32) {
+						for (
+							let j = 0, o = (tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength) * 32;
+							j < tileAnim.replacementLength;
+							++j, o += 32
+						) {
 							layout[tileAnim.tilesetStart + j] = room.tilesetAnimated.slice(o, o + 32);
 						}
 					}
@@ -3654,17 +3732,17 @@
 			});
 		}
 		/*for (let i = 0; i < fsext.fdfxtex.segments.length; ++i) {
-			options.push({ name: `FDfx 0x${i.toString(16)}`, tex: fsext.fdfxtex.segments[i], pal: fsext.fdfxpal.segments[i] });
-		}
-		for (let i = 0; i < fsext.fofxtex.segments.length; ++i) {
-			options.push({ name: `FOfx 0x${i.toString(16)}`, tex: fsext.fofxtex.segments[i], pal: fsext.fofxpal.segments[i] });
-		}
-		for (let i = 0; i < fsext.mdfxtex.segments.length; ++i) {
-			options.push({ name: `MDfx 0x${i.toString(16)}`, tex: fsext.mdfxtex.segments[i], pal: fsext.mdfxpal.segments[i] });
-		}
-		for (let i = 0; i < fsext.mofxtex.segments.length; ++i) {
-			options.push({ name: `MOfx 0x${i.toString(16)}`, tex: fsext.mofxtex.segments[i], pal: fsext.mofxpal.segments[i] });
-		}*/
+		options.push({ name: `FDfx 0x${i.toString(16)}`, tex: fsext.fdfxtex.segments[i], pal: fsext.fdfxpal.segments[i] });
+	}
+	for (let i = 0; i < fsext.fofxtex.segments.length; ++i) {
+		options.push({ name: `FOfx 0x${i.toString(16)}`, tex: fsext.fofxtex.segments[i], pal: fsext.fofxpal.segments[i] });
+	}
+	for (let i = 0; i < fsext.mdfxtex.segments.length; ++i) {
+		options.push({ name: `MDfx 0x${i.toString(16)}`, tex: fsext.mdfxtex.segments[i], pal: fsext.mdfxpal.segments[i] });
+	}
+	for (let i = 0; i < fsext.mofxtex.segments.length; ++i) {
+		options.push({ name: `MOfx 0x${i.toString(16)}`, tex: fsext.mofxtex.segments[i], pal: fsext.mofxpal.segments[i] });
+	}*/
 
 		const select = dropdown(
 			options.map((x) => x.name),
@@ -3760,21 +3838,6 @@
 		render();
 	}));
 
-	const fpaf = (window.fpaf = await createSection('FPaf', (section) => {
-		const table = document.createElement('table');
-		table.style.cssText = 'border-collapse: collapse;';
-		section.appendChild(table);
-		for (let i = 0; i < fsext.fpaf.segments.length - 1; ++i) {
-			const s = unpackSegmented16(fsext.fpaf.segments[i]);
-			addHTML(table, `<tr style="${i < fsext.fpaf.segments.length - 2 ? 'border-bottom: 1px solid #666;' : ''}">
-				<td><code>${i}</code></td>
-				<td style="padding: 10px 0;"><ul>${stringifyPaletteAnimations(s).map(x => '<li><code>' + x + '</code></li>').join('')}</ul></td>
-			</tr>`);
-		}
-
-		return {};
-	}));
-
 	const mfset = (window.mfset = await createSection('MFSet', (section) => {
 		const mfset = {};
 
@@ -3793,9 +3856,9 @@
 		const update = () => {
 			const file = fs.get(mfsetFiles[fileSelect.value]);
 			const segments = unpackSegmented(file);
-			table.innerHTML = `<tr><td>${segments.length} segments: ${segments.map(x => x.byteLength).join(',')}</td><tr>`;
+			table.innerHTML = `<tr><td>${segments.length} segments: ${segments.map((x) => x.byteLength).join(',')}</td><tr>`;
 
-			const filteredSegments = segments.filter(x => {
+			const filteredSegments = segments.filter((x) => {
 				if (!x.byteLength) return false;
 				// some columns are just a bunch of zeroes with nothing useful
 				const u8 = bufToU8(x);
@@ -3827,7 +3890,12 @@
 				table.innerHTML = '(nothing but zeroes)';
 			} else {
 				// tables suck bro
-				table.innerHTML = rows.map((row,i) => `<tr><td>${i}</td>${row.map(message => `<td style="border: 1px solid #666; padding: 5px;">${sanitize(message).replaceAll('\n', '<br>')}</td>`).join('')}</tr>`).join('');
+				table.innerHTML = rows
+					.map(
+						(row, i) =>
+							`<tr><td>${i}</td>${row.map((message) => `<td style="border: 1px solid #666; padding: 5px;">${sanitize(message).replaceAll('\n', '<br>')}</td>`).join('')}</tr>`,
+					)
+					.join('');
 			}
 		};
 		update();
@@ -3843,14 +3911,14 @@
 	// devtools console help
 	console.log(
 		`Dumping functions: \
-		\n%creadString(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \
-		\ndownload(name, dat, mime = 'application/octet-stream') %c \
-		\n\nCompression/Packing functions: \
-		\n%cblz(indat) \nblzCompress(indat) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
-		\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
-		\n\nSections: \
-		\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx %c \
-		\n\nFile: %cfile%c`,
+	\n%creadString(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \
+	\ndownload(name, dat, mime = 'application/octet-stream') %c \
+	\n\nCompression/Packing functions: \
+	\n%cblz(indat) \nblzCompress(indat) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
+	\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
+	\n\nSections: \
+	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx %c \
+	\n\nFile: %cfile%c`,
 		'color: #3cc;',
 		'color: unset;',
 		'color: #3cc;',
