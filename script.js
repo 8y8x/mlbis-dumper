@@ -834,11 +834,16 @@
 			if (byte === 0xff) {
 				const next = u8[o++];
 				if (next === 0) s.push('\n');
-				else if (next === 0x0a)
-					break; // end
 				else s.push(`<${str8(next)}>`);
-			} else if (byte <= 0x1f) s.push(`(${str8(byte)})`);
-			else s.push(String.fromCharCode(byte));
+			} else if (byte <= 0x1f) {
+				// special symbol
+				s.push(`(${str8(byte)})`);
+			} else if (byte === 0x85) {
+				s.push('…');
+			} else {
+				// assume latin1
+				s.push(String.fromCharCode(byte));
+			}
 		}
 
 		return s.join('');
@@ -846,7 +851,7 @@
 
 	Object.assign(window, { download, readMessage });
 
-	const createSection = async (title, cb) => {
+	const createSection = (title, cb) => {
 		const section = document.createElement('section');
 		const reveal = document.createElement('div');
 		reveal.className = 'reveal';
@@ -874,10 +879,9 @@
 		});
 		toggleVisible(settings[`section.${title}.visible`] ?? true);
 
-		document.body.appendChild(section);
-
+		let result;
 		try {
-			return await cb(content);
+			result = cb(content);
 		} catch (err) {
 			console.error(err);
 			addHTML(
@@ -886,13 +890,16 @@
 				${sanitize(err.stack).replace('\n', '<br>')}</span>`,
 			);
 		}
+
+		if (content.children.length) document.body.appendChild(section);
+		return result;
 	};
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: ROM Headers                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const headers = (window.headers = await createSection('ROM Headers', async (section) => {
+	const headers = (window.headers = createSection('ROM Headers', (section) => {
 		const fields = [];
 		const headers = {};
 
@@ -932,7 +939,7 @@
 	// | Section: File System                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fs = (window.fs = await createSection('File System', async (section) => {
+	const fs = (window.fs = createSection('File System', (section) => {
 		const parseSubtable = (o, fileId) => {
 			const entries = [];
 			while (true) {
@@ -1139,7 +1146,7 @@
 	// | Section: File System (Extended)                                                                               |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fsext = (window.fsext = await createSection('File System (Extended)', async (section) => {
+	const fsext = (window.fsext = createSection('File System (Extended)', (section) => {
 		const fsext = {};
 
 		const varLengthSegments = (start, dat, segmentsDat) => {
@@ -1273,7 +1280,7 @@
 	// | Section: Field Palette Animations                                                                             |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fpaf = (window.fpaf = await createSection('Field Palette Animations', (section) => {
+	const fpaf = (window.fpaf = createSection('Field Palette Animations', (section) => {
 		const fpaf = {};
 
 		const table = document.createElement('table');
@@ -1341,8 +1348,8 @@
 						if (keyframe !== undefined) {
 							from = keyframe === 0 ? 0 : segment[o + keyframe - 1];
 							to = segment[o + keyframe];
+							percent = Math.min(100, from + (to - from) * keyframeDistance);
 						}
-						percent = Math.min(100, from + (to - from) * keyframeDistance); // TODO: is clamping done *after* interpolation?
 						o += keyframes;
 						break commandLoop;
 					} else {
@@ -1426,8 +1433,8 @@
 			while (o < segment.length) {
 				let parts = [];
 
-				let colors = 0,
-					keyframes = 0;
+				let colors = 0;
+				let keyframes = 0;
 				commandLoop: while (o < segment.length) {
 					const command = segment[o] & 0xff;
 					const params = segment[o++] >> 8;
@@ -1469,7 +1476,7 @@
 					} else if (command === 0x1f || command === 0x1b) {
 						const percents = [];
 						for (let i = 0; i < keyframes; ++i) percents.push(segment[o++] + '%');
-						parts.push(`(values ${percents.join(' ')})`);
+						parts.push(`(values[${params}] ${percents.join(' ')})`);
 						break commandLoop;
 					} else {
 						parts.push(`(0x${commandStr} 0x${str16(segment[o++] ?? 0)})`);
@@ -1505,7 +1512,7 @@
 	// | Section: Field Maps                                                                                           |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const field = (window.field = await createSection('Field Maps', async (section) => {
+	const field = (window.field = createSection('Field Maps', (section) => {
 		const field = {};
 
 		const treasureFile = fs.get('/Treasure/TreasureInfo.dat');
@@ -2821,7 +2828,7 @@
 	// | Section: FMapData Tile Viewer                                                                                 |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fmapdataTiles = (window.fmapdataTiles = await createSection('FMapData Tile Viewer', async (section) => {
+	const fmapdataTiles = (window.fmapdataTiles = createSection('FMapData Tile Viewer', (section) => {
 		const fmapdataTiles = {};
 		const fieldFile = fs.get('/FMap/FMapData.dat');
 
@@ -3049,7 +3056,7 @@
 	// | Section: Battle Maps                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const battle = (window.battle = await createSection('Battle Maps', (section) => {
+	const battle = (window.battle = createSection('Battle Maps', (section) => {
 		const battle = {};
 
 		const bmapFile = fs.get('/BMap/BMap.dat');
@@ -3148,10 +3155,12 @@
 		const update = () => {
 			const rawRoom = bmaps[bmapDropdown.value];
 			battle.room = room = {
-				tileset: rawRoom.tileset?.byteLength && bufToU8(lzBis(rawRoom.tileset)),
-				palette: rawRoom.palette?.byteLength && rgb15To32(bufToU16(rawRoom.palette)),
-				tilemaps: rawRoom.tilemaps.map((x) => x?.byteLength && bufToU16(x)),
-				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength && bufToU8(lzBis(rawRoom.tilesetAnimated)),
+				tileset: rawRoom.tileset?.byteLength ? bufToU8(lzBis(rawRoom.tileset)) : undefined,
+				palette: rawRoom.palette?.byteLength ? rgb15To32(bufToU16(rawRoom.palette)) : undefined,
+				tilemaps: rawRoom.tilemaps.map((x) => (x?.byteLength ? bufToU16(x) : undefined)),
+				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength
+					? bufToU8(lzBis(rawRoom.tilesetAnimated))
+					: undefined,
 				paletteAnimations: rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [],
 			};
 
@@ -3276,34 +3285,35 @@
 			if (updateTileset || updateTilesetAnimated || updateMap) {
 				// tileset
 				const layout = new Array(1024);
-				for (let i = 0; i < 1024; ++i) layout[i] = room.tileset.slice(i * 32, i * 32 + 32);
-
-				if (options.tileAnimations.checked) {
-					for (let i = 0; i < room.tileAnimations.length; ++i) {
-						const tileAnim = room.tileAnimations[i];
-
-						let localTick = tick % tileAnim.totalLength;
-						let frame = 0;
-						for (let j = 0; j < tileAnim.keyframeLengths.length; ++j) {
-							if (localTick < tileAnim.keyframeLengths[j]) {
-								frame = tileAnim.keyframeIndices[j];
-								break;
-							}
-							localTick -= tileAnim.keyframeLengths[j];
-						}
-
-						for (
-							let j = 0, o = (tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength) * 32;
-							j < tileAnim.replacementLength;
-							++j, o += 32
-						) {
-							layout[tileAnim.tilesetStart + j] = room.tilesetAnimated.slice(o, o + 32);
-						}
-					}
-				}
-
 				const tilesetCtx = tilesetCanvas.getContext('2d');
 				if (room.tileset) {
+					for (let i = 0; i < 1024; ++i) layout[i] = room.tileset.slice(i * 32, i * 32 + 32);
+
+					if (options.tileAnimations.checked) {
+						for (let i = 0; i < room.tileAnimations.length; ++i) {
+							const tileAnim = room.tileAnimations[i];
+
+							let localTick = tick % tileAnim.totalLength;
+							let frame = 0;
+							for (let j = 0; j < tileAnim.keyframeLengths.length; ++j) {
+								if (localTick < tileAnim.keyframeLengths[j]) {
+									frame = tileAnim.keyframeIndices[j];
+									break;
+								}
+								localTick -= tileAnim.keyframeLengths[j];
+							}
+
+							for (
+								let j = 0,
+									o = (tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength) * 32;
+								j < tileAnim.replacementLength;
+								++j, o += 32
+							) {
+								layout[tileAnim.tilesetStart + j] = room.tilesetAnimated.slice(o, o + 32);
+							}
+						}
+					}
+
 					const tilesetBitmap = new Uint32Array(256 * 256);
 					for (let i = 0; i * 32 < room.tileset.length; ++i) {
 						const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
@@ -3392,7 +3402,7 @@
 	// | Section: Giant Battle Maps                                                                                    |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const battleGiant = (window.battleGiant = await createSection('Giant Battle Maps', async (section) => {
+	const battleGiant = (window.battleGiant = createSection('Giant Battle Maps', (section) => {
 		const battleGiant = {};
 
 		if (!fs.has('/BMapG/BMapG.dat')) {
@@ -3521,7 +3531,7 @@
 	// | Section: Menu Maps                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const menu = (window.menu = await createSection('Menu Maps', (section) => {
+	const menu = (window.menu = createSection('Menu Maps', (section) => {
 		const menu = {};
 
 		const menuFile = fs.get('/MMap/MMap.dat');
@@ -3715,7 +3725,7 @@
 	// | Section: Fx                                                                                                   |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fx = (window.fx = await createSection('Fx', (section) => {
+	const fx = (window.fx = createSection('Fx', (section) => {
 		const options = [];
 		for (let i = 0; i < fsext.bdfxtex.segments.length; ++i) {
 			options.push({
@@ -3838,7 +3848,11 @@
 		render();
 	}));
 
-	const mfset = (window.mfset = await createSection('MFSet', (section) => {
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: MFSet                                                                                                |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const mfset = (window.mfset = createSection('MFSet', (section) => {
 		const mfset = {};
 
 		const mfsetFiles = [];
@@ -3880,8 +3894,7 @@
 				}
 				for (let j = 0; j < entries.length; ++j) {
 					rows[j] ??= new Array(filteredSegments.length);
-					const message = readMessage(0, entries[j]);
-					rows[j][i] = message;
+					rows[j][i] = readMessage(0, entries[j]);
 				}
 			}
 			mfset.selected = { segments, filteredSegments, rows };
@@ -3903,10 +3916,112 @@
 		return mfset;
 	}));
 
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: BMes                                                                                                 |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const bmes = (window.bmes = createSection('Battle Messages', (section) => {
+		const bmes = {};
+
+		const paths = ['/BAI/BMes_cf.dat', '/BAI/BMes_ji.dat', '/BAI/BMes_yo.dat'];
+		const fileSelect = dropdown(paths, 0, () => update());
+		section.appendChild(fileSelect);
+
+		let scriptSelect = dropdown([''], 0, () => {});
+		section.appendChild(scriptSelect);
+
+		const metaDisplay = document.createElement('div');
+		section.appendChild(metaDisplay);
+
+		const tableDisplay = document.createElement('table');
+		tableDisplay.style.cssText = 'border-collapse: collapse;';
+		section.appendChild(tableDisplay);
+
+		const update = () => {
+			const file = fs.get(paths[fileSelect.value]);
+			const tables = unpackSegmented(file);
+			const filteredTableIds = [];
+			for (let i = 0; i < tables.length; ++i) {
+				if (tables[i].byteLength) filteredTableIds.push(i);
+			}
+			scriptSelect.replaceWith(
+				(scriptSelect = dropdown(
+					filteredTableIds.map((x) => `Table ${x}`),
+					0,
+					() => updateTable(),
+				)),
+			);
+
+			const updateTable = () => {
+				tableDisplay.innerHTML = '';
+
+				const columns = unpackSegmented(tables[filteredTableIds[scriptSelect.value]]);
+				bmes.columns = columns;
+				const invalidColumns = [];
+				const zeroedColumns = [];
+				const rows = [[]];
+				for (let i = 0; i < columns.length; ++i) {
+					if (!columns[i].byteLength) continue;
+
+					// some columns are zeroed out
+					const u8 = bufToU8(columns[i]);
+					let j = 0;
+					for (; j < u8.length; ++j) {
+						if (u8[j]) break;
+					}
+					if (j >= u8.length) {
+						zeroedColumns.push(i);
+						continue;
+					}
+
+					// some columns don't have a complete segmented thing
+					let entries;
+					try {
+						entries = unpackSegmented(columns[i]);
+					} catch (_) {
+						invalidColumns.push(i);
+						continue;
+					}
+
+					const tableColumn = rows[0].length;
+					rows[0].push(`<th style="border: 1px solid #666; padding: 5px;">Column ${i}</th>`);
+
+					for (let j = 0; j < entries.length; ++j) {
+						rows[j + 1] ??= [];
+						rows[j + 1][tableColumn] =
+							'<td style="border: 1px solid #666; padding: 5px;">' +
+							sanitize(readMessage(0, entries[j])).replaceAll('\n', '<br>') +
+							'</td>';
+					}
+				}
+
+				metaDisplay.innerHTML = '';
+				if (invalidColumns.length)
+					addHTML(metaDisplay, `<div>Invalid columns: ${invalidColumns.join(', ')}</div>`);
+				if (zeroedColumns.length)
+					addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
+
+				const numFilteredColumns = rows[0].length;
+				for (let i = 1; i < rows.length; ++i) {
+					for (let j = 0; j < numFilteredColumns; ++j)
+						rows[i][j] ??= '<td style="border: 1px solid #666;"></td>'; // ensure there are no holes in the array
+				}
+
+				console.log(rows);
+
+				tableDisplay.innerHTML = rows
+					.map((row, i) => `<tr><td>${i > 0 ? i - 1 : ''}</td>` + row.join('') + '</tr>')
+					.join('');
+			};
+			updateTable();
+		};
+		update();
+
+		return bmes;
+	}));
+
 	// add spacing to the bottom of the page, for better scrolling
-	const spacer = document.createElement('div');
-	spacer.style.height = '100vh';
-	document.body.appendChild(spacer);
+	addHTML(document.body, '<div style="height: 100vh;"></div>');
 
 	// devtools console help
 	console.log(

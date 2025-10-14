@@ -11,8 +11,14 @@
 		<title>MLBIS Dumper</title>
 	</head>
 	<body>
-		<div id="title">Use any MLBIS ROM (JP/NA/EU/KO, or NA/EU Demos)</div>
-		<input id="file-input" type="file" accept=".nds" />
+		<div id="title">
+			<div>Use any Mario and Luigi: Bowser's Inside Story ROM (JP/NA/EU/KO, or NA/EU Demos)</div>
+			<label for="file-input">
+				<button onmousedown="document.getElementById('file-input').click()" style="height: 1em; padding: 20px; line-height: calc(1em - 40px);">Choose File</button>
+			</label>
+			<input id="file-input" style="display: none;" type="file" accept=".nds" />
+			<div>Source Code: <a href="https://github.com/8y8x/mlbis-dumper" style="color: #76f;">GitHub</a></div>
+		</div>
 
 		<template id="dropdown">
 			<div class="dropdown" style="display: inline-block; background: #121122; border: 1px solid #76f;
