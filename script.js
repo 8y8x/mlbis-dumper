@@ -1149,7 +1149,7 @@
 	const fsext = (window.fsext = createSection('File System (Extended)', (section) => {
 		const fsext = {};
 
-		const varLengthSegments = (start, dat, segmentsDat) => {
+		const varLengthSegments = fsext.varLengthSegments = (start, dat, segmentsDat) => {
 			const chunkLength = dat.getUint32(start, true);
 			const offsets = [];
 			const segments = [];
@@ -1165,13 +1165,13 @@
 			return { offsets, segments };
 		};
 
-		const fixedIndices = (o, end, dat) => {
+		const fixedIndices = fsext.fixedIndices = (o, end, dat) => {
 			const indices = [];
 			for (; o < end; o += 4) indices.push(dat.getInt32(o, true));
 			return indices;
 		};
 
-		const fixedSegments = (o, end, size, dat) => {
+		const fixedSegments = fsext.fixedSegments = (o, end, size, dat) => {
 			const segments = [];
 			for (; o < end; o += size) segments.push(sliceDataView(dat, o, o + size));
 			return segments;
@@ -1192,7 +1192,7 @@
 			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
 			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat')); // might be BDfxGAll.dat instead
 			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat')); // all segments seem to be 514 in length, so probably palettes
-			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14)); // *might* be /BAI/BMes_ji.dat
+			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
 			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
 			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
 			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
@@ -4007,8 +4007,6 @@
 						rows[i][j] ??= '<td style="border: 1px solid #666;"></td>'; // ensure there are no holes in the array
 				}
 
-				console.log(rows);
-
 				tableDisplay.innerHTML = rows
 					.map((row, i) => `<tr><td>${i > 0 ? i - 1 : ''}</td>` + row.join('') + '</tr>')
 					.join('');
@@ -4018,6 +4016,448 @@
 		update();
 
 		return bmes;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: BAI                                                                                                  |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const bai = (window.bai = createSection('BAI <span style="color: #f99">(not functional)</span>', (section) => {
+		const bai = {};
+
+		const pairs = [
+			['/BAI/BAI_atk_hk.dat', fsext.bai_atk_hk],
+			['/BAI/BAI_atk_mt.dat', fsext.bai_atk_mt],
+			['/BAI/BAI_atk_nh.dat', fsext.bai_atk_nh],
+			['/BAI/BAI_atk_yy.dat', fsext.bai_atk_yy],
+			['/BAI/BAI_item_ji.dat', fsext.bai_item_ji],
+			['/BAI/BAI_mon_cf.dat', fsext.bai_mon_cf],
+			['/BAI/BAI_mon_ji.dat', fsext.bai_mon_ji],
+			['/BAI/BAI_mon_yo.dat', fsext.bai_mon_yo],
+			['/BAI/BAI_scn_cf.dat', fsext.bai_scn_cf],
+			['/BAI/BAI_scn_ji.dat', fsext.bai_scn_ji],
+			['/BAI/BAI_scn_yo.dat', fsext.bai_scn_yo],
+		];
+		const fileSelect = dropdown(pairs.map(p => p[0]), 5, () => update());
+		section.appendChild(fileSelect);
+
+		let scriptSelect = document.createElement('span');
+		section.appendChild(scriptSelect);
+
+		// HIGH CONFIDENCE
+		const knownOpcodes = new Map();
+		bai.knownOpcodes = knownOpcodes;
+		knownOpcodes.set(0x00, { length: 4, match: (s,o) => false }); // ???
+		knownOpcodes.set(0x01, { length: 6 }); // return
+		knownOpcodes.set(0x02, { length: 9 }); // ??? (jump?)
+		knownOpcodes.set(0x03, { length: 9 }); // ??? (jump?)
+		knownOpcodes.set(0x08, { length: 10 }); // ??? (another kind of jump?)
+		knownOpcodes.set(0x10, { length: 18 }); // ??? (say?)
+		knownOpcodes.set(0x20, { length: 6 }); // ???
+		knownOpcodes.set(0x29, { length: 10 }); // ???
+		knownOpcodes.set(0x3b, { length: 8 }); // ???
+		knownOpcodes.set(0x40, { length: 6 }); // set animation
+		knownOpcodes.set(0x41, { length: 10 }); // ???
+		knownOpcodes.set(0x7b, { length: 8 }); // set block state
+		knownOpcodes.set(0xc0, { length: 7 }); // ???
+		knownOpcodes.set(0xc7, { length: 7 }); // ???
+		knownOpcodes.set(0xbf, { length: 11 }); // ???
+		knownOpcodes.set(0xef, { length: 15 }); // ?????? (ef 00 01 00 00 00 00 40 00 c0 ff 2c 01 00 00) try breaking that up bro
+		knownOpcodes.set(0xf1, { length: 7 }); // ??? (start textbox?)
+		knownOpcodes.set(0xf2, { length: 8 }); // ??? (end textbox?)
+
+		const MINIMUM_OPCODE_LENGTH = 6;
+		const MAXIMUM_OPCODE_LENGTH = 11;
+		const MAXIMUM_UNKNOWN_OPCODE_DEPTH = 9;
+
+		section.appendChild(button('Bruteforce Opcodes (6, 11, 255)', () => bruteforce({
+			MINIMUM_OPCODE_LENGTH: 6,
+			MAXIMUM_OPCODE_LENGTH: 11,
+			MAXIMUM_UNKNOWN_OPCODE_DEPTH: 255,
+		})));
+
+		section.appendChild(button('(6, 17, 255)', () => bruteforce({
+			MINIMUM_OPCODE_LENGTH: 6,
+			MAXIMUM_OPCODE_LENGTH: 17,
+			MAXIMUM_UNKNOWN_OPCODE_DEPTH: 255,
+		})));
+
+		section.appendChild(button('(6, 23, 255)', () => bruteforce({
+			MINIMUM_OPCODE_LENGTH: 6,
+			MAXIMUM_OPCODE_LENGTH: 23,
+			MAXIMUM_UNKNOWN_OPCODE_DEPTH: 255,
+		})));
+
+		const bruteforceDisplay = document.createElement('div');
+		section.appendChild(bruteforceDisplay);
+
+		const bruteforce = ({ MINIMUM_OPCODE_LENGTH, MAXIMUM_OPCODE_LENGTH, MAXIMUM_UNKNOWN_OPCODE_DEPTH }) => {
+			const bfScripts = bai.bfScripts = [];
+			/*
+			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
+			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
+			*/
+			for (const collection of [
+					//fsext.bai_atk_hk, fsext.bai_atk_yy, fsext.bai_atk_nh, fsext.bai_atk_mt,
+					fsext.bai_mon_cf, fsext.bai_mon_ji, fsext.bai_mon_yo,
+					//fsext.bai_scn_ji, fsext.bai_scn_cf, fsext.bai_scn_yo,
+				]) {
+				if (!collection) continue;
+				for (const bai of collection.segments) {
+					if (bai.byteLength < 12) continue;
+					
+					const turn1 = bai.getUint16(2, true) + 2;
+					const init = bai.getUint16(4, true) + 4;
+					const turn2 = bai.getUint16(6, true) + 6;
+					const playerBeginAttack = bai.getUint16(8, true) + 8;
+					const unknown = bai.getUint16(10, true) + 10;
+
+					if (!turn1 && !init && !turn2 && !playerBeginAttack) continue;
+
+					const parts = [[turn1, 'Turn1'], [init, 'Init'], [turn2, 'Turn2'], [playerBeginAttack, 'playerBeginAttack'], [unknown, 'Unknown']];
+						parts.sort((a,b) => a[0] - b[0]);
+
+					let footerStart = bai.byteLength - 6;
+					while (footerStart >= 0 && !(bai.getUint32(footerStart, true) === 1 && bai.getUint16(footerStart + 4, true) === 0)) {
+						--footerStart;
+					}
+
+					if (footerStart <= 0) continue;
+
+					for (let i = 0; i < parts.length - 1; ++i) {
+						const start = parts[i][0];
+						const end = parts[i + 1]?.[0] ?? footerStart;
+						bfScripts.push([bai, sliceDataView(bai, start, end)]);
+					}
+
+					// BALLSY ASSUMPTION: EVERY SCRIPT IS SEPARATED BY 01 00 00 00 00 00 (00)*
+					/*const u8 = bufToU8(bai);
+					let o = 14;
+					let start = o;
+					while (o < u8.length) {
+						if (u8[o] === 1 && !u8[o+1] && !u8[o+2] && !u8[o+3] && !u8[o+4] && !u8[o+5]) {
+							// return found
+							bfScripts.push(sliceDataView(bai, start, o));
+							o += 6;
+							while (o < u8.length && !u8[o]) ++o; // sometimes there are extra zeroes after a return. don't think it's any kind of alignment though
+							start = o;
+						} else ++o;
+					}*/
+				}
+			}
+
+			// start with the smallest scripts
+			bfScripts.sort((a,b) => a[1].byteLength - b[1].byteLength);
+			bfScripts.length = 1000;
+
+			const process = script => {
+						const parts = [];
+						const u8 = bufToU8(script);
+						let o = 0;
+						const push = (len, color) => {
+							if (false) parts.push(`<span style="color:${color}">[${bytes(o, len, script)}]</span>`);
+							else parts.push('[' + bytes(o, len, script) + ']');
+							o += len;
+						};
+						while (o < u8.length) {
+							console.log(script.byteLength, ':', o, u8[o]);
+							// if (u8[o] === 0) push(1); // return(?) (GENERALLY this means i got a size wrong)
+							/*if (u8[o] === 0x01) push(6); // ???
+							else if (u8[o] === 0x02) push(19); // ??? (LOW confidence)
+							else if (u8[o] === 0x03) push(9); // ???
+							else if (u8[o] === 0x04) push(8); // ??? (LOW confidence)
+							else if (u8[o] === 0x08) push(10); // ???
+							else if (u8[o] === 0x10) push(18); // say(?)
+							else if (u8[o] === 0x14) push(7); // ???
+							else if (u8[o] === 0x16) push(8); // ???
+							else if (u8[o] === 0x18) push(3); // ???
+							else if (u8[o] === 0x20) push(6); // ???
+							else if (u8[o] === 0x29) push(7); // ??? (LOW confidence)
+							else if (u8[o] === 0x40) push(6); // animation(?)
+							else if (u8[o] === 0x49) push(11); // ??? (LOW confidence)
+							else if (u8[o] === 0x4a) push(8); // ???
+							else if (u8[o] === 0x7b) push(8); // set block state(?)
+							else if (u8[o] === 0xa0) push(3); // ??? (LOW confidence)
+							else if (u8[o] === 0xbf) push(11); // ???
+							else if (u8[o] === 0xc0) push(7); // ???
+							else if (u8[o] === 0xc7) push(7); // ???
+							else if (u8[o] === 0xee) push(6); // ???
+							else if (u8[o] === 0xef) push(6); // ???
+							else if (u8[o] === 0xf1) push(7); // textbox start(?)
+							else if (u8[o] === 0xf2) push(7); // textbox end(?)*/
+
+							if (!u8[o]) {
+								push(1, '#666');
+							} else if (u8[o] === 1) {
+								push(6, '#f99');
+							} else {
+								const known = bai.knownOpcodes.get(u8[o]);
+								if (known) {
+									push(known.length);
+								} else {
+									break;
+								}
+							}
+						}
+
+						if (o < u8.length - 32) parts.length = 0, parts.push(['-----']);
+						else if (o < u8.length) parts.push(bytes(o, u8.length - o, script));
+						return parts.join(' ');
+					};
+
+			console.log(bfScripts.map(x => x[0].byteLength.toString(16) + ' :: ' + process(x[1])));
+
+			// GOOD GUESSES
+			/*knownOpcodes.set(0x03, { length: 9 });
+			knownOpcodes.set(0xf1, { length: 7 });
+			knownOpcodes.set(0xf2, { length: 7 });
+
+			// DISCOVERY
+			knownOpcodes.set(0xc0, { length: 13 });
+			knownOpcodes.set(0x3b, { length: 8 });
+			knownOpcodes.set(0x08, { length: 7 });
+			knownOpcodes.set(0xa0, { length: 12 });
+			knownOpcodes.set(0x2e, { length: 14 });
+
+			knownOpcodes.set(0x0a, { length: 12 });
+			knownOpcodes.set(0x0b, { length: 12 });
+			knownOpcodes.set(0x09, { length: 12 });
+			knownOpcodes.set(0x14, { length: 10 });
+			knownOpcodes.set(0x15, { length: 8 });
+			knownOpcodes.set(0x02, { length: 10 });*/
+
+			const guessBacklog = [];
+
+			const pause = () => new Promise(r => setTimeout(r));
+
+			return;
+
+			bai.conflicts = new Set();
+			scriptLoop: for (let i = 0; i < bfScripts.length; ++i) {
+				const script = bufToU8(bfScripts[i]);
+
+				// process all known opcodes forwards
+				const okayGuessSequences = [];
+				const stack = [];
+				stack.push({ o: 0, guesses: [], usedOpcodes: new Set() });
+				while (stack.length) {
+					const top = stack.pop();
+					let { o } = top;
+					const { guesses, usedOpcodes } = top;
+					opcodeLoop: for (; o < script.length;) {
+						const opcode = script[o];
+						usedOpcodes.add(opcode);
+						const known = knownOpcodes.get(opcode);
+						if (known) {
+							if (known.match && !known.match(script, o)) break; // if match() exists it HAS to match
+							o += known.length;
+							continue;
+						}
+
+						// try putting our assumptions to the test
+						for (const guess of guesses) {
+							if (guess.opcode === opcode) {
+								o += guess.len;
+								continue opcodeLoop;
+							}
+						}
+
+						// branch off into other possibilities
+						if (guesses.length < MAXIMUM_UNKNOWN_OPCODE_DEPTH) {
+							for (let len = MAXIMUM_OPCODE_LENGTH; len >= MINIMUM_OPCODE_LENGTH; --len) {
+								const newGuesses = guesses.slice();
+								newGuesses.push({ opcode, len });
+								stack.push({ o: o + len, guesses: newGuesses, usedOpcodes: new Set(usedOpcodes) });
+							}
+						}
+						break;
+					}
+
+					if (o === script.length && o !== top.o /* more opcodes were found that work */) okayGuessSequences.push(guesses);
+					if (o > script.length && !guesses.length) {
+						console.warn('CONFLICT ON AT LEAST ONE OF THESE:', Array.from(usedOpcodes.values()).join(','), 'ON', bytes(0, script.length, script));
+						bai.conflicts.add(Array.from(usedOpcodes.values()).join(','));
+					}
+				}
+
+				if (!okayGuessSequences.length || !okayGuessSequences[0].length) continue;
+
+				if (okayGuessSequences.length === 1) {
+					console.log('SINGLE DISCOVERY', okayGuessSequences);
+					for (const { opcode, len } of okayGuessSequences[0]) {
+						knownOpcodes.set(opcode, { length: len });
+					}
+					if (guessBacklog.length) {
+						i = guessBacklog[0].scriptId - 1;
+						guessBacklog.length = 0;
+					}
+					continue scriptLoop;
+				}
+
+				// see if there are any pairs of scripts such that only ONE guess sequence is shared between them (therefore, that guess sequence must be valid)
+				const compareSequence = (a, b) => {
+					if (a.length !== b.length) return false;
+
+					for (let j = 0; j < a.length; ++j) {
+						const corr = b.find(({ opcode, len }) => opcode === a[j].opcode);
+						if (!corr) return false;
+						if (a[j].len !== corr.len) return false;
+					}
+
+					return true;
+				};
+
+				backlogLoop: for (let j = 0; j < guessBacklog.length; ++j) {
+					const { scriptId: otherScriptId, okayGuessSequences: otherGuessSequences } = guessBacklog[j];
+					let matched;
+					for (let k = 0; k < okayGuessSequences.length; ++k) {
+						for (let l = 0; l < otherGuessSequences.length; ++l) {
+							if (!compareSequence(okayGuessSequences[k], otherGuessSequences[l])) continue;
+							// they're equal!!
+							if (matched) continue backlogLoop;
+							matched = okayGuessSequences[k];
+						}
+					}
+
+					if (!matched) continue;
+
+					console.log('YOOO DISCOVERY', i, otherScriptId, matched);
+					for (const { opcode, len } of matched) {
+						knownOpcodes.set(opcode, { length: len });
+					}
+					i = guessBacklog[0].scriptId - 1;
+					guessBacklog.length = 0;
+					continue scriptLoop;
+				}
+
+				guessBacklog.push({ scriptId: i, scriptLength: script.length, script: bytes(0, script.length, script), okayGuessSequences });
+
+				console.log('guessBacklog:', guessBacklog.map(x => '[' + x.scriptLength + ' ' + x.okayGuessSequences.length + ']').join(','));
+			}
+
+			console.log(guessBacklog);
+
+			bruteforceDisplay.innerHTML = `Discovered: ${bai.knownOpcodes.size} opcodes (${Array.from(bai.knownOpcodes.keys()).map(str8)})`;
+
+			update();
+		};
+
+		const display = document.createElement('div');
+		section.appendChild(display);
+
+		const update = () => {
+			display.innerHTML = '';
+
+			const [filePath, fsextEntries] = pairs[fileSelect.value];
+			const file = fs.get(filePath);
+			if (!file) {
+				addHTML(display, 'File does not exist');
+				scriptSelect.replaceWith((scriptSelect = document.createElement('span')));
+				return;
+			}
+
+			if (!fsextEntries) {
+				addHTML(display, 'No fsext segments list for this file and gamecode exist');
+				scriptSelect.replaceWith((scriptSelect = document.createElement('span')));
+				return;
+			}
+
+			scriptSelect.replaceWith((scriptSelect = dropdown(fsextEntries.segments.map((x,i) => `0x${str8(i)} (${x.byteLength} bytes)`), 0, () => updateScript())));
+			const updateScript = () => {
+				const segment = fsextEntries.segments[scriptSelect.value];
+				const u8 = bufToU8(segment);
+				display.innerHTML = '';
+
+				if (!segment.getUint16(2, true) && !segment.getUint16(4, true) && !segment.getUint16(6, true) && !segment.getUint16(8, true)) {
+					addHTML(display, '<div>No battle events bound?</div>');
+					addHTML(display, `<code>${bytes(0, segment.byteLength, segment)}</code>`);
+				} else {
+					const turn1 = segment.getUint16(2, true) + 2;
+					const init = segment.getUint16(4, true) + 4;
+					const turn2 = segment.getUint16(6, true) + 6;
+					const playerBeginAttack = segment.getUint16(8, true) + 8;
+					const unknown = segment.getUint16(10, true) + 10;
+
+					addHTML(display, `<div>Battle events: Turn1: 0x${str16(turn1)}; Init: 0x${str16(init)}; Turn2: 0x${str16(turn2)}; playerBeginAttack: 0x${str16(playerBeginAttack)}; unknown: 0x${str16(unknown)}</div>`);
+
+					const parts = [[turn1, 'Turn1'], [init, 'Init'], [turn2, 'Turn2'], [playerBeginAttack, 'playerBeginAttack'], [unknown, 'Unknown']];
+					parts.sort((a,b) => a[0] - b[0]);
+
+					const process = script => {
+						const parts = [];
+						const u8 = bufToU8(script);
+						let o = 0;
+						const push = (len, color) => {
+							if (color) parts.push(`<span style="color:${color}">[${bytes(o, len, script)}]</span>`);
+							else parts.push('[' + bytes(o, len, script) + ']');
+							o += len;
+						};
+						while (o < u8.length) {
+							console.log(script.byteLength, ':', o, u8[o]);
+							// if (u8[o] === 0) push(1); // return(?) (GENERALLY this means i got a size wrong)
+							/*if (u8[o] === 0x01) push(6); // ???
+							else if (u8[o] === 0x02) push(19); // ??? (LOW confidence)
+							else if (u8[o] === 0x03) push(9); // ???
+							else if (u8[o] === 0x04) push(8); // ??? (LOW confidence)
+							else if (u8[o] === 0x08) push(10); // ???
+							else if (u8[o] === 0x10) push(18); // say(?)
+							else if (u8[o] === 0x14) push(7); // ???
+							else if (u8[o] === 0x16) push(8); // ???
+							else if (u8[o] === 0x18) push(3); // ???
+							else if (u8[o] === 0x20) push(6); // ???
+							else if (u8[o] === 0x29) push(7); // ??? (LOW confidence)
+							else if (u8[o] === 0x40) push(6); // animation(?)
+							else if (u8[o] === 0x49) push(11); // ??? (LOW confidence)
+							else if (u8[o] === 0x4a) push(8); // ???
+							else if (u8[o] === 0x7b) push(8); // set block state(?)
+							else if (u8[o] === 0xa0) push(3); // ??? (LOW confidence)
+							else if (u8[o] === 0xbf) push(11); // ???
+							else if (u8[o] === 0xc0) push(7); // ???
+							else if (u8[o] === 0xc7) push(7); // ???
+							else if (u8[o] === 0xee) push(6); // ???
+							else if (u8[o] === 0xef) push(6); // ???
+							else if (u8[o] === 0xf1) push(7); // textbox start(?)
+							else if (u8[o] === 0xf2) push(7); // textbox end(?)*/
+
+							if (!u8[o]) {
+								push(1, '#666');
+							} else if (u8[o] === 1) {
+								push(6, '#f99');
+							} else {
+								const known = bai.knownOpcodes.get(u8[o]);
+								if (known) {
+									push(known.length);
+								} else {
+									break;
+								}
+							}
+						}
+
+						if (o < u8.length - 256) parts.push(bytes(o, 256, script) + '...');
+						else if (o < u8.length) parts.push(bytes(o, u8.length - o, script));
+						return parts.join(' ');
+					};
+
+					const list = document.createElement('ul');
+					display.appendChild(list);
+					for (let i = 0; i < parts.length; ++i) {
+						const start = parts[i][0];
+						const end = parts[i + 1]?.[0] ?? segment.byteLength;
+						addHTML(display, `<li>${parts[i][1]} (${end - start} bytes): <code>${process(sliceDataView(segment, start, end))}</code></li>`);
+					}
+				}
+			};
+			updateScript();
+		};
+		update();
+
+		return bai;
 	}));
 
 	// add spacing to the bottom of the page, for better scrolling
