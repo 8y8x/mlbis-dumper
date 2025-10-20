@@ -3866,52 +3866,78 @@
 		const fileSelect = dropdown(mfsetFiles, 0, () => update());
 		section.appendChild(fileSelect);
 
+		const metaDisplay = document.createElement('div');
+		section.appendChild(metaDisplay);
+
+		const tableContainer = document.createElement('div');
+		tableContainer.style.cssText = 'width: 100%; height: fit-content; overflow-x: auto;';
+		section.appendChild(tableContainer);
+
 		const table = document.createElement('table');
-		table.style.cssText = 'border-collapse: collapse;';
-		section.appendChild(table);
+		table.className = 'bordered';
+		tableContainer.appendChild(table);
 
 		const update = () => {
 			const file = fs.get(mfsetFiles[fileSelect.value]);
 			const segments = unpackSegmented(file);
 			table.innerHTML = `<tr><td>${segments.length} segments: ${segments.map((x) => x.byteLength).join(',')}</td><tr>`;
 
-			const filteredSegments = segments.filter((x) => {
-				if (!x.byteLength) return false;
-				// some columns are just a bunch of zeroes with nothing useful
-				const u8 = bufToU8(x);
-				for (let i = 0; i < u8.length; ++i) {
-					if (u8[i] !== 0) return true;
-				}
+			const zeroedColumns = [];
+			const invalidColumns = [];
+			const rows = [['<th></th>']];
+			for (let i = 0; i < segments.length; ++i) {
+				const segment = segments[i];
+				if (!segment.byteLength) continue;
 
-				return false;
-			});
-			const rows = [];
-			for (let i = 0; i < filteredSegments.length; ++i) {
-				let entries;
-				try {
-					entries = unpackSegmented(filteredSegments[i]);
-				} catch (_) {
-					rows[0] ??= new Array(filteredSegments.length);
-					rows[0][i] = '(failed to read)';
+				// some segments are zeroed out with nothing useful
+				let nonzero = false;
+				const u8 = bufToU8(segment);
+				for (let j = 0; j < u8.length; ++j) {
+					if (u8[j] !== 0) {
+						nonzero = true;
+						break;
+					}
+				}
+				if (!nonzero) {
+					zeroedColumns.push(i);
 					continue;
 				}
+
+				let entries;
+				try {
+					entries = unpackSegmented(segment);
+				} catch (_) {
+					invalidColumns.push(i);
+					continue;
+				}
+
+				const column = rows[0].length;
+				rows[0].push(`<th>Column ${i}</th>`);
+
 				for (let j = 0; j < entries.length; ++j) {
-					rows[j] ??= new Array(filteredSegments.length);
-					rows[j][i] = readMessage(0, entries[j]);
+					rows[j + 1] ??= [`<td>${j}</td>`];
+					rows[j + 1][column] = `<td>${sanitize(readMessage(0, entries[j])).replaceAll('\n', '<br>')}</td>`;
 				}
 			}
-			mfset.selected = { segments, filteredSegments, rows };
+			mfset.selected = { segments, rows };
 
-			if (rows.length === 0) {
-				table.innerHTML = '(nothing but zeroes)';
+			metaDisplay.innerHTML = '';
+			if (invalidColumns.length)
+				addHTML(metaDisplay, `<div>Invalid columns (fonts?): ${invalidColumns.join(', ')}</div>`);
+			if (zeroedColumns.length)
+				addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
+
+			const numColumns = rows[0].length;
+			for (let i = 0; i < rows.length; ++i) {
+				for (let j = 0; j < numColumns; ++j) {
+					rows[i][j] ??= '<td></td>';
+				}
+			}
+
+			if (rows.length === 1) {
+				table.innerHTML = '(no data)';
 			} else {
-				// tables suck bro
-				table.innerHTML = rows
-					.map(
-						(row, i) =>
-							`<tr><td>${i}</td>${row.map((message) => `<td style="border: 1px solid #666; padding: 5px;">${sanitize(message).replaceAll('\n', '<br>')}</td>`).join('')}</tr>`,
-					)
-					.join('');
+				table.innerHTML = rows.map(x => '<tr>' + x.join('') + '</tr>').join('');
 			}
 		};
 		update();
@@ -3936,9 +3962,13 @@
 		const metaDisplay = document.createElement('div');
 		section.appendChild(metaDisplay);
 
-		const tableDisplay = document.createElement('table');
-		tableDisplay.style.cssText = 'border-collapse: collapse;';
-		section.appendChild(tableDisplay);
+		const tableContainer = document.createElement('div');
+		tableContainer.style.cssText = 'width: 100%; height: fit-content; overflow-x: auto;';
+		section.appendChild(tableContainer);
+
+		const table = document.createElement('table');
+		table.className = 'bordered';
+		tableContainer.appendChild(table);
 
 		const update = () => {
 			const file = fs.get(paths[fileSelect.value]);
@@ -3956,13 +3986,13 @@
 			);
 
 			const updateTable = () => {
-				tableDisplay.innerHTML = '';
+				table.innerHTML = '';
 
 				const columns = unpackSegmented(tables[filteredTableIds[scriptSelect.value]]);
 				bmes.columns = columns;
 				const invalidColumns = [];
 				const zeroedColumns = [];
-				const rows = [[]];
+				const rows = [['<td></td>']];
 				for (let i = 0; i < columns.length; ++i) {
 					if (!columns[i].byteLength) continue;
 
@@ -3987,32 +4017,32 @@
 					}
 
 					const tableColumn = rows[0].length;
-					rows[0].push(`<th style="border: 1px solid #666; padding: 5px;">Column ${i}</th>`);
+					rows[0].push(`<th>Column ${i}</th>`);
 
 					for (let j = 0; j < entries.length; ++j) {
-						rows[j + 1] ??= [];
-						rows[j + 1][tableColumn] =
-							'<td style="border: 1px solid #666; padding: 5px;">' +
-							sanitize(readMessage(0, entries[j])).replaceAll('\n', '<br>') +
-							'</td>';
+						rows[j + 1] ??= [`<td>${j}</td>`];
+						rows[j + 1][tableColumn]
+							= `<td>${sanitize(readMessage(0, entries[j])).replaceAll('\n', '<br>')}</td>`;
 					}
 				}
 
 				metaDisplay.innerHTML = '';
 				if (invalidColumns.length)
-					addHTML(metaDisplay, `<div>Invalid columns: ${invalidColumns.join(', ')}</div>`);
+					addHTML(metaDisplay, `<div>Invalid columns (fonts?): ${invalidColumns.join(', ')}</div>`);
 				if (zeroedColumns.length)
 					addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
 
 				const numFilteredColumns = rows[0].length;
 				for (let i = 1; i < rows.length; ++i) {
 					for (let j = 0; j < numFilteredColumns; ++j)
-						rows[i][j] ??= '<td style="border: 1px solid #666;"></td>'; // ensure there are no holes in the array
+						rows[i][j] ??= '<td></td>'; // ensure there are no holes in the array
 				}
 
-				tableDisplay.innerHTML = rows
-					.map((row, i) => `<tr><td>${i > 0 ? i - 1 : ''}</td>` + row.join('') + '</tr>')
-					.join('');
+				if (rows[0].length === 1) {
+					table.innerHTML = '(no data)';
+				} else {
+					table.innerHTML = rows.map((row, i) => '<tr>' + row.join('') + '</tr>').join('');
+				}
 			};
 			updateTable();
 		};
@@ -4073,7 +4103,7 @@
 		}));
 
 		addHTML(section, `<div style="color: #f99;">
-			Rendering disassembly in the browser can take several seconds or even minutes. <br>
+			Rendering disassembly in the browser can take a LONG time on large files. <br>
 			You should download the disassembly instead and use your own code editor.
 		</div>`);
 		addHTML(section, `<ul>
@@ -4083,16 +4113,6 @@
 
 		const display = document.createElement('div');
 		section.appendChild(display);
-
-		// catppuccin
-		const keyword = x => `<span style="color: var(--mauve);">${x}</span>`;
-		const string = x => `<span style="color: var(--green);">${x}</span>`;
-		const atom = x => `<span style="color: var(--red);">${x}</span>`;
-		const number = x => `<span style="color: var(--peach);">${x}</span>`;
-		const method = x => `<span style="color: var(--blue);">${x}</span>`;
-		const operator = x => `<span style="color: var(--sky);">${x}</span>`;
-		const variable = x => `<span style="color: var(--subtext0);">${x}</span>`;
-		const comment = x => `<span style="color: var(--overlay2);">${x}</span>`;
 
 		/* `style` can be 'object' or 'asm' */
 		const disassembleArm = disassembler.arm = (overlay, style, isArmv5) => {
@@ -4133,7 +4153,7 @@
 			next: for (let i = 0; i < u16.length; ++i) {
 				const inst = u16[i];
 				
-				// ADC (A7.1.2)
+				// ADC (A7.1.2) OK
 				if ((inst & 0xffc0) === 0x4140) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4141,7 +4161,7 @@
 					continue;
 				}
 
-				// ADD (A7.1.3 - A7.1.9)
+				// ADD (A7.1.3 - A7.1.9) SYNTAX MOD
 				if ((inst & 0xfe00) === 0x1c00) { // (1) (A7.1.3)
 					// TODO: if immed is 0, recognize this as a mov instruction
 					const immed = inst >> 6 & 7;
@@ -4166,25 +4186,25 @@
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
 					const u = unpredictable(H1 === 0 && H2 === 0);
-					if (ASM) lines.push(`add r${Rd + (H1 << 3)}, r${Rm + (H2 << 3)}` + u);
+					if (ASM) lines.push(`add r${(H1 << 3) | Rd}, r${(H2 << 3) | Rm}` + u);
 					continue;
 				} else if ((inst & 0xf800) === 0xa000) { // (5) (A7.1.7)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`add r${Rd}, PC, #${imm(immed * 4)}`);
+					if (ASM) lines.push(`add r${Rd}, PC, #${imm(immed)} * 4`);
 					continue;
 				} else if ((inst & 0xf800) === 0xa800) { // (6) (A7.1.8)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`add r${Rd}, SP, #${imm(immed * 4)}`);
+					if (ASM) lines.push(`add r${Rd}, SP, #${imm(immed)} * 4`);
 					continue;
 				} else if ((inst & 0xff80) === 0xb000) { // (7) (A7.1.9)
 					const immed = inst & 0x7f;
-					if (ASM) lines.push(`add Sp, #${imm(immed * 4)}`);
+					if (ASM) lines.push(`add SP, #${imm(immed)} * 4`);
 					continue;
 				}
 
-				// AND (A7.1.10)
+				// AND (A7.1.10) OK
 				if ((inst & 0xffc0) === 0x4000) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4192,7 +4212,7 @@
 					continue;
 				}
 
-				// ASR (A7.1.11 - A7.1.12)
+				// ASR (A7.1.11 - A7.1.12) OK
 				if ((inst & 0xf800) === 0x1000) { // (1) (A7.1.11)
 					const immed = inst >> 6 & 0x1f;
 					const Rm = inst >> 3 & 7;
@@ -4206,24 +4226,22 @@
 					continue;
 				}
 
-				// B (A7.1.13 - A7.1.14)
+				// B (A7.1.13 - A7.1.14) ORIGINALLY WRONG
 				if ((inst & 0xf000) === 0xd000) { // (1) (A7.1.13)
 					const cond = inst >> 8 & 0xf;
 					const immed = (inst & 0xff) - (inst & 0x80) * 2; // signed
-					if (cond === 0b1110);
+					if (cond === 0b1110); // undefined
 					else if (cond !== 0b1111) { // 0b1111 is a SWI instruction
-						const u = unpredictable(false); // TODO: out-of-bounds access across all overlays
-						if (ASM) lines.push(`b${conds[cond]} #${imm(immed * 2)}` + u);
+						if (ASM) lines.push(`b${conds[cond]} ${imm(immed * 2)}`);
 						continue;
 					}
 				} else if ((inst & 0xf800) === 0xe000) { // (2) (A7.1.14)
-					const immed = (inst & 0x3ff) - (inst & 0x200) * 2; // signed
-					const u = unpredictable(false); // TODO: out-of-bounds access across all overlays
-					if (ASM) lines.push(`b #${imm(immed * 2)}` + u);
+					const immed = (inst & 0x7ff) - (inst & 0x400) * 2; // signed
+					if (ASM) lines.push(`b ${imm(immed * 2)}`);
 					continue;
 				}
 
-				// BIC (A7.1.15)
+				// BIC (A7.1.15) OK
 				if ((inst & 0xffc0) === 0x4380) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4231,29 +4249,29 @@
 					continue;
 				}
 
-				// BKPT (A7.1.16)
+				// BKPT (A7.1.16) SYNTAX MOD
 				if ((inst & 0xff00) === 0xbe00 && isArmv5) {
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`bkpt #${imm(immed)}`);
+					if (ASM) lines.push(`bkpt ${imm(immed)}`);
 					continue;
 				}
 
-				// BL, BLX (A7.1.17 - A7.1.18)
+				// BL, BLX (A7.1.17 - A7.1.18) ORIGINALLY WRONG, SYNTAX MOD
 				if ((inst & 0xe000) === 0xe000) { // (1) (A7.1.17)
 					const H = inst >> 11 & 3;
-					const offsetHigh = inst & 0x3ff;
+					const offsetHigh = inst & 0x7ff;
 					if (H === 2) {
 						const next = u16[i + 1];
-						if ((next & 0xe000) === 0xe000) {
+						if (next !== undefined && (next & 0xe000) === 0xe000) {
 							const Hnext = next >> 11 & 3;
-							const offsetLow = next & 0x3ff;
+							const offsetLow = next & 0x7ff;
 							if (Hnext === 1 && isArmv5) {
 								const u = unpredictable(offsetLow & 1);
-								if (ASM) lines.push(`blx #${imm(offsetHigh << 12 | offsetLow << 1)}` + u, '');
+								if (ASM) lines.push(`blx ${imm(offsetHigh << 12 | offsetLow << 1)}` + u, '');
 								++i;
 								continue;
 							} else if (Hnext === 3) {
-								if (ASM) lines.push(`bl #${imm(offsetHigh << 12 | offsetLow << 1)}`, '');
+								if (ASM) lines.push(`bl ${imm(offsetHigh << 12 | offsetLow << 1)}`, '');
 								++i;
 								continue;
 							}
@@ -4276,7 +4294,7 @@
 					continue;
 				}
 
-				// BX (A7.1.19)
+				// BX (A7.1.19) OK
 				if ((inst & 0xff80) === 0x4700) {
 					const H2 = inst >> 6 & 1;
 					const Rm = inst >> 3 & 7;
@@ -4285,33 +4303,36 @@
 					continue;
 				}
 
-				// CMN (A7.1.20)
-				if ((inst & 0xff80) === 0x42c0) {
+				// CMN (A7.1.20) ORIGINALLY WRONG
+				if ((inst & 0xffc0) === 0x42c0) {
 					const Rm = inst >> 3 & 7;
 					const Rn = inst & 7;
 					if (ASM) lines.push(`cmn r${Rn}, r${Rm}`);
 					continue;
 				}
 
-				// CMP (A7.1.21 - A7.1.23)
+				// CMP (A7.1.21 - A7.1.23) ORIGINALLY WRONG
 				if ((inst & 0xf800) === 0x2800) { // (1) (A7.1.21)
 					const Rn = inst >> 8 & 7;
 					const immed = inst & 0xff;
 					if (ASM) lines.push(`cmp r${Rn}, #${imm(immed)}`);
 					continue;
-				} else if ((inst & 0xff80) === 0x4280) { // (2) (A7.1.22)
+				} else if ((inst & 0xffc0) === 0x4280) { // (2) (A7.1.22)
 					const Rm = inst >> 3 & 7;
 					const Rn = inst & 7;
 					if (ASM) lines.push(`cmp r${Rn}, r${Rm}`);
 					continue;
 				} else if ((inst & 0xff00) === 0x4500) { // (3) (A7.1.23)
+					const H1 = inst >> 7 & 1;
+					const H2 = inst >> 6 & 1;
 					const Rm = inst >> 3 & 7;
 					const Rn = inst & 7;
-					if (ASM) lines.push(`cmp r${Rn}, r${Rm}`);
+					const u = unpredictable((H1 << 3 | Rn) === 0xf || (H1 === 0 && H2 === 0));
+					if (ASM) lines.push(`cmp r${H1 << 3 | Rn}, r${H2 << 3 | Rm}` + u);
 					continue;
 				}
 
-				// EOR (A7.1.26)
+				// EOR (A7.1.26) OK
 				if ((inst & 0xffc0) === 0x4040) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4319,7 +4340,7 @@
 					continue;
 				}
 
-				// LDMIA (A7.1.27)
+				// LDMIA (A7.1.27) OK
 				if ((inst & 0xf800) === 0xc800) {
 					const Rn = inst >> 8 & 7;
 					const registers = inst & 0xff;
@@ -4334,12 +4355,12 @@
 					continue;
 				}
 
-				// LDR (A7.1.28 - A7.1.31)
+				// LDR (A7.1.28 - A7.1.31) SYNTAX MOD
 				if ((inst & 0xf800) === 0x6800) { // (1) (A7.1.28)
 					const immed = inst >> 6 & 0x1f;
 					const Rn = inst >> 3 & 7;
 					const Rd = inst & 7;
-					if (ASM) lines.push(`ldr r${Rd}, [r${Rn}, #${imm(immed * 4)}]`);
+					if (ASM) lines.push(`ldr r${Rd}, [r${Rn}, #${imm(immed)} * 4]`);
 					continue;
 				} else if ((inst & 0xfe00) === 0x5800) { // (2) (A7.1.29)
 					const Rm = inst >> 6 & 7;
@@ -4350,16 +4371,16 @@
 				} else if ((inst & 0xf800) === 0x4800) { // (3) (A7.1.30)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`ldr r${Rd}, [PC, #${imm(immed * 4)}]`);
+					if (ASM) lines.push(`ldr r${Rd}, [PC, #${imm(immed)} * 4]`);
 					continue;
 				} else if ((inst & 0xf800) === 0x9800) { // (4) (A7.1.31)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`ldr r${Rd}, [SP, #${imm(immed * 4)}]`);
+					if (ASM) lines.push(`ldr r${Rd}, [SP, #${imm(immed)} * 4]`);
 					continue;
 				}
 
-				// LDRB (A7.1.32 - A7.1.33)
+				// LDRB (A7.1.32 - A7.1.33) OK
 				if ((inst & 0xf800) === 0x7800) { // (1) (A7.1.32)
 					const immed = inst >> 6 & 0x1f;
 					const Rn = inst >> 3 & 7;
@@ -4374,12 +4395,12 @@
 					continue;
 				}
 
-				// LDRH (A7.1.34 - A7.1.35)
+				// LDRH (A7.1.34 - A7.1.35) SYNTAX MOD
 				if ((inst & 0xf800) === 0x8800) { // (1) (A7.1.34)
 					const immed = inst >> 6 & 0x1f;
 					const Rn = inst >> 3 & 7;
 					const Rd = inst & 7;
-					if (ASM) lines.push(`ldrh r${Rd}, [r${Rn}, #${imm(immed * 2)}]`);
+					if (ASM) lines.push(`ldrh r${Rd}, [r${Rn}, #${imm(immed)} * 2]`);
 					continue;
 				} else if ((inst & 0xfe00) === 0x5a00) { // (2) (A7.1.35)
 					const Rm = inst >> 6 & 7;
@@ -4389,7 +4410,7 @@
 					continue;
 				}
 
-				// LDRSB (A7.1.36)
+				// LDRSB (A7.1.36) OK
 				if ((inst & 0xfe00) === 0x5600) {
 					const Rm = inst >> 6 & 7;
 					const Rn = inst >> 3 & 7;
@@ -4398,7 +4419,7 @@
 					continue;
 				}
 
-				// LDRSH (A7.1.37)
+				// LDRSH (A7.1.37) OK
 				if ((inst & 0xfe00) === 0x5e00) {
 					const Rm = inst >> 6 & 7;
 					const Rn = inst >> 3 & 7;
@@ -4407,7 +4428,7 @@
 					continue;
 				}
 
-				// LSL (A7.1.38 - A7.1.39)
+				// LSL (A7.1.38 - A7.1.39) OK
 				if ((inst & 0xf800) === 0) { // (1) (A7.1.38)
 					const immed = inst >> 6 & 0x1f;
 					const Rm = inst >> 3 & 7;
@@ -4421,7 +4442,7 @@
 					continue;
 				}
 
-				// LSR (A7.1.40 - A7.1.41)
+				// LSR (A7.1.40 - A7.1.41) OK
 				if ((inst & 0xf800) === 0x0800) { // (1) (A7.1.40)
 					const immed = inst >> 6 & 0x1f;
 					const Rm = inst >> 3 & 7;
@@ -4435,16 +4456,17 @@
 					continue;
 				}
 
-				// MOV (A7.1.42 - A7.1.44)
+				// MOV (A7.1.42 - A7.1.44) OK
 				if ((inst & 0xf800) === 0x2000) { // (1) (A7.1.42)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
 					if (ASM) lines.push(`mov r${Rd}, #${imm(immed)}`);
 					continue;
 				} else if ((inst & 0xffc0) === 0x1c00) { // (2) (A7.1.43)
+					// (This is just an `ADD Rd, [Rn, #0]` instruction. This code does not get reached.)
 					const Rn = inst >> 3 & 7;
 					const Rd = inst & 7;
-					if (ASM) lines.push(`mov r${Rd}, r${Rn}`); // TODO: Is this really just an ADD instruction?
+					if (ASM) lines.push(`mov r${Rd}, r${Rn}`);
 					continue;
 				} else if ((inst & 0xff00) === 0x4600) { // (3) (A7.1.44)
 					const H1 = inst >> 7 & 1;
@@ -4456,7 +4478,7 @@
 					continue;
 				}
 
-				// MUL (A7.1.45)
+				// MUL (A7.1.45) OK
 				if ((inst & 0xffc0) === 0x4340) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4465,7 +4487,7 @@
 					continue;
 				}
 
-				// MVN (A7.1.46)
+				// MVN (A7.1.46) OK
 				if ((inst & 0xffc0) === 0x43c0) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4473,7 +4495,7 @@
 					continue;
 				}
 
-				// NEG (A7.1.47)
+				// NEG (A7.1.47) OK
 				if ((inst & 0xffc0) === 0x4240) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4481,7 +4503,7 @@
 					continue;
 				}
 
-				// ORR (A7.1.48)
+				// ORR (A7.1.48) OK
 				if ((inst & 0xffc0) === 0x4300) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4489,7 +4511,7 @@
 					continue;
 				}
 
-				// POP (A7.1.49)
+				// POP (A7.1.49) OK
 				if ((inst & 0xfe00) === 0xbc00) {
 					const R = inst >> 8 & 1;
 					const registers = inst & 0xff;
@@ -4504,7 +4526,7 @@
 					continue;
 				}
 
-				// PUSH (A7.1.50)
+				// PUSH (A7.1.50) OK
 				if ((inst & 0xfe00) === 0xb400) {
 					const R = inst >> 8 & 1;
 					const registers = inst & 0xff;
@@ -4519,7 +4541,7 @@
 					continue;
 				}
 
-				// ROR (A7.1.54)
+				// ROR (A7.1.54) OK
 				if ((inst & 0xffc0) === 0x41c0) {
 					const Rs = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4527,7 +4549,7 @@
 					continue;
 				}
 
-				// SBC (A7.1.55)
+				// SBC (A7.1.55) OK
 				if ((inst & 0xffc0) === 0x4180) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;
@@ -4535,7 +4557,7 @@
 					continue;
 				}
 
-				// STMIA (A7.1.57)
+				// STMIA (A7.1.57) OK
 				if ((inst & 0xf800) === 0xc000) {
 					const Rn = inst >> 8 & 7;
 					const registers = inst & 0xff;
@@ -4550,12 +4572,12 @@
 					continue;
 				}
 
-				// STR (A7.1.58 - A7.1.60)
+				// STR (A7.1.58 - A7.1.60) SYNTAX MOD
 				if ((inst & 0xf800) === 0x6000) { // (1) (A7.1.58)
 					const immed = inst >> 6 & 0x1f;
 					const Rn = inst >> 3 & 7;
 					const Rd = inst & 7;
-					if (ASM) lines.push(`str r${Rd}, [r${Rn}, #${imm(immed * 4)}]`);
+					if (ASM) lines.push(`str r${Rd}, [r${Rn}, #${imm(immed)} * 4]`);
 					continue;
 				} else if ((inst & 0xfe00) === 0x5000) { // (2) (A7.1.59)
 					const Rm = inst >> 6 & 7;
@@ -4566,11 +4588,11 @@
 				} else if ((inst & 0xf800) === 0x9000) { // (3) (A7.1.60)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`str r${Rd}, [SP, #${imm(immed * 4)}]`);
+					if (ASM) lines.push(`str r${Rd}, [SP, #${imm(immed)} * 4]`);
 					continue;
 				}
 
-				// STRB (A7.1.61 - A7.1.62)
+				// STRB (A7.1.61 - A7.1.62) OK
 				if ((inst & 0xf800) === 0x7000) { // (1) (A7.1.61)
 					const immed = inst >> 6 & 0x1f;
 					const Rn = inst >> 3 & 7;
@@ -4585,12 +4607,12 @@
 					continue;
 				}
 
-				// STRH (A7.1.63 - A7.1.64)
+				// STRH (A7.1.63 - A7.1.64) OK
 				if ((inst & 0xf800) === 0x8000) { // (1) (A7.1.63)
 					const immed = inst >> 6 & 0x1f;
 					const Rn = inst >> 3 & 7;
 					const Rd = inst & 7;
-					if (ASM) lines.push(`strh r${Rd}, [r${Rn}, #${imm(immed * 2)}]`);
+					if (ASM) lines.push(`strh r${Rd}, [r${Rn}, #${imm(immed)} * 2]`);
 					continue;
 				} else if ((inst & 0xfe00) === 0x5200) { // (2) (A7.1.64)
 					const Rm = inst >> 6 & 7;
@@ -4600,7 +4622,7 @@
 					continue;
 				}
 
-				// SUB (A7.1.65 - A7.1.68)
+				// SUB (A7.1.65 - A7.1.68) SYNTAX MOD
 				if ((inst & 0xfe00) === 0x1e00) { // (1) (A7.1.65)
 					const immed = inst >> 6 & 7;
 					const Rn = inst >> 3 & 7;
@@ -4620,18 +4642,18 @@
 					continue;
 				} else if ((inst & 0xff80) === 0xb080) { // (4) (A7.1.68)
 					const immed = inst & 0x7f;
-					if (ASM) lines.push(`sub SP, #${imm(immed * 4)}`);
+					if (ASM) lines.push(`sub SP, #${imm(immed)} * 4`);
 					continue;
 				}
 
-				// SWI (A7.1.69)
+				// SWI (A7.1.69) SYNTAX MOD
 				if ((inst & 0xff00) === 0xdf00) {
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`swi #${imm(immed)}`);
+					if (ASM) lines.push(`swi ${imm(immed)}`);
 					continue;
 				}
 
-				// TST (A7.1.72)
+				// TST (A7.1.72) OK
 				if ((inst & 0xffc0) === 0x4200) {
 					const Rm = inst >> 3 & 7;
 					const Rd = inst & 7;

@@ -91,3 +91,6 @@ button:hover { color: #9cf; }
 .checkbox.checked .check { opacity: 1; }
 .checkbox.checked * { color: var(--checkbox-fg); }
 .checkbox.checked:hover * { color: var(--checkbox-fg-hover); }
+
+table.bordered { border-collapse: collapse; }
+table.bordered td, table.bordered th { border: 1px solid #666; padding: 5px; }
