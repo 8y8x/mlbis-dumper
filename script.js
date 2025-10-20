@@ -1134,7 +1134,10 @@
 			const cached = overlayCache.get(index);
 			if (cached) return cached;
 
-			const decomp = blz(fs.get(index));
+			const file = fs.get(index);
+			if (!file) return undefined;
+
+			const decomp = blz(file);
 			overlayCache.set(index, decomp);
 			return decomp;
 		};
@@ -4019,445 +4022,677 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: BAI                                                                                                  |
+	// | Section: Disassembler                                                                                         |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const bai = (window.bai = createSection('BAI <span style="color: #f99">(not functional)</span>', (section) => {
-		const bai = {};
+	const disassembler = (window.disassembler = createSection('Disassembler', (section) => {
+		const disassembler = {};
 
-		const pairs = [
-			['/BAI/BAI_atk_hk.dat', fsext.bai_atk_hk],
-			['/BAI/BAI_atk_mt.dat', fsext.bai_atk_mt],
-			['/BAI/BAI_atk_nh.dat', fsext.bai_atk_nh],
-			['/BAI/BAI_atk_yy.dat', fsext.bai_atk_yy],
-			['/BAI/BAI_item_ji.dat', fsext.bai_item_ji],
-			['/BAI/BAI_mon_cf.dat', fsext.bai_mon_cf],
-			['/BAI/BAI_mon_ji.dat', fsext.bai_mon_ji],
-			['/BAI/BAI_mon_yo.dat', fsext.bai_mon_yo],
-			['/BAI/BAI_scn_cf.dat', fsext.bai_scn_cf],
-			['/BAI/BAI_scn_ji.dat', fsext.bai_scn_ji],
-			['/BAI/BAI_scn_yo.dat', fsext.bai_scn_yo],
+		const options = [
+			'Select an overlay',
+			`arm9 entry (${headers.arm9size} bytes)`,
+			`arm7 entry (${headers.arm7size} bytes)`,
 		];
-		const fileSelect = dropdown(pairs.map(p => p[0]), 5, () => update());
-		section.appendChild(fileSelect);
+		for (let i = 0;; ++i) {
+			const file = fs.get(i);
+			if (!file) break;
+			if (file.overlay) options.push(`${file.name} (${file.byteLength} bytes)`);
+		}
+		const select = dropdown(options, 0, () => update(), undefined, true);
+		section.appendChild(select);
 
-		let scriptSelect = document.createElement('span');
-		section.appendChild(scriptSelect);
+		const setSelect = dropdown(['ARM9 (ARMv5TE)', 'ARM7 (ARMv4T)', 'Thumb (ARMv5TE)', 'Thumb (ARMv4T)'], 0, () => update(), undefined, true);
+		section.appendChild(setSelect);
 
-		// HIGH CONFIDENCE
-		const knownOpcodes = new Map();
-		bai.knownOpcodes = knownOpcodes;
-		knownOpcodes.set(0x00, { length: 4, match: (s,o) => false }); // ???
-		knownOpcodes.set(0x01, { length: 6 }); // return
-		knownOpcodes.set(0x02, { length: 9 }); // ??? (jump?)
-		knownOpcodes.set(0x03, { length: 9 }); // ??? (jump?)
-		knownOpcodes.set(0x08, { length: 10 }); // ??? (another kind of jump?)
-		knownOpcodes.set(0x10, { length: 18 }); // ??? (say?)
-		knownOpcodes.set(0x20, { length: 6 }); // ???
-		knownOpcodes.set(0x29, { length: 10 }); // ???
-		knownOpcodes.set(0x3b, { length: 8 }); // ???
-		knownOpcodes.set(0x40, { length: 6 }); // set animation
-		knownOpcodes.set(0x41, { length: 10 }); // ???
-		knownOpcodes.set(0x7b, { length: 8 }); // set block state
-		knownOpcodes.set(0xc0, { length: 7 }); // ???
-		knownOpcodes.set(0xc7, { length: 7 }); // ???
-		knownOpcodes.set(0xbf, { length: 11 }); // ???
-		knownOpcodes.set(0xef, { length: 15 }); // ?????? (ef 00 01 00 00 00 00 40 00 c0 ff 2c 01 00 00) try breaking that up bro
-		knownOpcodes.set(0xf1, { length: 7 }); // ??? (start textbox?)
-		knownOpcodes.set(0xf2, { length: 8 }); // ??? (end textbox?)
+		section.appendChild(button('Download All', () => {
+			const textEncoder = new TextEncoder();
+			const encode = lines => new DataView(textEncoder.encode(lines.join('\n')).buffer);
+			const arm7 = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
+			const arm9 = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
+			const files = [
+				{ name: 'arm9-entry.txt', dat: encode(disassembler.arm(arm9, 'asm', true)) },
+				{ name: 'arm9-entry-thumb.txt', dat: encode(disassembler.thumb(arm9, 'asm', true)) },
+				{ name: 'arm7-entry.txt', dat: encode(disassembler.arm(arm7, 'asm', false)) },
+				{ name: 'arm7-entry-thumb.txt', dat: encode(disassembler.thumb(arm7, 'asm', false)) },
+			];
+			for (let i = 0;; ++i) {
+				const file = fs.get(i);
+				if (!file) break;
+				if (!file.overlay) continue;
 
-		const MINIMUM_OPCODE_LENGTH = 6;
-		const MAXIMUM_OPCODE_LENGTH = 11;
-		const MAXIMUM_UNKNOWN_OPCODE_DEPTH = 9;
-
-		section.appendChild(button('Bruteforce Opcodes (6, 11, 255)', () => bruteforce({
-			MINIMUM_OPCODE_LENGTH: 6,
-			MAXIMUM_OPCODE_LENGTH: 11,
-			MAXIMUM_UNKNOWN_OPCODE_DEPTH: 255,
-		})));
-
-		section.appendChild(button('(6, 17, 255)', () => bruteforce({
-			MINIMUM_OPCODE_LENGTH: 6,
-			MAXIMUM_OPCODE_LENGTH: 17,
-			MAXIMUM_UNKNOWN_OPCODE_DEPTH: 255,
-		})));
-
-		section.appendChild(button('(6, 23, 255)', () => bruteforce({
-			MINIMUM_OPCODE_LENGTH: 6,
-			MAXIMUM_OPCODE_LENGTH: 23,
-			MAXIMUM_UNKNOWN_OPCODE_DEPTH: 255,
-		})));
-
-		const bruteforceDisplay = document.createElement('div');
-		section.appendChild(bruteforceDisplay);
-
-		const bruteforce = ({ MINIMUM_OPCODE_LENGTH, MAXIMUM_OPCODE_LENGTH, MAXIMUM_UNKNOWN_OPCODE_DEPTH }) => {
-			const bfScripts = bai.bfScripts = [];
-			/*
-			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
-			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
-			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
-			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
-			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
-			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
-			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
-			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
-			*/
-			for (const collection of [
-					//fsext.bai_atk_hk, fsext.bai_atk_yy, fsext.bai_atk_nh, fsext.bai_atk_mt,
-					fsext.bai_mon_cf, fsext.bai_mon_ji, fsext.bai_mon_yo,
-					//fsext.bai_scn_ji, fsext.bai_scn_cf, fsext.bai_scn_yo,
-				]) {
-				if (!collection) continue;
-				for (const bai of collection.segments) {
-					if (bai.byteLength < 12) continue;
-					
-					const turn1 = bai.getUint16(2, true) + 2;
-					const init = bai.getUint16(4, true) + 4;
-					const turn2 = bai.getUint16(6, true) + 6;
-					const playerBeginAttack = bai.getUint16(8, true) + 8;
-					const unknown = bai.getUint16(10, true) + 10;
-
-					if (!turn1 && !init && !turn2 && !playerBeginAttack) continue;
-
-					const parts = [[turn1, 'Turn1'], [init, 'Init'], [turn2, 'Turn2'], [playerBeginAttack, 'playerBeginAttack'], [unknown, 'Unknown']];
-						parts.sort((a,b) => a[0] - b[0]);
-
-					let footerStart = bai.byteLength - 6;
-					while (footerStart >= 0 && !(bai.getUint32(footerStart, true) === 1 && bai.getUint16(footerStart + 4, true) === 0)) {
-						--footerStart;
-					}
-
-					if (footerStart <= 0) continue;
-
-					for (let i = 0; i < parts.length - 1; ++i) {
-						const start = parts[i][0];
-						const end = parts[i + 1]?.[0] ?? footerStart;
-						bfScripts.push([bai, sliceDataView(bai, start, end)]);
-					}
-
-					// BALLSY ASSUMPTION: EVERY SCRIPT IS SEPARATED BY 01 00 00 00 00 00 (00)*
-					/*const u8 = bufToU8(bai);
-					let o = 14;
-					let start = o;
-					while (o < u8.length) {
-						if (u8[o] === 1 && !u8[o+1] && !u8[o+2] && !u8[o+3] && !u8[o+4] && !u8[o+5]) {
-							// return found
-							bfScripts.push(sliceDataView(bai, start, o));
-							o += 6;
-							while (o < u8.length && !u8[o]) ++o; // sometimes there are extra zeroes after a return. don't think it's any kind of alignment though
-							start = o;
-						} else ++o;
-					}*/
-				}
+				const overlay = fs.overlay(i);
+				const baseName = `overlay${i.toString().padStart(4, '0')}`;
+				files.push(
+					{ name: `${baseName}-arm9.txt`, dat: encode(disassembler.arm(overlay, 'asm', true)) },
+					{ name: `${baseName}-thumb9.txt`, dat: encode(disassembler.thumb(overlay, 'asm', true)) },
+					{ name: `${baseName}-arm7.txt`, dat: encode(disassembler.arm(overlay, 'asm', false)) },
+					{ name: `${baseName}-thumb7.txt`, dat: encode(disassembler.thumb(overlay, 'asm', false)) },
+				);
 			}
+			download(`${headers.gamecode}-disassembly.zip`, zipStore(files), 'application/zip');
+		}));
 
-			// start with the smallest scripts
-			bfScripts.sort((a,b) => a[1].byteLength - b[1].byteLength);
-			bfScripts.length = 1000;
-
-			const process = script => {
-						const parts = [];
-						const u8 = bufToU8(script);
-						let o = 0;
-						const push = (len, color) => {
-							if (false) parts.push(`<span style="color:${color}">[${bytes(o, len, script)}]</span>`);
-							else parts.push('[' + bytes(o, len, script) + ']');
-							o += len;
-						};
-						while (o < u8.length) {
-							console.log(script.byteLength, ':', o, u8[o]);
-							// if (u8[o] === 0) push(1); // return(?) (GENERALLY this means i got a size wrong)
-							/*if (u8[o] === 0x01) push(6); // ???
-							else if (u8[o] === 0x02) push(19); // ??? (LOW confidence)
-							else if (u8[o] === 0x03) push(9); // ???
-							else if (u8[o] === 0x04) push(8); // ??? (LOW confidence)
-							else if (u8[o] === 0x08) push(10); // ???
-							else if (u8[o] === 0x10) push(18); // say(?)
-							else if (u8[o] === 0x14) push(7); // ???
-							else if (u8[o] === 0x16) push(8); // ???
-							else if (u8[o] === 0x18) push(3); // ???
-							else if (u8[o] === 0x20) push(6); // ???
-							else if (u8[o] === 0x29) push(7); // ??? (LOW confidence)
-							else if (u8[o] === 0x40) push(6); // animation(?)
-							else if (u8[o] === 0x49) push(11); // ??? (LOW confidence)
-							else if (u8[o] === 0x4a) push(8); // ???
-							else if (u8[o] === 0x7b) push(8); // set block state(?)
-							else if (u8[o] === 0xa0) push(3); // ??? (LOW confidence)
-							else if (u8[o] === 0xbf) push(11); // ???
-							else if (u8[o] === 0xc0) push(7); // ???
-							else if (u8[o] === 0xc7) push(7); // ???
-							else if (u8[o] === 0xee) push(6); // ???
-							else if (u8[o] === 0xef) push(6); // ???
-							else if (u8[o] === 0xf1) push(7); // textbox start(?)
-							else if (u8[o] === 0xf2) push(7); // textbox end(?)*/
-
-							if (!u8[o]) {
-								push(1, '#666');
-							} else if (u8[o] === 1) {
-								push(6, '#f99');
-							} else {
-								const known = bai.knownOpcodes.get(u8[o]);
-								if (known) {
-									push(known.length);
-								} else {
-									break;
-								}
-							}
-						}
-
-						if (o < u8.length - 32) parts.length = 0, parts.push(['-----']);
-						else if (o < u8.length) parts.push(bytes(o, u8.length - o, script));
-						return parts.join(' ');
-					};
-
-			console.log(bfScripts.map(x => x[0].byteLength.toString(16) + ' :: ' + process(x[1])));
-
-			// GOOD GUESSES
-			/*knownOpcodes.set(0x03, { length: 9 });
-			knownOpcodes.set(0xf1, { length: 7 });
-			knownOpcodes.set(0xf2, { length: 7 });
-
-			// DISCOVERY
-			knownOpcodes.set(0xc0, { length: 13 });
-			knownOpcodes.set(0x3b, { length: 8 });
-			knownOpcodes.set(0x08, { length: 7 });
-			knownOpcodes.set(0xa0, { length: 12 });
-			knownOpcodes.set(0x2e, { length: 14 });
-
-			knownOpcodes.set(0x0a, { length: 12 });
-			knownOpcodes.set(0x0b, { length: 12 });
-			knownOpcodes.set(0x09, { length: 12 });
-			knownOpcodes.set(0x14, { length: 10 });
-			knownOpcodes.set(0x15, { length: 8 });
-			knownOpcodes.set(0x02, { length: 10 });*/
-
-			const guessBacklog = [];
-
-			const pause = () => new Promise(r => setTimeout(r));
-
-			return;
-
-			bai.conflicts = new Set();
-			scriptLoop: for (let i = 0; i < bfScripts.length; ++i) {
-				const script = bufToU8(bfScripts[i]);
-
-				// process all known opcodes forwards
-				const okayGuessSequences = [];
-				const stack = [];
-				stack.push({ o: 0, guesses: [], usedOpcodes: new Set() });
-				while (stack.length) {
-					const top = stack.pop();
-					let { o } = top;
-					const { guesses, usedOpcodes } = top;
-					opcodeLoop: for (; o < script.length;) {
-						const opcode = script[o];
-						usedOpcodes.add(opcode);
-						const known = knownOpcodes.get(opcode);
-						if (known) {
-							if (known.match && !known.match(script, o)) break; // if match() exists it HAS to match
-							o += known.length;
-							continue;
-						}
-
-						// try putting our assumptions to the test
-						for (const guess of guesses) {
-							if (guess.opcode === opcode) {
-								o += guess.len;
-								continue opcodeLoop;
-							}
-						}
-
-						// branch off into other possibilities
-						if (guesses.length < MAXIMUM_UNKNOWN_OPCODE_DEPTH) {
-							for (let len = MAXIMUM_OPCODE_LENGTH; len >= MINIMUM_OPCODE_LENGTH; --len) {
-								const newGuesses = guesses.slice();
-								newGuesses.push({ opcode, len });
-								stack.push({ o: o + len, guesses: newGuesses, usedOpcodes: new Set(usedOpcodes) });
-							}
-						}
-						break;
-					}
-
-					if (o === script.length && o !== top.o /* more opcodes were found that work */) okayGuessSequences.push(guesses);
-					if (o > script.length && !guesses.length) {
-						console.warn('CONFLICT ON AT LEAST ONE OF THESE:', Array.from(usedOpcodes.values()).join(','), 'ON', bytes(0, script.length, script));
-						bai.conflicts.add(Array.from(usedOpcodes.values()).join(','));
-					}
-				}
-
-				if (!okayGuessSequences.length || !okayGuessSequences[0].length) continue;
-
-				if (okayGuessSequences.length === 1) {
-					console.log('SINGLE DISCOVERY', okayGuessSequences);
-					for (const { opcode, len } of okayGuessSequences[0]) {
-						knownOpcodes.set(opcode, { length: len });
-					}
-					if (guessBacklog.length) {
-						i = guessBacklog[0].scriptId - 1;
-						guessBacklog.length = 0;
-					}
-					continue scriptLoop;
-				}
-
-				// see if there are any pairs of scripts such that only ONE guess sequence is shared between them (therefore, that guess sequence must be valid)
-				const compareSequence = (a, b) => {
-					if (a.length !== b.length) return false;
-
-					for (let j = 0; j < a.length; ++j) {
-						const corr = b.find(({ opcode, len }) => opcode === a[j].opcode);
-						if (!corr) return false;
-						if (a[j].len !== corr.len) return false;
-					}
-
-					return true;
-				};
-
-				backlogLoop: for (let j = 0; j < guessBacklog.length; ++j) {
-					const { scriptId: otherScriptId, okayGuessSequences: otherGuessSequences } = guessBacklog[j];
-					let matched;
-					for (let k = 0; k < okayGuessSequences.length; ++k) {
-						for (let l = 0; l < otherGuessSequences.length; ++l) {
-							if (!compareSequence(okayGuessSequences[k], otherGuessSequences[l])) continue;
-							// they're equal!!
-							if (matched) continue backlogLoop;
-							matched = okayGuessSequences[k];
-						}
-					}
-
-					if (!matched) continue;
-
-					console.log('YOOO DISCOVERY', i, otherScriptId, matched);
-					for (const { opcode, len } of matched) {
-						knownOpcodes.set(opcode, { length: len });
-					}
-					i = guessBacklog[0].scriptId - 1;
-					guessBacklog.length = 0;
-					continue scriptLoop;
-				}
-
-				guessBacklog.push({ scriptId: i, scriptLength: script.length, script: bytes(0, script.length, script), okayGuessSequences });
-
-				console.log('guessBacklog:', guessBacklog.map(x => '[' + x.scriptLength + ' ' + x.okayGuessSequences.length + ']').join(','));
-			}
-
-			console.log(guessBacklog);
-
-			bruteforceDisplay.innerHTML = `Discovered: ${bai.knownOpcodes.size} opcodes (${Array.from(bai.knownOpcodes.keys()).map(str8)})`;
-
-			update();
-		};
+		addHTML(section, `<div style="color: #f99;">
+			Rendering disassembly in the browser can take several seconds or even minutes. <br>
+			You should download the disassembly instead and use your own code editor.
+		</div>`);
+		addHTML(section, `<ul>
+			<li><code>(UNPREDICTABLE)</code> means the instruction is not formatted correctly.</li>
+			<li><code>---</code> means the instruction is undefined.</li>
+		</ul>`);
 
 		const display = document.createElement('div');
 		section.appendChild(display);
 
-		const update = () => {
-			display.innerHTML = '';
+		// catppuccin
+		const keyword = x => `<span style="color: var(--mauve);">${x}</span>`;
+		const string = x => `<span style="color: var(--green);">${x}</span>`;
+		const atom = x => `<span style="color: var(--red);">${x}</span>`;
+		const number = x => `<span style="color: var(--peach);">${x}</span>`;
+		const method = x => `<span style="color: var(--blue);">${x}</span>`;
+		const operator = x => `<span style="color: var(--sky);">${x}</span>`;
+		const variable = x => `<span style="color: var(--subtext0);">${x}</span>`;
+		const comment = x => `<span style="color: var(--overlay2);">${x}</span>`;
 
-			const [filePath, fsextEntries] = pairs[fileSelect.value];
-			const file = fs.get(filePath);
-			if (!file) {
-				addHTML(display, 'File does not exist');
-				scriptSelect.replaceWith((scriptSelect = document.createElement('span')));
-				return;
-			}
+		/* `style` can be 'object' or 'asm' */
+		const disassembleArm = disassembler.arm = (overlay, style, isArmv5) => {
+			const OBJECT = style === 'object';
+			const ASM = style === 'asm';
 
-			if (!fsextEntries) {
-				addHTML(display, 'No fsext segments list for this file and gamecode exist');
-				scriptSelect.replaceWith((scriptSelect = document.createElement('span')));
-				return;
-			}
+			const u32 = bufToU32(overlay);
+			const instructions = [];
 
-			scriptSelect.replaceWith((scriptSelect = dropdown(fsextEntries.segments.map((x,i) => `0x${str8(i)} (${x.byteLength} bytes)`), 0, () => updateScript())));
-			const updateScript = () => {
-				const segment = fsextEntries.segments[scriptSelect.value];
-				const u8 = bufToU8(segment);
-				display.innerHTML = '';
+			// see figure A3.2.1
+			const condTable = [
+				'eq', 'ne', 'cs/hs', 'cc/lo',
+				'mi', 'pl', 'vs', 'vc',
+				'hi', 'ls', 'ge', 'lt',
+				'gt', 'le', '', '',
+			].map(atom);
 
-				if (!segment.getUint16(2, true) && !segment.getUint16(4, true) && !segment.getUint16(6, true) && !segment.getUint16(8, true)) {
-					addHTML(display, '<div>No battle events bound?</div>');
-					addHTML(display, `<code>${bytes(0, segment.byteLength, segment)}</code>`);
-				} else {
-					const turn1 = segment.getUint16(2, true) + 2;
-					const init = segment.getUint16(4, true) + 4;
-					const turn2 = segment.getUint16(6, true) + 6;
-					const playerBeginAttack = segment.getUint16(8, true) + 8;
-					const unknown = segment.getUint16(10, true) + 10;
+			return instructions;
+		};
 
-					addHTML(display, `<div>Battle events: Turn1: 0x${str16(turn1)}; Init: 0x${str16(init)}; Turn2: 0x${str16(turn2)}; playerBeginAttack: 0x${str16(playerBeginAttack)}; unknown: 0x${str16(unknown)}</div>`);
+		/* `style` can be 'object', 'asm_color', or 'asm' */
+		const disassembleThumb = disassembler.thumb = (binary, style, isArmv5) => {
+			const OBJECT = style === 'object';
+			const ASM = style === 'asm';
 
-					const parts = [[turn1, 'Turn1'], [init, 'Init'], [turn2, 'Turn2'], [playerBeginAttack, 'playerBeginAttack'], [unknown, 'Unknown']];
-					parts.sort((a,b) => a[0] - b[0]);
+			const u16 = bufToU16(binary);
+			const lines = [];
 
-					const process = script => {
-						const parts = [];
-						const u8 = bufToU8(script);
-						let o = 0;
-						const push = (len, color) => {
-							if (color) parts.push(`<span style="color:${color}">[${bytes(o, len, script)}]</span>`);
-							else parts.push('[' + bytes(o, len, script) + ']');
-							o += len;
-						};
-						while (o < u8.length) {
-							console.log(script.byteLength, ':', o, u8[o]);
-							// if (u8[o] === 0) push(1); // return(?) (GENERALLY this means i got a size wrong)
-							/*if (u8[o] === 0x01) push(6); // ???
-							else if (u8[o] === 0x02) push(19); // ??? (LOW confidence)
-							else if (u8[o] === 0x03) push(9); // ???
-							else if (u8[o] === 0x04) push(8); // ??? (LOW confidence)
-							else if (u8[o] === 0x08) push(10); // ???
-							else if (u8[o] === 0x10) push(18); // say(?)
-							else if (u8[o] === 0x14) push(7); // ???
-							else if (u8[o] === 0x16) push(8); // ???
-							else if (u8[o] === 0x18) push(3); // ???
-							else if (u8[o] === 0x20) push(6); // ???
-							else if (u8[o] === 0x29) push(7); // ??? (LOW confidence)
-							else if (u8[o] === 0x40) push(6); // animation(?)
-							else if (u8[o] === 0x49) push(11); // ??? (LOW confidence)
-							else if (u8[o] === 0x4a) push(8); // ???
-							else if (u8[o] === 0x7b) push(8); // set block state(?)
-							else if (u8[o] === 0xa0) push(3); // ??? (LOW confidence)
-							else if (u8[o] === 0xbf) push(11); // ???
-							else if (u8[o] === 0xc0) push(7); // ???
-							else if (u8[o] === 0xc7) push(7); // ???
-							else if (u8[o] === 0xee) push(6); // ???
-							else if (u8[o] === 0xef) push(6); // ???
-							else if (u8[o] === 0xf1) push(7); // textbox start(?)
-							else if (u8[o] === 0xf2) push(7); // textbox end(?)*/
+			const conds = [
+				'eq', 'ne', 'cs/hs', 'cc/lo',
+				'mi', 'pl', 'vs', 'vc',
+				'hi', 'ls', 'ge', 'lt',
+				'gt', 'le', '', '',
+			]
+			const imm = x => x <= -10 ? '-0x' + (-x).toString(16) : x <= 10 ? x : '0x' + x.toString(16);
+			const unpredictable = c => c ? ' (UNPREDICTABLE)' : '';
 
-							if (!u8[o]) {
-								push(1, '#666');
-							} else if (u8[o] === 1) {
-								push(6, '#f99');
-							} else {
-								const known = bai.knownOpcodes.get(u8[o]);
-								if (known) {
-									push(known.length);
-								} else {
-									break;
-								}
+			next: for (let i = 0; i < u16.length; ++i) {
+				const inst = u16[i];
+				
+				// ADC (A7.1.2)
+				if ((inst & 0xffc0) === 0x4140) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`adc r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// ADD (A7.1.3 - A7.1.9)
+				if ((inst & 0xfe00) === 0x1c00) { // (1) (A7.1.3)
+					// TODO: if immed is 0, recognize this as a mov instruction
+					const immed = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`add r${Rd}, r${Rn}, #${imm(immed)}`);
+					continue;
+				} else if ((inst & 0xf800) === 0x3000) { // (2) (A7.1.4)
+					const Rd = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`add r${Rd}, #${imm(immed)}`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x1800) { // (3) (A7.1.5)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`add r${Rd}, r${Rn}, r${Rm}`);
+					continue;
+				} else if ((inst & 0xff00) === 0x4400) { // (4) (A7.1.6)
+					const H1 = inst >> 7 & 1;
+					const H2 = inst >> 6 & 1;
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					const u = unpredictable(H1 === 0 && H2 === 0);
+					if (ASM) lines.push(`add r${Rd + (H1 << 3)}, r${Rm + (H2 << 3)}` + u);
+					continue;
+				} else if ((inst & 0xf800) === 0xa000) { // (5) (A7.1.7)
+					const Rd = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`add r${Rd}, PC, #${imm(immed * 4)}`);
+					continue;
+				} else if ((inst & 0xf800) === 0xa800) { // (6) (A7.1.8)
+					const Rd = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`add r${Rd}, SP, #${imm(immed * 4)}`);
+					continue;
+				} else if ((inst & 0xff80) === 0xb000) { // (7) (A7.1.9)
+					const immed = inst & 0x7f;
+					if (ASM) lines.push(`add Sp, #${imm(immed * 4)}`);
+					continue;
+				}
+
+				// AND (A7.1.10)
+				if ((inst & 0xffc0) === 0x4000) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`and r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// ASR (A7.1.11 - A7.1.12)
+				if ((inst & 0xf800) === 0x1000) { // (1) (A7.1.11)
+					const immed = inst >> 6 & 0x1f;
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`asr r${Rd}, r${Rm}, #${imm(immed || 32)}`);
+					continue;
+				} else if ((inst & 0xffc0) === 0x4100) { // (2) (A7.1.12)
+					const Rs = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`asr r${Rd}, r${Rs}`);
+					continue;
+				}
+
+				// B (A7.1.13 - A7.1.14)
+				if ((inst & 0xf000) === 0xd000) { // (1) (A7.1.13)
+					const cond = inst >> 8 & 0xf;
+					const immed = (inst & 0xff) - (inst & 0x80) * 2; // signed
+					if (cond === 0b1110);
+					else if (cond !== 0b1111) { // 0b1111 is a SWI instruction
+						const u = unpredictable(false); // TODO: out-of-bounds access across all overlays
+						if (ASM) lines.push(`b${conds[cond]} #${imm(immed * 2)}` + u);
+						continue;
+					}
+				} else if ((inst & 0xf800) === 0xe000) { // (2) (A7.1.14)
+					const immed = (inst & 0x3ff) - (inst & 0x200) * 2; // signed
+					const u = unpredictable(false); // TODO: out-of-bounds access across all overlays
+					if (ASM) lines.push(`b #${imm(immed * 2)}` + u);
+					continue;
+				}
+
+				// BIC (A7.1.15)
+				if ((inst & 0xffc0) === 0x4380) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`bic r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// BKPT (A7.1.16)
+				if ((inst & 0xff00) === 0xbe00 && isArmv5) {
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`bkpt #${imm(immed)}`);
+					continue;
+				}
+
+				// BL, BLX (A7.1.17 - A7.1.18)
+				if ((inst & 0xe000) === 0xe000) { // (1) (A7.1.17)
+					const H = inst >> 11 & 3;
+					const offsetHigh = inst & 0x3ff;
+					if (H === 2) {
+						const next = u16[i + 1];
+						if ((next & 0xe000) === 0xe000) {
+							const Hnext = next >> 11 & 3;
+							const offsetLow = next & 0x3ff;
+							if (Hnext === 1 && isArmv5) {
+								const u = unpredictable(offsetLow & 1);
+								if (ASM) lines.push(`blx #${imm(offsetHigh << 12 | offsetLow << 1)}` + u, '');
+								++i;
+								continue;
+							} else if (Hnext === 3) {
+								if (ASM) lines.push(`bl #${imm(offsetHigh << 12 | offsetLow << 1)}`, '');
+								++i;
+								continue;
 							}
 						}
-
-						if (o < u8.length - 256) parts.push(bytes(o, 256, script) + '...');
-						else if (o < u8.length) parts.push(bytes(o, u8.length - o, script));
-						return parts.join(' ');
-					};
-
-					const list = document.createElement('ul');
-					display.appendChild(list);
-					for (let i = 0; i < parts.length; ++i) {
-						const start = parts[i][0];
-						const end = parts[i + 1]?.[0] ?? segment.byteLength;
-						addHTML(display, `<li>${parts[i][1]} (${end - start} bytes): <code>${process(sliceDataView(segment, start, end))}</code></li>`);
+						
+						if (ASM) lines.push(`bl?` + unpredictable(true));
+						continue;
+					} else if (H === 3) {
+						if (ASM) lines.push(`bl` + unpredictable(true));
+						continue;
+					} else if (H === 1 && isArmv5) {
+						if (ASM) lines.push(`blx` + unpredictable(true));
+						continue;
 					}
+				} else if ((inst & 0xff80) === 0x4780 && isArmv5) { // (2) (A7.1.18)
+					const H2 = inst >> 6 & 1;
+					const Rm = inst >> 3 & 7;
+					const u = unpredictable(inst & 7);
+					if (ASM) lines.push(`blx r${H2 << 3 | Rm}` + u);
+					continue;
 				}
-			};
-			updateScript();
+
+				// BX (A7.1.19)
+				if ((inst & 0xff80) === 0x4700) {
+					const H2 = inst >> 6 & 1;
+					const Rm = inst >> 3 & 7;
+					const u = unpredictable(inst & 7);
+					if (ASM) lines.push(`bx r${H2 << 3 | Rm}` + u);
+					continue;
+				}
+
+				// CMN (A7.1.20)
+				if ((inst & 0xff80) === 0x42c0) {
+					const Rm = inst >> 3 & 7;
+					const Rn = inst & 7;
+					if (ASM) lines.push(`cmn r${Rn}, r${Rm}`);
+					continue;
+				}
+
+				// CMP (A7.1.21 - A7.1.23)
+				if ((inst & 0xf800) === 0x2800) { // (1) (A7.1.21)
+					const Rn = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`cmp r${Rn}, #${imm(immed)}`);
+					continue;
+				} else if ((inst & 0xff80) === 0x4280) { // (2) (A7.1.22)
+					const Rm = inst >> 3 & 7;
+					const Rn = inst & 7;
+					if (ASM) lines.push(`cmp r${Rn}, r${Rm}`);
+					continue;
+				} else if ((inst & 0xff00) === 0x4500) { // (3) (A7.1.23)
+					const Rm = inst >> 3 & 7;
+					const Rn = inst & 7;
+					if (ASM) lines.push(`cmp r${Rn}, r${Rm}`);
+					continue;
+				}
+
+				// EOR (A7.1.26)
+				if ((inst & 0xffc0) === 0x4040) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`eor r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// LDMIA (A7.1.27)
+				if ((inst & 0xf800) === 0xc800) {
+					const Rn = inst >> 8 & 7;
+					const registers = inst & 0xff;
+					const u = unpredictable(registers === 0);
+					if (ASM) {
+						const list = [];
+						for (let bit = 1, i = 0; i < 8; bit <<= 1, ++i) {
+							if (registers & bit) list.push(`r${i}`);
+						}
+						lines.push(`ldmia r${Rn}!, {${list.join(', ')}}` + u);
+					}
+					continue;
+				}
+
+				// LDR (A7.1.28 - A7.1.31)
+				if ((inst & 0xf800) === 0x6800) { // (1) (A7.1.28)
+					const immed = inst >> 6 & 0x1f;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldr r${Rd}, [r${Rn}, #${imm(immed * 4)}]`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x5800) { // (2) (A7.1.29)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldr r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				} else if ((inst & 0xf800) === 0x4800) { // (3) (A7.1.30)
+					const Rd = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`ldr r${Rd}, [PC, #${imm(immed * 4)}]`);
+					continue;
+				} else if ((inst & 0xf800) === 0x9800) { // (4) (A7.1.31)
+					const Rd = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`ldr r${Rd}, [SP, #${imm(immed * 4)}]`);
+					continue;
+				}
+
+				// LDRB (A7.1.32 - A7.1.33)
+				if ((inst & 0xf800) === 0x7800) { // (1) (A7.1.32)
+					const immed = inst >> 6 & 0x1f;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldrb r${Rd}, [r${Rn}, #${imm(immed)}]`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x5c00) { // (2) (A7.1.33)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldrb r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				}
+
+				// LDRH (A7.1.34 - A7.1.35)
+				if ((inst & 0xf800) === 0x8800) { // (1) (A7.1.34)
+					const immed = inst >> 6 & 0x1f;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldrh r${Rd}, [r${Rn}, #${imm(immed * 2)}]`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x5a00) { // (2) (A7.1.35)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldrh r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				}
+
+				// LDRSB (A7.1.36)
+				if ((inst & 0xfe00) === 0x5600) {
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldrsb r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				}
+
+				// LDRSH (A7.1.37)
+				if ((inst & 0xfe00) === 0x5e00) {
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ldrsh r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				}
+
+				// LSL (A7.1.38 - A7.1.39)
+				if ((inst & 0xf800) === 0) { // (1) (A7.1.38)
+					const immed = inst >> 6 & 0x1f;
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`lsl r${Rd}, r${Rm}, #${imm(immed)}`);
+					continue;
+				} else if ((inst & 0xffc0) === 0x4080) { // (2) (A7.1.39)
+					const Rs = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`lsl r${Rd}, r${Rs}`);
+					continue;
+				}
+
+				// LSR (A7.1.40 - A7.1.41)
+				if ((inst & 0xf800) === 0x0800) { // (1) (A7.1.40)
+					const immed = inst >> 6 & 0x1f;
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`lsr r${Rd}, r${Rm}, #${imm(immed || 32)}`);
+					continue;
+				} else if ((inst & 0xffc0) === 0x40c0) { // (2) (A7.1.41)
+					const Rs = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`lsr r${Rd}, r${Rs}`);
+					continue;
+				}
+
+				// MOV (A7.1.42 - A7.1.44)
+				if ((inst & 0xf800) === 0x2000) { // (1) (A7.1.42)
+					const Rd = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`mov r${Rd}, #${imm(immed)}`);
+					continue;
+				} else if ((inst & 0xffc0) === 0x1c00) { // (2) (A7.1.43)
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`mov r${Rd}, r${Rn}`); // TODO: Is this really just an ADD instruction?
+					continue;
+				} else if ((inst & 0xff00) === 0x4600) { // (3) (A7.1.44)
+					const H1 = inst >> 7 & 1;
+					const H2 = inst >> 6 & 1;
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					const u = unpredictable(H1 === 0 && H2 === 0);
+					if (ASM) lines.push(`mov r${H1 << 3 | Rd}, r${H2 << 3 | Rm}` + u);
+					continue;
+				}
+
+				// MUL (A7.1.45)
+				if ((inst & 0xffc0) === 0x4340) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					const u = unpredictable(Rm === Rd);
+					if (ASM) lines.push(`mul r${Rd}, r${Rm}` + u);
+					continue;
+				}
+
+				// MVN (A7.1.46)
+				if ((inst & 0xffc0) === 0x43c0) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`mvn r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// NEG (A7.1.47)
+				if ((inst & 0xffc0) === 0x4240) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`neg r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// ORR (A7.1.48)
+				if ((inst & 0xffc0) === 0x4300) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`orr r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// POP (A7.1.49)
+				if ((inst & 0xfe00) === 0xbc00) {
+					const R = inst >> 8 & 1;
+					const registers = inst & 0xff;
+					const u = unpredictable(R === 0 && registers === 0);
+					if (ASM) {
+						const list = [];
+						for (let bit = 1, i = 0; i < 8; bit <<= 1, ++i) {
+							if (registers & bit) list.push(`r${i}`);
+						}
+						lines.push(`pop {${list.join(', ')}}` + u);
+					}
+					continue;
+				}
+
+				// PUSH (A7.1.50)
+				if ((inst & 0xfe00) === 0xb400) {
+					const R = inst >> 8 & 1;
+					const registers = inst & 0xff;
+					const u = unpredictable(R === 0 && registers === 0);
+					if (ASM) {
+						const list = [];
+						for (let bit = 1, i = 0; i < 8; bit <<= 1, ++i) {
+							if (registers & bit) list.push(`r${i}`);
+						}
+						lines.push(`push {${list.join(', ')}}` + u);
+					}
+					continue;
+				}
+
+				// ROR (A7.1.54)
+				if ((inst & 0xffc0) === 0x41c0) {
+					const Rs = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`ror r${Rd}, r${Rs}`);
+					continue;
+				}
+
+				// SBC (A7.1.55)
+				if ((inst & 0xffc0) === 0x4180) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`sbc r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				// STMIA (A7.1.57)
+				if ((inst & 0xf800) === 0xc000) {
+					const Rn = inst >> 8 & 7;
+					const registers = inst & 0xff;
+					const u = unpredictable(registers === 0 || ((1 << Rn) - 1) & registers);
+					if (ASM) {
+						const list = [];
+						for (let bit = 1, i = 0; i < 8; bit <<= 1, ++i) {
+							if (registers & bit) list.push(`r${i}`);
+						}
+						lines.push(`stmia r${Rn}!, {${list.join(', ')}}` + u);
+					}
+					continue;
+				}
+
+				// STR (A7.1.58 - A7.1.60)
+				if ((inst & 0xf800) === 0x6000) { // (1) (A7.1.58)
+					const immed = inst >> 6 & 0x1f;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`str r${Rd}, [r${Rn}, #${imm(immed * 4)}]`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x5000) { // (2) (A7.1.59)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`str r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				} else if ((inst & 0xf800) === 0x9000) { // (3) (A7.1.60)
+					const Rd = inst >> 8 & 7;
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`str r${Rd}, [SP, #${imm(immed * 4)}]`);
+					continue;
+				}
+
+				// STRB (A7.1.61 - A7.1.62)
+				if ((inst & 0xf800) === 0x7000) { // (1) (A7.1.61)
+					const immed = inst >> 6 & 0x1f;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`strb r${Rd}, [r${Rn}, #${imm(immed)}]`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x5400) { // (2) (A7.1.62)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`strb r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				}
+
+				// STRH (A7.1.63 - A7.1.64)
+				if ((inst & 0xf800) === 0x8000) { // (1) (A7.1.63)
+					const immed = inst >> 6 & 0x1f;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`strh r${Rd}, [r${Rn}, #${imm(immed * 2)}]`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x5200) { // (2) (A7.1.64)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`strh r${Rd}, [r${Rn}, r${Rm}]`);
+					continue;
+				}
+
+				// SUB (A7.1.65 - A7.1.68)
+				if ((inst & 0xfe00) === 0x1e00) { // (1) (A7.1.65)
+					const immed = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`sub r${Rd}, r${Rn}, #${imm(immed)}`);
+					continue;
+				} else if ((inst & 0xf800) === 0x3800) { // (2) (A7.1.66)
+					const immed = inst & 0xff;
+					const Rd = inst >> 8 & 7;
+					if (ASM) lines.push(`sub r${Rd}, #${imm(immed)}`);
+					continue;
+				} else if ((inst & 0xfe00) === 0x1a00) { // (3) (A7.1.67)
+					const Rm = inst >> 6 & 7;
+					const Rn = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`sub r${Rd}, r${Rn}, r${Rm}`);
+					continue;
+				} else if ((inst & 0xff80) === 0xb080) { // (4) (A7.1.68)
+					const immed = inst & 0x7f;
+					if (ASM) lines.push(`sub SP, #${imm(immed * 4)}`);
+					continue;
+				}
+
+				// SWI (A7.1.69)
+				if ((inst & 0xff00) === 0xdf00) {
+					const immed = inst & 0xff;
+					if (ASM) lines.push(`swi #${imm(immed)}`);
+					continue;
+				}
+
+				// TST (A7.1.72)
+				if ((inst & 0xffc0) === 0x4200) {
+					const Rm = inst >> 3 & 7;
+					const Rd = inst & 7;
+					if (ASM) lines.push(`tst r${Rd}, r${Rm}`);
+					continue;
+				}
+
+				/* unknown */ if (ASM) lines.push(`---`);
+			}
+
+			return lines;
+		};
+
+		const update = () => {
+			display.innerHTML = '';
+			if (select.value === 0) return;
+			let binary;
+			if (select.value === 1) {
+				binary = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
+			} else if (select.value === 2) {
+				binary = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
+			} else {
+				binary = fs.overlay(select.value - 3);
+			}
+
+			// supported by V5TE:
+			// adc add and b bic bkpt bl blx bx cdp cdp2 clz cmn cmp eor ldc ldc2 ldm ldr ldrb ldrd ldrbt ldrh ldrsb ldrsh ldrt mcr mcr2 mcrr mla mov mrc mrc2 mrrc mrs msr mul mvn orr pld qadd qdadd qdsub qsub rsb rsc sbc smlal smla<x><y> smlal<x><y> smlaw<y> smull smul<x><y> smulw<y> stc stc2 stm str strb strbt strd strh strt sub swi swp swpb teq tst umlal umull
+
+			const instSize = (setSelect.value === 2 || setSelect.value === 3) ? 2 : 4;
+
+			const disassembleStart = performance.now();
+			const instructions = [
+				() => disassembleArm(binary, 'asm', true),
+				() => disassembleArm(binary, 'asm', false),
+				() => disassembleThumb(binary, 'asm', true),
+				() => disassembleThumb(binary, 'asm', false),
+			][setSelect.value]();
+			const disassembleTime = performance.now() - disassembleStart;
+
+			const stats = document.createElement('div');
+			display.appendChild(stats);
+
+			const renderStart = performance.now();
+			addHTML(display, `<table>${instructions.map((x, i) => {
+				return `<tr>
+					<td style="padding-right: 32px;"><code>${str16(i * instSize)}</code></td>
+					<td style="color: #666; padding-right: 64px;"><code>
+						${bytes(i * instSize, instSize, binary)}
+					</code></td>
+					<td><code>${x}</code></td>
+				</tr>`;
+			}).join('\r\n')}</table>`);
+
+			requestAnimationFrame(() => {
+				const renderTime = performance.now() - renderStart;
+				stats.innerHTML = `Disassembled in ${(disassembleTime / 1000).toFixed(3)}s, rendered in ${(renderTime / 1000).toFixed(3)}s`;
+			});
 		};
 		update();
 
-		return bai;
+		return disassembler;
 	}));
 
 	// add spacing to the bottom of the page, for better scrolling

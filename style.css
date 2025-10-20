@@ -30,6 +30,21 @@
 	--checkbox-fg-hover: hsl(150, 100%, 80%);
 	--checkbox-not-fg: hsl(150, 100%, 30%);
 	--checkbox-not-fg-hover: hsl(150, 100%, 60%);
+
+	/* for code highlighting only; https://catppuccin.com/palette/ we use the 'mocha' variant */
+	--mauve: #cba6f7;
+	--red: #f38ba8;
+	--maroon: #eba0ac;
+	--peach: #fab387;
+	--yellow: #f9e2af;
+	--green: #a6e3a1;
+	--teal: #94e2d5;
+	--sky: #89dceb;
+	--sapphire: #74c7ec;
+	--blue: #89b4fa;
+	--lavender: #b4befe;
+	--subtext0: #a6adc8;
+	--overlay2: #9399b2;
 }
 
 body { background: #11111b; color: #999; font-family: 'Red Hat Text'; overflow-x: hidden; }
