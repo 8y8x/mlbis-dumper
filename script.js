@@ -910,6 +910,20 @@
 		fields.push(['Title', `${headers.title} (${headers.gamecode})`]);
 		document.title = `(${headers.gamecode}) MLBIS Dumper`;
 
+		headers.arm9offset = file.getUint32(0x20, true);
+		headers.arm9entry = file.getUint32(0x24, true);
+		headers.arm9ram = file.getUint32(0x28, true);
+		headers.arm9size = file.getUint32(0x2c, true);
+		fields.push(['ARM9', `0x${str32(headers.arm9offset)}, len 0x${headers.arm9size.toString(16)},
+			ram 0x${headers.arm9ram.toString(16)}, entry 0x${headers.arm9entry.toString(16)}`]);
+
+		headers.arm7offset = file.getUint32(0x30, true);
+		headers.arm7entry = file.getUint32(0x34, true);
+		headers.arm7ram = file.getUint32(0x38, true);
+		headers.arm7size = file.getUint32(0x3c, true);
+		fields.push(['ARM7', `0x${str32(headers.arm7offset)}, len 0x${headers.arm7size.toString(16)},
+			ram 0x${headers.arm7ram.toString(16)}, entry 0x${headers.arm7entry.toString(16)}`]);
+
 		headers.fntOffset = file.getUint32(0x40, true);
 		headers.fntLength = file.getUint32(0x44, true);
 		fields.push(['FNT', `0x${str32(headers.fntOffset)}, len 0x${headers.fntLength.toString(16)}`]);
@@ -918,22 +932,13 @@
 		headers.fatLength = file.getUint32(0x4c, true);
 		fields.push(['FAT', `0x${str32(headers.fatOffset)}, len 0x${headers.fatLength.toString(16)}`]);
 
-		headers.arm9offset = file.getUint32(0x20, true);
-		headers.arm9entry = file.getUint32(0x24, true);
-		headers.arm9ram = file.getUint32(0x28, true);
-		headers.arm9size = file.getUint32(0x2c, true);
-		fields.push(['ARM9', `0x${str32(headers.arm9offset)}, len 0x${headers.arm9size.toString(16)}`]);
+		headers.ov9Offset = file.getUint32(0x50, true);
+		headers.ov9Size = file.getUint32(0x54, true);
+		fields.push(['ARM9 Overlays', `0x${str32(headers.ov9Offset)}, len 0x${headers.ov9Size.toString(16)}`]);
 
-		headers.arm7offset = file.getUint32(0x30, true);
-		headers.arm7entry = file.getUint32(0x34, true);
-		headers.arm7ram = file.getUint32(0x38, true);
-		headers.arm7size = file.getUint32(0x3c, true);
-		fields.push(['ARM7', `0x${str32(headers.arm7offset)}, len 0x${headers.arm7size.toString(16)}`]);
-
-		headers.arm9filesOffset = file.getUint32(0x50, true);
-		headers.arm9filesSize = file.getUint32(0x54, true);
-		headers.arm7filesOffset = file.getUint32(0x58, true);
-		headers.arm7filesSize = file.getUint32(0x5c, true);
+		headers.ov7Offset = file.getUint32(0x58, true);
+		headers.ov7Size = file.getUint32(0x5c, true);
+		fields.push(['ARM7 Overlays', `0x${str32(headers.ov7Offset)}, len 0x${headers.ov7Size.toString(16)}`]);
 
 		for (const [name, value] of fields) {
 			addHTML(section, `<div><code>${name}: ${value}</code></div>`);
@@ -1148,6 +1153,56 @@
 			overlayCache.set(index, decomp);
 			return decomp;
 		};
+
+		const overlayLines = [];
+		const overlayEntry = (start, length, labelHtml) => {
+			const line = document.createElement('div');
+			line.style.cssText = 'height: 1.25em; position: relative;';
+			section.appendChild(line);
+
+			const block = document.createElement('div');
+			block.style.cssText = `background: #222; border: 1px solid #ccc; position: absolute;
+				left: ${Math.ceil((start - 0x2000000) / 0x400000 * 800)}px;
+				width: ${Math.ceil(length / 0x400000 * 800)}px; height: 100%;`;
+			line.appendChild(block);
+
+			const label = document.createElement('div');
+			label.style.cssText = 'position: absolute; left: 800px;';
+			label.innerHTML = labelHtml;
+			line.appendChild(label);
+
+			overlayLines.push({ block, label });
+			if (overlayLines.length % 4 === 0) {
+				addHTML(section, `<div style="height: 1px; width: 100%; background: #333;"></div>`);
+			}
+		};
+		overlayEntry(headers.arm9ram, headers.arm9size, `<code>
+			ARM9 initializer, 0x${str32(headers.arm9ram)} - 0x${str32(headers.arm9ram + headers.arm9size)}
+			(len 0x${headers.arm9size.toString(16)})
+		</code>`);
+		overlayEntry(headers.arm7ram, headers.arm7size, `<code>
+			ARM7 initializer, 0x${str32(headers.arm7ram)} - 0x${str32(headers.arm7ram + headers.arm7size)}
+			(len 0x${headers.arm7size.toString(16)})
+		</code>`);
+		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+			const id = file.getUint32(o, true);
+			const ramStart = file.getUint32(o + 4, true);
+			const ramSize = file.getUint32(o + 8, true);
+			const bssSize = file.getUint32(o + 12, true);
+			const staticStart = file.getUint32(o + 16, true);
+			const staticEnd = file.getUint32(o + 20, true);
+			const fileId = file.getUint32(o + 24, true);
+			const attributes = file.getUint32(o + 28, true);
+
+			const fileStart = file.getUint32(headers.fatOffset + i * 8, true);
+			const fileEnd = file.getUint32(headers.fatOffset + i * 8 + 4, true);
+
+			overlayEntry(ramStart, ramSize, `<code>
+				${id.toString().padStart(4, '0')}${fileId === id ? '' : ` (file ${str8(id)}`}. 0x${str32(ramStart)}
+				- 0x${str32(ramStart + ramSize)} (len 0x${ramSize.toString(16)})${attributes ? ', compressed' : ''}
+			</code>`);
+		}
+		for (let o = 0; o < headers.ov7Size; o += 0x20) overlayEntry(headers.ov7Offset + o, true);
 
 		return fs;
 	}));
@@ -3185,6 +3240,7 @@
 				let keyframeIndices = [];
 				let keyframeLengths = [];
 				let totalLength = 0;
+				const parts = [];
 
 				let o = 1;
 				while (o < segment.length) {
@@ -3195,15 +3251,19 @@
 					switch (command) {
 						case 0x41:
 							tilesetStart = segment[o++];
+							parts.push(`(tileStart 0x${tilesetStart.toString(16)})`);
 							break;
 						case 0x19:
 							replacementLength = segment[o++];
+							parts.push(`(tileLength 0x${replacementLength.toString(16)})`);
 							break;
 						case 0x1a:
 							tilesetAnimatedStart = segment[o++];
+							parts.push(`(tileAnimatedStart 0x${tilesetAnimatedStart.toString(16)})`);
 							break;
 						case 0x00:
 							for (let j = 0; j <= params / 2; ++j) keyframeIndices.push(segment[o++]);
+							parts.push(`(indices ${keyframeIndices.join(' ')})`);
 							break;
 						case 0x1b:
 							for (let j = 0; j < keyframeIndices.length; ++j) {
@@ -3211,6 +3271,7 @@
 								totalLength += length;
 								keyframeLengths.push(length);
 							}
+							parts.push(`(lengths ${keyframeLengths.join(' ')})`);
 							break;
 					}
 				}
@@ -3222,6 +3283,7 @@
 					keyframeIndices,
 					keyframeLengths,
 					totalLength,
+					parts,
 				});
 			}
 
@@ -3242,24 +3304,10 @@
 				`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
 			);
 
-			const tileAnimLines = [];
-			for (let i = 0; i < room.tileAnimations.length; ++i) {
-				const anim = room.tileAnimations[i];
-				const parts = [];
-				parts.push(`0x${anim.replacementLength.toString(16)} tiles from
-				0x${anim.tilesetAnimatedStart.toString(16)} (animated) into 0x${anim.tilesetStart.toString(16)}`);
-
-				const keyframes = [];
-				for (let i = 0; i < anim.keyframeLengths.length; ++i) {
-					const index = anim.keyframeIndices[i];
-					const length = anim.keyframeLengths[i];
-					keyframes.push(`<span style="color: ${i % 2 ? '#999' : '#666'}">(${index}, ${length})</span>`);
-				}
-				parts.push('keyframes (index, length): <code>' + keyframes.join(' ') + '</code>');
-
-				tileAnimLines.push(`<code>${i}:</code> ${parts.join(', ')}`);
-			}
-			lines.push(`[6] tileAnimations: <ul>${tileAnimLines.map((x) => '<li>' + x + '</li>').join('')}</ul>`);
+			lines.push(`[6] tileAnimations: <ul>${room.tileAnimations.map((x) => {
+				return '<li><code>' + x.parts.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`)
+					.join(' ') + '</code></li>';
+				}).join('')}</ul>`);
 
 			if (room.tilesetAnimated) {
 				lines.push(`[7] tilesetAnimated: 0x${Math.ceil(room.tilesetAnimated.length / 32).toString(16)} tiles`);
