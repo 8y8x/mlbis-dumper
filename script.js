@@ -826,7 +826,7 @@
 		setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
 	};
 
-	const readMessage = (o, dat) => {
+	const readMessage = (o, dat, ignoreSpecials) => {
 		const u8 = bufToU8(dat);
 		const s = [];
 		for (; o < u8.length; ) {
@@ -834,10 +834,12 @@
 			if (byte === 0xff) {
 				const next = u8[o++];
 				if (next === 0) s.push('\n');
+				else if (ignoreSpecials) s.push(' ');
 				else s.push(`<${str8(next)}>`);
 			} else if (byte <= 0x1f) {
 				// special symbol
-				s.push(`(${str8(byte)})`);
+				if (ignoreSpecials) s.push(' ');
+				else s.push(`(${str8(byte)})`);
 			} else if (byte === 0x85) {
 				s.push('…');
 			} else {
@@ -3871,6 +3873,9 @@
 		const fileSelect = dropdown(mfsetFiles, 0, () => update());
 		section.appendChild(fileSelect);
 
+		const ignoreSpecials = checkbox('Ignore Special Characters', false, () => update());
+		section.appendChild(ignoreSpecials);
+
 		const metaDisplay = document.createElement('div');
 		section.appendChild(metaDisplay);
 
@@ -3921,7 +3926,7 @@
 
 				for (let j = 0; j < entries.length; ++j) {
 					rows[j + 1] ??= [`<td>${j}</td>`];
-					rows[j + 1][column] = `<td>${sanitize(readMessage(0, entries[j])).replaceAll('\n', '<br>')}</td>`;
+					rows[j + 1][column] = `<td>${sanitize(readMessage(0, entries[j], ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`;
 				}
 			}
 			mfset.selected = { segments, rows };
@@ -3964,6 +3969,9 @@
 
 		let scriptSelect = dropdown([''], 0, () => {});
 		section.appendChild(scriptSelect);
+
+		const ignoreSpecials = checkbox('Ignore Special Characters', false, () => update());
+		section.appendChild(ignoreSpecials);
 
 		const metaDisplay = document.createElement('div');
 		section.appendChild(metaDisplay);
@@ -4028,7 +4036,7 @@
 					for (let j = 0; j < entries.length; ++j) {
 						rows[j + 1] ??= [`<td>${j}</td>`];
 						rows[j + 1][tableColumn]
-							= `<td>${sanitize(readMessage(0, entries[j])).replaceAll('\n', '<br>')}</td>`;
+							= `<td>${sanitize(readMessage(0, entries[j], ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`;
 					}
 				}
 
