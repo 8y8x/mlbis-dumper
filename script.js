@@ -184,7 +184,7 @@
 	// | Quick Data Display                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const readString = (o, l, buf = file) => {
+	const latin1 = (o, l, buf = file) => {
 		let end;
 		if (l !== undefined) {
 			end = o + l;
@@ -240,7 +240,7 @@
 	const str16 = (x) => x.toString(16).padStart(4, '0');
 	const str32 = (x) => x.toString(16).padStart(8, '0');
 
-	Object.assign(window, { file, readString, bytes, bits, sanitize, addHTML, str8, str16, str32 });
+	Object.assign(window, { file, latin1, bytes, bits, sanitize, addHTML, str8, str16, str32 });
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Compression and Packing                                                                                       |
@@ -495,7 +495,7 @@
 			}
 		}
 
-		return new DataView(outbuf.buffer);
+		return Object.assign(new DataView(outbuf.buffer), { inoff });
 	};
 
 	/**
@@ -903,8 +903,8 @@
 		const fields = [];
 		const headers = {};
 
-		headers.title = sanitize(readString(0, 12));
-		headers.gamecode = sanitize(readString(12, 4));
+		headers.title = sanitize(latin1(0, 12));
+		headers.gamecode = sanitize(latin1(12, 4));
 		fields.push(['Title', `${headers.title} (${headers.gamecode})`]);
 		document.title = `(${headers.gamecode}) MLBIS Dumper`;
 
@@ -954,7 +954,7 @@
 				if (length === 0) return entries;
 				++o;
 
-				const name = readString(headers.fntOffset + o, length);
+				const name = latin1(headers.fntOffset + o, length);
 				o += length;
 
 				let subdirectoryId;
@@ -4107,11 +4107,6 @@
 			download(`${headers.gamecode}-disassembly.zip`, zipStore(files), 'application/zip');
 		}));
 
-		addHTML(section, `<ul>
-			<li><code>(UNPREDICTABLE)</code> means the instruction is not formatted correctly.</li>
-			<li><code>---</code> means the instruction is undefined.</li>
-		</ul>`);
-
 		const display = document.createElement('div');
 		section.appendChild(display);
 
@@ -4121,9 +4116,9 @@
 			'mi', 'pl', 'vs', 'vc',
 			'hi', 'ls', 'ge', 'lt',
 			'gt', 'le', '', '(UNCONDITIONAL)',
-		];
+		].map(x => `<span style="color: #d7c;">${x}</span>`);
 		const imm = x => x <= -10 ? '-0x' + (-x).toString(16) : x <= 10 ? x : '0x' + x.toString(16);
-		const unpredictable = c => c ? ' (UNPREDICTABLE)' : '';
+		const unpredictable = c => c ? ' <span style="color: #e96;">(UNPREDICTABLE)</span>' : '';
 
 		/* `style` can be 'object' or 'asm' */
 		const disassembleArm = disassembler.arm = (overlay, style, isArmv5) => {
@@ -4143,13 +4138,13 @@
 				const Rd = inst >>> 12 & 0xf;
 
 				// immediate (A5.1.3)
-				if ((inst & 0x0e000000) === 0x02000000) {
+				if ((inst & 0x0e000000) === 0x02000000) { // OK
 					const rotateImm = inst >>> 8 & 0xf;
 					const immed = inst & 0xff;
 					if (ASM) return `#${imm(immed >> (rotateImm * 2) | immed << (32 - rotateImm * 2))}`;
 				}
 
-				// register OR logical shift left by immediate (A5.1.4, A5.1.5)
+				// register OR logical shift left by immediate (A5.1.4, A5.1.5) OK
 				if ((inst & 0x0e000070) === 0) {
 					const shiftImm = inst >>> 7 & 0x1f;
 					const Rm = inst & 0xf;
@@ -4160,45 +4155,45 @@
 					}
 				}
 
-				// logical shift left by register (A5.1.6)
+				// logical shift left by register (A5.1.6) OK
 				if ((inst & 0x0e0000f0) === 0x00000010) {
 					const Rs = inst >>> 8 & 0xf;
 					const Rm = inst & 0xf;
-					const u = unpredictable(Rn === 15 || Rd === 15 || Rs === 15 || Rm === 15);
+					const u = unpredictable(Rd === 15 || Rm === 15 || Rn === 15 || Rs === 15);
 					if (ASM) return `${r[Rm]}, lsl ${r[Rs]}` + u;
 				}
 
-				// logical shift right by immediate (A5.1.7)
+				// logical shift right by immediate (A5.1.7) OK
 				if ((inst & 0x0e000070) === 0x00000020) {
 					const shiftImm = inst >>> 7 & 0x1f;
 					const Rm = inst & 0xf;
 					if (ASM) return `${r[Rm]}, lsr #${imm(shiftImm || 32)}`;
 				}
 
-				// logical shift right by register (A5.1.8)
+				// logical shift right by register (A5.1.8) OK
 				if ((inst & 0x0e0000f0) === 0x00000030) {
 					const Rs = inst >>> 8 & 0xf;
 					const Rm = inst & 0xf;
-					const u = unpredictable(Rn === 15 || Rd === 15 || Rs === 15 || Rm === 15);
+					const u = unpredictable(Rd === 15 || Rm === 15 || Rn === 15 || Rs === 15);
 					if (ASM) return `${r[Rm]}, lsr ${r[Rs]}` + u;
 				}
 
-				// arithmetic shift right by immediate (A5.1.9)
+				// arithmetic shift right by immediate (A5.1.9) OK
 				if ((inst & 0x0e000070) === 0x00000040) {
 					const shiftImm = inst >>> 7 & 0x1f;
 					const Rm = inst & 0xf;
 					if (ASM) return `${r[Rm]}, asr #${imm(shiftImm || 32)}`;
 				}
 
-				// arithmetic shift right by register (A5.1.10)
+				// arithmetic shift right by register (A5.1.10) OK
 				if ((inst & 0x0e0000f0) === 0x00000050) {
 					const Rs = inst >>> 8 & 0xf;
 					const Rm = inst & 0xf;
-					const u = unpredictable(Rn === 15 || Rd === 15 || Rs === 15 || Rm === 15);
+					const u = unpredictable(Rd === 15 || Rm === 15 || Rn === 15 || Rs === 15);
 					if (ASM) return `${r[Rm]}, asr ${r[Rs]}` + u;
 				}
 
-				// rotate right by immediate (A5.1.11)
+				// rotate right by immediate (A5.1.11) OK
 				if ((inst & 0x0e000070) === 0x00000060) {
 					const shiftImm = inst >>> 7 & 0x1f;
 					const Rm = inst & 0xf;
@@ -4207,7 +4202,7 @@
 					}
 				}
 
-				// rotate right by register (A5.1.12)
+				// rotate right by register (A5.1.12) OK
 				if ((inst & 0x0e0000f0) === 0x00000070) {
 					const Rs = inst >>> 8 & 0xf;
 					const Rm = inst & 0xf;
@@ -4215,7 +4210,7 @@
 					if (ASM) return `${r[Rm]}, ror ${r[Rs]}` + u;
 				}
 
-				// rotate right with extend (A5.1.13)
+				// rotate right with extend (A5.1.13) OK
 				if ((inst & 0x0e000ff0) === 0x00000060) {
 					const Rm = inst & 0xf;
 					if (ASM) return `${r[Rm]}, rrx`;
@@ -4230,27 +4225,29 @@
 				const U = inst >>> 23 & 1;
 				const Rn = inst >>> 16 & 0xf;
 
-				// immediate offset (A5.2.2)
+				// immediate offset (A5.2.2) OK
 				if ((inst & 0x0f200000) === 0x05000000) {
 					const offset = inst & 0xfff;
 					if (ASM) return `[${r[Rn]}, #${U ? '+' : '-'}${imm(offset)}]`;
 				}
 
-				// register offset (A5.2.3) (encoded as a LSL 0 from A5.2.4)
+				// register offset (A5.2.3) (encoded as a LSL 0 from A5.2.4) OK
 				if ((inst & 0x0f200ff0) === 0x07000000) {
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15);
 					if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}]` + u;
 				}
 
-				// scaled register offset (A5.2.4)
+				// scaled register offset (A5.2.4) OK SLIGHT MOD
 				if ((inst & 0x0f200010) === 0x07000000) {
 					const shiftImm = inst >>> 7 & 0x1f;
 					const shift = inst >>> 5 & 3;
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15);
 					if (shift === 0b00) {
-						if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}, lsl #${imm(shiftImm)}]` + u;
+						if (shiftImm !== 0) { // the 0 case is handled in A5.2.3
+							if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}, lsl #${imm(shiftImm)}]` + u;
+						}
 					} else if (shift === 0b01) {
 						if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}, lsr #${imm(shiftImm || 32)}]` + u;
 					} else if (shift === 0b10) {
@@ -4264,28 +4261,30 @@
 					}
 				}
 
-				// immediate pre-indexed (A5.2.5)
+				// immediate pre-indexed (A5.2.5) OK
 				if ((inst & 0x0f200000) === 0x05200000) {
 					const offset = inst & 0xfff;
 					const u = unpredictable(Rn === 15);
 					if (ASM) return `[${r[Rn]}, #${U ? '+' : '-'}${imm(offset)}]!` + u;
 				}
 
-				// register pre-indexed (A5.2.6) (encoded as a LSL 0 from A5.2.7)
+				// register pre-indexed (A5.2.6) (encoded as a LSL 0 from A5.2.7) OK
 				if ((inst & 0x0f200ff0) === 0x07200000) {
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15 || Rn === 15 || Rm === Rn);
 					if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}]!` + u;
 				}
 
-				// scaled register pre-indexed (A5.2.7)
+				// scaled register pre-indexed (A5.2.7) OK
 				if ((inst & 0x0f200010) === 0x07200000) {
 					const shiftImm = inst >>> 7 & 0x1f;
 					const shift = inst >>> 5 & 3;
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15 || Rn === 15 || Rm === Rn);
 					if (shift === 0b00) {
-						if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}, lsl #${imm(shiftImm)}]!` + u;
+						if (shiftImm !== 0) { // the 0 case is handled in A5.2.6
+							if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}, lsl #${imm(shiftImm)}]!` + u;
+						}
 					} else if (shift === 0b01) {
 						if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}, lsr #${imm(shiftImm || 32)}]!` + u;
 					} else if (shift === 0b10) {
@@ -4299,28 +4298,30 @@
 					}
 				}
 
-				// immediate post-indexed (A5.2.8)
+				// immediate post-indexed (A5.2.8) OK
 				if ((inst & 0x0f200000) === 0x04000000) {
 					const offset = inst & 0xfff;
 					const u = unpredictable(Rn === 15);
 					if (ASM) return `[${r[Rn]}], #${U ? '+' : '-'}${imm(offset)}`;
 				}
 
-				// register post-indexed (A5.2.9) (encoded as a LSL from A5.2.10)
+				// register post-indexed (A5.2.9) (encoded as a LSL from A5.2.10) OK
 				if ((inst & 0x0f200ff0) === 0x06000000) {
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15 || Rn === 15 || Rm === Rn);
 					if (ASM) return `[${r[Rn]}], ${U ? '+' : '-'}${r[Rm]}` + u;
 				}
 
-				// register post-indexed (A5.2.10)
+				// register post-indexed (A5.2.10) OK
 				if ((inst & 0x0f200010) === 0x06000000) {
 					const shiftImm = inst >>> 7 & 0x1f;
 					const shift = inst >>> 5 & 3;
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15 || Rn === 15 || Rm === Rn);
 					if (shift === 0b00) {
-						if (ASM) return `[${r[Rn]}], ${U ? '+' : '-'}${r[Rm]}, lsl #${imm(shiftImm)}` + u;
+						if (shiftImm !== 0) { // the 0 case is handled in A5.2.9
+							if (ASM) return `[${r[Rn]}], ${U ? '+' : '-'}${r[Rm]}, lsl #${imm(shiftImm)}` + u;
+						}
 					} else if (shift === 0b01) {
 						if (ASM) return `[${r[Rn]}], ${U ? '+' : '-'}${r[Rm]}, lsr #${imm(shiftImm || 32)}` + u;
 					} else if (shift === 0b10) {
@@ -4333,6 +4334,9 @@
 						}
 					}
 				}
+
+				// could be undefined?
+				return;
 			};
 
 			// see section A5.3
@@ -4340,7 +4344,7 @@
 				const Rn = inst >>> 16 & 0xf;
 				const U = inst >>> 23 & 1;
 
-				// immediate offset (A5.3.2)
+				// immediate offset (A5.3.2) OK
 				if ((inst & 0x0f600090) === 0x01400090) {
 					const offset = (inst >>> 8 & 0xf) << 4 | (inst & 0xf);
 					if (ASM) {
@@ -4349,40 +4353,43 @@
 					}
 				}
 
-				// register offset (A5.3.3)
+				// register offset (A5.3.3) OK
 				if ((inst & 0x0f600090) === 0x01000090) {
 					const Rm = inst & 0xf;
 					const u = unpredictable((inst >>> 8 & 0xf) || Rm === 15); // should-be-zero
 					if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}]` + u;
 				}
 
-				// immediate pre-indexed (A5.3.4)
+				// immediate pre-indexed (A5.3.4) OK
 				if ((inst & 0x0f600090) === 0x01600090) {
 					const offset = (inst >>> 8 & 0xf) << 4 | (inst & 0xf);
 					const u = unpredictable(Rn === 15);
 					if (ASM) return `[${r[Rn]}, #${U ? '+' : '-'}${imm(offset)}]!` + u;
 				}
 
-				// register pre-indexed (A5.3.5)
+				// register pre-indexed (A5.3.5) OK
 				if ((inst & 0x0f600090) === 0x01200090) {
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15 || Rn === 15 || Rm === Rn);
 					if (ASM) return `[${r[Rn]}, ${U ? '+' : '-'}${r[Rm]}]!` + u;
 				}
 
-				// immediate post-indexed (A5.3.6)
+				// immediate post-indexed (A5.3.6) FIXED TYPO
 				if ((inst & 0x0f600090) === 0x00400090) {
 					const offset = (inst >>> 8 & 0xf) << 4 | (inst & 0xf);
 					const u = unpredictable(Rn === 15);
-					if (ASM) return `[${r[Rn]}], #${U ? '+' : '-'}${imm(offset)}]` + u;
+					if (ASM) return `[${r[Rn]}], #${U ? '+' : '-'}${imm(offset)}` + u;
 				}
 
-				// register post-indexed (A5.3.7)
+				// register post-indexed (A5.3.7) OK
 				if ((inst & 0x0f600090) === 0x00000090) {
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rm === 15 || Rn === 15 || Rm === Rn);
 					if (ASM) return `[${r[Rn]}], ${U ? '+' : '-'}${r[Rm]}` + u;
 				}
+
+				// could be undefined?
+				return;
 			};
 
 			// see section A5.4
@@ -4390,22 +4397,22 @@
 				const P = inst >>> 24 & 1;
 				const U = inst >>> 23 & 1;
 
-				// increment after (A5.4.2)
+				// increment after (A5.4.2) OK
 				if (!P && U) {
 					if (ASM) return 'ia';
 				}
 
-				// increment before (A5.4.3)
+				// increment before (A5.4.3) OK
 				if (P && U) {
 					if (ASM) return 'ib';
 				}
 
-				// decrement after (A5.4.4)
+				// decrement after (A5.4.4) OK
 				if (!P && !U) {
 					if (ASM) return 'da';
 				}
 
-				// decrement before (A5.4.5)
+				// decrement before (A5.4.5) OK
 				if (P && !U) {
 					if (ASM) return 'db';
 				}
@@ -4450,7 +4457,7 @@
 
 				// TODO: Check which instructions allow UNCONDITIONAL execution. I was not really doing this.
 
-				// ADC (A4.1.2)
+				// ADC (A4.1.2) OK
 				if ((inst & 0x0de00000) === 0x00a00000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
@@ -4462,7 +4469,7 @@
 					}
 				}
 
-				// ADD (A4.1.3)
+				// ADD (A4.1.3) OK
 				if ((inst & 0x0de00000) === 0x00800000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
@@ -4474,7 +4481,7 @@
 					}
 				}
 
-				// AND (A4.1.4)
+				// AND (A4.1.4) OK
 				if ((inst & 0x0de00000) === 0 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
@@ -4486,7 +4493,7 @@
 					}
 				}
 
-				// B, BL (A4.1.5)
+				// B, BL (A4.1.5) OK
 				if ((inst & 0x0e000000) === 0x0a000000 && cond !== conds[0b1111]) {
 					const L = inst >>> 24 & 1;
 					const immed = (inst & 0xffffff) - (inst & 0x800000) * 2; // signed
@@ -4494,8 +4501,8 @@
 					continue;
 				}
 
-				// BIC (A4.1.6)
-				if ((inst & 0x0de00000) === 0x01c00000) {
+				// BIC (A4.1.6) OK
+				if ((inst & 0x0de00000) === 0x01c00000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -4506,22 +4513,20 @@
 					}
 				}
 
-				// BKPT (A4.1.7)
-				if ((inst & 0xfff000f0) === 0xe1200070) {
-					// TODO: WHY does cond have to be 0b1110? If it isn't, then this instruction is UNPREDICTABLE.
-					// NOT undefined.
+				// BKPT (A4.1.7) FIXED BUG
+				if ((inst & 0xfff000f0) === (0xe1200070 | 0)) {
 					const immed = (inst >>> 8 & 0xfff) << 4 | (inst & 0xf);
 					if (ASM) lines.push(`bkpt ${imm(immed)}`);
 					continue;
 				}
 
-				// BLX (A4.1.8 - A4.1.9)
-				if ((inst & 0xfe000000) === (0xfa000000 | 0) && cond !== conds[0b1111] && isArmv5) { // (1) (A4.1.8)
+				// BLX (A4.1.8 - A4.1.9) FIXED BUG!!!
+				if ((inst & 0xfe000000) === (0xfa000000 | 0) && isArmv5) { // (1) (A4.1.8)
 					const H = inst >>> 24 & 1;
 					const immed = inst & 0xffffff;
 					if (ASM) lines.push(`blx ${imm(immed << 2 | (H << 1))}`);
 					continue;
-				} else if ((inst & 0x0ff000f0) === 0x01200030 && cond !== conds[0b1111] && isArmv5) { // (2) (A4.1.9)
+				} else if ((inst & 0x0ff000f0) === 0x01200030 && cond !== conds[0b1111] && isArmv5) { // (2) (A4.1.9) OK
 					const Rm = inst & 0xf;
 					const u = unpredictable((inst & 0x000fff00) !== 0x000fff00); // should-be-one
 					if (ASM) lines.push(`blx${cond} ${r[Rm]}` + u);
@@ -4529,14 +4534,14 @@
 				}
 
 				// BX (A4.1.10)
-				if ((inst & 0x0ff000f0) === 0x01200010) {
+				if ((inst & 0x0ff000f0) === 0x01200010 && cond !== conds[0b1111]) {
 					const Rm = inst & 0xf;
 					const u = unpredictable((inst & 0x000fff00) !== 0x000fff00); // should-be-one
 					if (ASM) lines.push(`bx${cond} ${r[Rm]}` + u);
 					continue;
 				}
 
-				// CDP (A4.1.12)
+				// CDP (A4.1.12) OK
 				if ((inst & 0x0f000010) === 0x0e000000) {
 					const opcode1 = inst >>> 20 & 0xf;
 					const CRn = inst >>> 16 & 0xf;
@@ -4568,18 +4573,19 @@
 					continue;
 				}
 
-				// CMN (A4.1.14)
-				if ((inst & 0x0df00000) === 0x01700000) {
+				// CMN (A4.1.14) FIXED BUG
+				if ((inst & 0x0df00000) === 0x01700000 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const shifter = shifterOperand(inst);
+					const u = unpredictable(inst & 0x0000f000); // should-be-zero
 					if (shifter) {
-						if (ASM) lines.push(`cmn${cond} ${r[Rn]}, ${shifter}`);
+						if (ASM) lines.push(`cmn${cond} ${r[Rn]}, ${shifter}` + u);
 						continue;
 					}
 				}
 
-				// CMP (A4.1.15)
-				if ((inst & 0x0df00000) === 0x01500000) {
+				// CMP (A4.1.15) OK
+				if ((inst & 0x0df00000) === 0x01500000 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const u = unpredictable(inst & 0x0000f000); // should-be-zero
 					const shifter = shifterOperand(inst);
@@ -4589,8 +4595,8 @@
 					}
 				}
 
-				// EOR (A4.1.18)
-				if ((inst & 0x0de00000) === 0x00200000) {
+				// EOR (A4.1.18) OK
+				if ((inst & 0x0de00000) === 0x00200000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -4601,7 +4607,7 @@
 					}
 				}
 
-				// LDC (A4.1.19)
+				// LDC (A4.1.19) OK
 				if ((inst & 0x0e100000) === 0x0c100000) {
 					const N = inst >>> 22 & 1;
 					const CRd = inst >>> 12 & 0xf;
@@ -4619,40 +4625,42 @@
 					}
 				}
 
-				// LDM (A4.1.20 - A4.1.22)
-				if ((inst & 0x0e500000) === 0x08100000) { // (1) (A4.1.20)
+				// LDM (A4.1.20 - A4.1.22) FIXED BUG
+				if ((inst & 0x0e500000) === 0x08100000 && cond !== conds[0b1111]) { // (1) (A4.1.20)
 					const W = inst >>> 21 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const registers = inst & 0xffff;
 					const addressing = loadMultipleAddressingMode(inst);
 					const u = unpredictable(!registers || Rn === 15 || (W && (registers & (1 << Rn))));
 
-					if (ASM) {
-						const list = [];
-						for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
-							if (registers & bit) list.push(r[i]);
+					if (addressing) {
+						if (ASM) {
+							const list = [];
+							for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
+								if (registers & bit) list.push(r[i]);
+							}
+							lines.push(`ldm${cond}${addressing} ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` + u);
 						}
-
-						lines.push(`ldm${cond}${addressing} ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` + u);
+						continue;
 					}
-					continue;
-				} else if ((inst & 0x0e708000) === 0x08500000) { // (2) (A4.1.21)
-					// TODO: this (and (3)) is UNPREDICTABLE in user/system mode. is this worth highlighting?
+				} else if ((inst & 0x0e708000) === 0x08500000 && cond !== conds[0b1111]) { // (2) (A4.1.21)
 					const Rn = inst >>> 16 & 0xf;
 					const registers = inst & 0x7fff;
 					const addressing = loadMultipleAddressingMode(inst);
 					const u = unpredictable(!registers || Rn === 15);
 
-					if (ASM) {
-						const list = [];
-						for (let bit = 1, i = 0; i < 15; bit <<= 1, ++i) {
-							if (registers & bit) list.push(r[i]);
-						}
+					if (addressing) {
+						if (ASM) {
+							const list = [];
+							for (let bit = 1, i = 0; i < 15; bit <<= 1, ++i) {
+								if (registers & bit) list.push(r[i]);
+							}
 
-						lines.push(`ldm${cond}${addressing} ${r[Rn]}, {${list.join(', ')}}^` + u);
+							lines.push(`ldm${cond}${addressing} ${r[Rn]}, {${list.join(', ')}}^` + u);
+						}
+						continue;
 					}
-					continue;
-				} else if ((inst & 0x0e508000) === 0x08508000) { // (3) (A4.1.22)
+				} else if ((inst & 0x0e508000) === 0x08508000 && cond !== conds[0b1111]) { // (3) (A4.1.22)
 					const W = inst >>> 21 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const registers = inst & 0x7fff;
@@ -4671,86 +4679,103 @@
 					continue;
 				}
 
-				// LDR (A4.1.23)
-				if ((inst & 0x0c500000) === 0x04100000) {
+				// LDR (A4.1.23) FIXED UNDEFINED
+				if ((inst & 0x0c500000) === 0x04100000 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadAddressingMode(inst);
 					// TODO: unpredictable if Rd == Rn on certain modes
-					if (ASM) lines.push(`ldr${cond} ${r[Rd]}, ${addressing}`);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`ldr${cond} ${r[Rd]}, ${addressing}`);
+						continue;
+					}
 				}
 
-				// LDRB (A4.1.24)
-				if ((inst & 0x0c500000) === 0x04500000) {
-					const Rd = inst >>> 12 & 0xf;
-					const addressing = loadAddressingMode(inst);
-					const u = unpredictable(Rd === 15);
-					// TODO: unpredictable if Rd == Rn on certain modes
-					if (ASM) lines.push(`ldr${cond}b ${r[Rd]}, ${addressing}` + u);
-					continue;
-				}
-
-				// LDRBT (A4.1.25)
-				if ((inst & 0x0c700000) === 0x04700000) {
+				// LDRB (A4.1.24) FIXED UNDEFINED
+				if ((inst & 0x0c500000) === 0x04500000 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadAddressingMode(inst);
 					const u = unpredictable(Rd === 15);
 					// TODO: unpredictable if Rd == Rn on certain modes
-					if (ASM) lines.push(`ldr${cond}bt ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`ldr${cond}b ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// LDRD (A4.1.26)
-				if ((inst & 0x0e5000f0) === 0x004000d0 && isArmv5) {
+				// LDRBT (A4.1.25) FIXED UNDEFINED
+				if ((inst & 0x0c700000) === 0x04700000 && cond !== conds[0b1111]) {
+					const Rd = inst >>> 12 & 0xf;
+					const addressing = loadAddressingMode(inst);
+					const u = unpredictable(Rd === 15);
+					// TODO: unpredictable if Rd == Rn on certain modes
+					if (addressing) {
+						if (ASM) lines.push(`ldr${cond}bt ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
+				}
+
+				// LDRD (A4.1.26) FIXED UNDEFINED
+				if ((inst & 0x0e5000f0) === 0x004000d0 && isArmv5 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadMiscAddressingMode(inst);
-					const u = unpredictable(Rd === 14 || Rd % 2);
+					const u = unpredictable(Rd === 14);
 					// TODO: unpredictable if Rd == Rn on certain modes
-					if (ASM) lines.push(`ldr${cond}d ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing && Rd % 2 === 0) {
+						// instruction is undefined if Rd is odd
+						if (ASM) lines.push(`ldr${cond}d ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// LDRH (A4.1.28)
-				if ((inst & 0x0e5000f0) === 0x005000b0) {
+				// LDRH (A4.1.28) FIXED UNDEFINED
+				if ((inst & 0x0e5000f0) === 0x005000b0 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadMiscAddressingMode(inst);
 					const u = unpredictable(Rd === 15);
 					// TODO: unpredictable if Rd == Rn on certain modes
-					if (ASM) lines.push(`ldr${cond}h ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`ldr${cond}h ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// LDRSB (A4.1.29)
-				if ((inst & 0x0e5000f0) === 0x005000d0) {
+				// LDRSB (A4.1.29) FIXED UNDEFINED
+				if ((inst & 0x0e5000f0) === 0x005000d0 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadMiscAddressingMode(inst);
 					const u = unpredictable(Rd === 15);
 					// TODO: unpredictable if Rd == Rn on certain modes
-					if (ASM) lines.push(`ldr${cond}sb ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`ldr${cond}sb ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// LDRSH (A4.1.30)
-				if ((inst & 0x0e5000f0) === 0x005000f0) {
+				// LDRSH (A4.1.30) FIXED UNDEFINED
+				if ((inst & 0x0e5000f0) === 0x005000f0 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadMiscAddressingMode(inst);
 					const u = unpredictable(Rd === 15);
 					// TODO: unpredictable if Rd == Rn on certain modes
-					if (ASM) lines.push(`ldr${cond}sh ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`ldr${cond}sh ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// LDRT (A4.1.31)
-				if ((inst & 0x0d700000) === 0x04300000) {
+				// LDRT (A4.1.31) FIXED UNDEFINED
+				if ((inst & 0x0d700000) === 0x04300000 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf; // used for testing unpredictability
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadAddressingMode(inst);
-					const u = unpredictable(Rd === 15 || Rn === Rd);
-					if (ASM) lines.push(`ldr${cond}t ${r[Rd]}, ${addressing}` + u);
-					continue;
+					const u = unpredictable(Rd === 15 || Rd === Rn);
+					if (addressing) {
+						if (ASM) lines.push(`ldr${cond}t ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// MCR (A4.1.32)
+				// MCR (A4.1.32) OK
 				if ((inst & 0x0f100010) === 0x0e000010) {
 					const opcode1 = inst >>> 21 & 7;
 					const CRn = inst >>> 16 & 0xf;
@@ -4774,7 +4799,7 @@
 					}
 				}
 
-				// MCRR (A4.1.33)
+				// MCRR (A4.1.33) OK
 				if ((inst & 0x0ff00000) === 0x0c400000 && isArmv5 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -4786,20 +4811,20 @@
 					continue;
 				}
 
-				// MLA (A4.1.34)
-				if ((inst & 0x0fe000f0) === 0x00200090) {
+				// MLA (A4.1.34) FIXED BUG
+				if ((inst & 0x0fe000f0) === 0x00200090 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rd = inst >>> 16 & 0xf;
 					const Rn = inst >>> 12 & 0xf;
 					const Rs = inst >>> 8 & 0xf;
 					const Rm = inst & 0xf;
 					const u = unpredictable(Rd === 15 || Rn === 15 || Rs === 15 || Rm === 15 || Rd === Rm);
-					if (ASM) lines.push(`mla${S ? 's' : ''} ${r[Rd]}, ${r[Rm]}, ${r[Rs]}, ${r[Rn]}` + u);
+					if (ASM) lines.push(`mla${cond}${S ? 's' : ''} ${r[Rd]}, ${r[Rm]}, ${r[Rs]}, ${r[Rn]}` + u);
 					continue;
 				}
 
-				// MOV (A4.1.35)
-				if ((inst & 0x0de00000) === 0x01a00000) {
+				// MOV (A4.1.35) OK
+				if ((inst & 0x0de00000) === 0x01a00000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rd = inst >>> 12 & 0xf;
 					const shifter = shifterOperand(inst);
@@ -4810,7 +4835,7 @@
 					}
 				}
 
-				// MRC (A4.1.36)
+				// MRC (A4.1.36) FIXED BUG
 				if ((inst & 0x0f100010) === 0x0e100010) {
 					const opcode1 = inst >>> 21 & 7;
 					const CRn = inst >>> 16 & 0xf;
@@ -4821,18 +4846,18 @@
 					if (cond === conds[0b1111]) {
 						// MCR2 is only available on ARMv5
 						if (isArmv5) {
-							if (ASM) lines.push(`mrc${cond} p${cpNum}, ${opcode1}, ${r[Rd]}, c${CRn}, c${CRm}` +
-								(opcode2 ? `, ${opcode2}` : ''));
+							if (ASM) lines.push(`mrc2 p${cpNum}, ${opcode1}, ${r[Rd]}, c${CRn}, c${CRm}` +
+							(opcode2 ? `, ${opcode2}` : ''));
 							continue;
 						}
 					} else {
-						if (ASM) lines.push(`mrc2 p${cpNum}, ${opcode1}, ${r[Rd]}, c${CRn}, c${CRm}` +
-							(opcode2 ? `, ${opcode2}` : ''));
+						if (ASM) lines.push(`mrc${cond} p${cpNum}, ${opcode1}, ${r[Rd]}, c${CRn}, c${CRm}` +
+								(opcode2 ? `, ${opcode2}` : ''));
 						continue;
 					}
 				}
 
-				// MRRC (A4.1.37)
+				// MRRC (A4.1.37) OK
 				if ((inst & 0x0ff00000) === 0x0c500000 && isArmv5 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -4844,10 +4869,10 @@
 					continue;
 				}
 
-				// MRS (A4.1.38)
-				if ((inst & 0x0fb00000) === 0x01000000) {
+				// MRS (A4.1.38) FIXED BUG
+				if ((inst & 0x0fb00000) === 0x01000000 && cond !== conds[0b1111]) {
 					// TODO: unpredictable when accessing SPSR in User mode or System mode. should this be noted?
-					const R = inst >>> 22;
+					const R = inst >>> 22 & 1;
 					const Rd = inst >>> 12 & 0xf;
 					// should-be-one or -zero
 					const u = unpredictable(Rd === 15 || (inst >>> 16 & 0xf) !== 0xf || (inst & 0xfff));
@@ -4855,15 +4880,14 @@
 					continue;
 				}
 
-				// MSR (A4.1.39)
-				if ((inst & 0x0fb00000) === 0x03200000) { // immediate operand
-					// TODO: can this be simplified using shifterOperand()?
+				// MSR (A4.1.39) OK
+				if ((inst & 0x0fb00000) === 0x03200000 && cond !== conds[0b1111]) { // immediate operand
 					const R = inst >>> 22 & 1;
 					const fieldMask = inst >>> 16 & 0xf;
 					const rotateImm = inst >>> 8 & 0xf;
 					const immed = inst & 0xff;
 					// fieldMask = 0 behavior is not specifically 'unpredictable' or 'undefined', but it doesn't
-					// fit with the syntax; should-be-one
+					// fit with the syntax;;; should-be-one
 					const u = unpredictable(!fieldMask || (inst >>> 12 & 0xf) !== 0xf);
 					if (ASM) {
 						const rotated = (immed >> (rotateImm * 2)) | immed << (32 - rotateImm * 2);
@@ -4875,7 +4899,7 @@
 						lines.push(`msr${cond} ${R ? 'spsr' : 'cpsr'}_${fields.join('')}, #${imm(rotated)}` + u);
 					}
 					continue;
-				} else if ((inst & 0x0fb000f0) === 0x01200000) { // register operand
+				} else if ((inst & 0x0fb000f0) === 0x01200000 && cond !== conds[0b1111]) { // register operand
 					const R = inst >>> 22 & 1;
 					const fieldMask = inst >>> 16 & 0xf;
 					const Rm = inst & 0xf;
@@ -4893,19 +4917,20 @@
 					continue;
 				}
 
-				// MUL (A4.1.40)
-				if ((inst & 0x0fe000f0) === 0x00000090) {
+				// MUL (A4.1.40) FIXED UNPREDICTABILITY
+				if ((inst & 0x0fe000f0) === 0x00000090 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rd = inst >>> 16 & 0xf;
 					const Rs = inst >>> 8 & 0xf;
 					const Rm = inst & 0xf;
-					const u = unpredictable(Rd === 15 || Rm === 15 || Rs === 15 || Rd === Rs);
+					// should-be-zero
+					const u = unpredictable(Rd === 15 || Rm === 15 || Rs === 15 || Rd === Rs || (inst >>> 12 & 0xf));
 					if (ASM) lines.push(`mul${cond}${S ? 's' : ''} ${r[Rd]}, ${r[Rm]}, ${r[Rs]}` + u);
 					continue;
 				}
 
-				// MVN (A4.1.41)
-				if ((inst & 0x0de00000) === 0x01e00000) {
+				// MVN (A4.1.41) OK
+				if ((inst & 0x0de00000) === 0x01e00000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rd = inst >>> 12 & 0xf;
 					const shifter = shifterOperand(inst);
@@ -4916,8 +4941,8 @@
 					}
 				}
 
-				// ORR (A4.1.42)
-				if ((inst & 0x0de00000) === 0x01800000) {
+				// ORR (A4.1.42) OK
+				if ((inst & 0x0de00000) === 0x01800000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -4928,15 +4953,15 @@
 					}
 				}
 
-				// PLD (A4.1.45)
+				// PLD (A4.1.45) OK
 				if ((inst & 0xfd70f000) === (0xf550f000 | 0) && isArmv5) {
 					const addressing = loadAddressingMode(inst);
 					if (ASM) lines.push(`pld ${addressing}`);
 					continue;
 				}
 
-				// QADD (A4.1.46)
-				if ((inst & 0x0ff000f0) === 0x01000050 && isArmv5) {
+				// QADD (A4.1.46) OK
+				if ((inst & 0x0ff000f0) === 0x01000050 && isArmv5 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
 					const Rm = inst & 0xf;
@@ -4946,8 +4971,8 @@
 					continue;
 				}
 
-				// QDADD (A4.1.50)
-				if ((inst & 0x0ff000f0) === 0x01400050 && isArmv5) {
+				// QDADD (A4.1.50) OK
+				if ((inst & 0x0ff000f0) === 0x01400050 && isArmv5 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
 					const Rm = inst & 0xf;
@@ -4958,7 +4983,7 @@
 				}
 
 				// QDSUB (A4.1.51)
-				if ((inst & 0x0ff000f0) === 0x01600050 && isArmv5) {
+				if ((inst & 0x0ff000f0) === 0x01600050 && isArmv5 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
 					const Rm = inst & 0xf;
@@ -4968,8 +4993,8 @@
 					continue;
 				}
 
-				// QSUB (A4.1.52)
-				if ((inst & 0x0ff000f0) === 0x01200050 && isArmv5) {
+				// QSUB (A4.1.52) OK
+				if ((inst & 0x0ff000f0) === 0x01200050 && isArmv5 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
 					const Rm = inst & 0xf;
@@ -4979,8 +5004,8 @@
 					continue;
 				}
 
-				// RSB (A4.1.60)
-				if ((inst & 0x0de00000) === 0x00300000) {
+				// RSB (A4.1.60) OK
+				if ((inst & 0x0de00000) === 0x00300000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -4991,8 +5016,8 @@
 					}
 				}
 
-				// RSC (A4.1.61)
-				if ((inst & 0x0de00000) === 0x00e00000) {
+				// RSC (A4.1.61) OK
+				if ((inst & 0x0de00000) === 0x00e00000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -5003,8 +5028,8 @@
 					}
 				}
 
-				// SBC (A4.1.65)
-				if ((inst & 0x0de00000) === 0x00c00000) {
+				// SBC (A4.1.65) OK
+				if ((inst & 0x0de00000) === 0x00c00000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -5015,8 +5040,8 @@
 					}
 				}
 
-				// SMLA<x><y> (A4.1.74)
-				if ((inst & 0x0ff00090) === 0x01000080) {
+				// SMLA<x><y> (A4.1.74) OK
+				if ((inst & 0x0ff00090) === 0x01000080 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 16 & 0xf;
 					const Rn = inst >>> 12 & 0xf;
 					const Rs = inst >>> 8 & 0xf;
@@ -5029,8 +5054,8 @@
 					continue;
 				}
 
-				// SMLAL (A4.1.76)
-				if ((inst & 0x0fe000f0) === 0x00e00090) {
+				// SMLAL (A4.1.76) OK
+				if ((inst & 0x0fe000f0) === 0x00e00090 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const RdHi = inst >>> 16 & 0xf;
 					const RdLo = inst >>> 12 & 0xf;
@@ -5042,8 +5067,8 @@
 					continue;
 				}
 
-				// SMLAL<x><y> (A4.1.77)
-				if ((inst & 0x0ff00090) === 0x01400080 && isArmv5) {
+				// SMLAL<x><y> (A4.1.77) OK
+				if ((inst & 0x0ff00090) === 0x01400080 && isArmv5 && cond !== conds[0b1111]) {
 					const RdHi = inst >>> 16 & 0xf;
 					const RdLo = inst >>> 12 & 0xf;
 					const Rs = inst >>> 8 & 0xf;
@@ -5056,8 +5081,8 @@
 					continue;
 				}
 
-				// SMLAW<y> (A4.1.79)
-				if ((inst & 0x0ff000b0) === 0x01200080 && isArmv5) {
+				// SMLAW<y> (A4.1.79) OK
+				if ((inst & 0x0ff000b0) === 0x01200080 && isArmv5 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 16 & 0xf;
 					const Rn = inst >>> 12 & 0xf;
 					const Rs = inst >>> 8 & 0xf;
@@ -5068,8 +5093,8 @@
 					continue;
 				}
 
-				// SMUL<x><y> (A4.1.86)
-				if ((inst & 0x0ff00090) === 0x01600080 && isArmv5) {
+				// SMUL<x><y> (A4.1.86) OK
+				if ((inst & 0x0ff00090) === 0x01600080 && isArmv5 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 16 & 0xf;
 					const Rs = inst >>> 8 & 0xf;
 					const y = inst >>> 6 & 1;
@@ -5080,8 +5105,8 @@
 					continue;
 				}
 
-				// SMULL (A4.1.87)
-				if ((inst & 0x0fe000f0) === 0x00c00090) {
+				// SMULL (A4.1.87) OK
+				if ((inst & 0x0fe000f0) === 0x00c00090 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const RdHi = inst >>> 16 & 0xf;
 					const RdLo = inst >>> 12 & 0xf;
@@ -5093,8 +5118,8 @@
 					continue;
 				}
 
-				// SMULW<y> (A4.1.88)
-				if ((inst & 0x0ff000b0) === 0x012000a0) {
+				// SMULW<y> (A4.1.88) FIXED BUG
+				if ((inst & 0x0ff000b0) === 0x012000a0 && isArmv5 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 16 & 0xf;
 					const Rs = inst >>> 8 & 0xf;
 					const y = inst >>> 6 & 1;
@@ -5105,7 +5130,7 @@
 					continue;
 				}
 
-				// STC (A4.1.96)
+				// STC (A4.1.96) OK
 				if ((inst & 0x0e100000) === 0x0c000000) {
 					const N = inst >>> 22 & 1;
 					const CRd = inst >>> 12 & 0xf;
@@ -5123,8 +5148,8 @@
 					}
 				}
 
-				// STM (A4.1.97 - A4.1.98)
-				if ((inst & 0x0e500000) === 0x08000000) { // (1) (A4.1.97)
+				// STM (A4.1.97 - A4.1.98) OK
+				if ((inst & 0x0e500000) === 0x08000000 && cond !== conds[0b1111]) { // (1) (A4.1.97)
 					const W = inst >>> 21 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const registers = inst & 0xffff;
@@ -5139,8 +5164,7 @@
 						lines.push(`stm${cond}${addressing} ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` + u);
 					}
 					continue;
-				} else if ((inst & 0x0e700000) === 0x08400000) { // (2) (A4.1.98)
-					// TODO: unpredictable in User or System mode. is this relevant?
+				} else if ((inst & 0x0e700000) === 0x08400000 && cond !== conds[0b1111]) { // (2) (A4.1.98)
 					const Rn = inst >>> 16 & 0xf;
 					const registers = inst & 0xffff;
 					const addressing = loadMultipleAddressingMode(inst);
@@ -5155,69 +5179,79 @@
 					continue;
 				}
 
-				// STR (A4.1.99)
-				if ((inst & 0x0e500000) === 0x04000000) {
-					// TODO: unpredictable if Rn === Rd on some addressing modes
+				// STR (A4.1.99) FIXED BUG
+				if ((inst & 0x0c500000) === 0x04000000 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadAddressingMode(inst);
-					if (ASM) lines.push(`str${cond} ${r[Rd]}, ${addressing}`);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`str${cond} ${r[Rd]}, ${addressing}`);
+						continue;
+					}
 				}
 
-				// STRB (A4.1.100)
-				if ((inst & 0x0c500000) === 0x04400000) {
-					// TODO: unpredictable if Rn === Rd on some addressing modes
+				// STRB (A4.1.100) FIXED UNDEFINED
+				if ((inst & 0x0c500000) === 0x04400000 && cond !== conds[0b1111]) {
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadAddressingMode(inst);
 					const u = unpredictable(Rd === 15);
-					if (ASM) lines.push(`str${cond}b ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`str${cond}b ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// STRBT (A4.1.101)
-				if ((inst & 0x0d700000) === 0x04600000) {
+				// STRBT (A4.1.101) FIXED UNDEFINED
+				if ((inst & 0x0d700000) === 0x04600000 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf; // only for detecting unpredictability
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadAddressingMode(inst);
 					const u = unpredictable(Rd === 15 || Rd === Rn);
-					if (ASM) lines.push(`str${cond}bt ${r[Rd]}, ${addressing}` + u);
-					continue;
+					// TODO: "These forms have P == 0 and W == 0, where P and W are bit[24] and bit[21] respectively. This instruction uses P == 0 and W == 1 instead, but the addressing mode is the same in all other respects."
+					if (addressing) {
+						if (ASM) lines.push(`str${cond}bt ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// STRD (A4.1.102)
-				if ((inst & 0x0e1000f0) === 0x000000f0 && isArmv5) {
+				// STRD (A4.1.102) FIXED BUGS
+				if ((inst & 0x0e1000f0) === 0x000000f0 && isArmv5 && cond !== conds[0b1111]) {
 					// TODO: unpredictable if Rn === Rd on some addressing modes
 					const Rd = inst >>> 12 & 0xf;
-					const addressing = loadAddressingMode(inst);
+					const addressing = loadMiscAddressingMode(inst);
 					const u = unpredictable(Rd === 14);
-					if (Rd % 2) {
+					if (addressing && Rd % 2 === 0) {
+						// instruction is undefined if Rd is odd
 						if (ASM) lines.push(`str${cond}d ${r[Rd]}, ${addressing}` + u);
 						continue;
 					}
 				}
 
-				// STRH (A4.1.104)
-				if ((inst & 0x0e1000f0) === 0x000000b0) {
+				// STRH (A4.1.104) FIXED BUG
+				if ((inst & 0x0e1000f0) === 0x000000b0 && cond !== conds[0b1111]) {
 					// TODO: unpredictable if Rn === Rd on some addressing modes
 					const Rd = inst >>> 12 & 0xf;
-					const addressing = loadAddressingMode(inst);
+					const addressing = loadMiscAddressingMode(inst);
 					const u = unpredictable(Rd === 15);
-					if (ASM) lines.push(`str${cond}h ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`str${cond}h ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// STRT (A4.1.105)
-				if ((inst & 0x0d700000) === 0x04200000) {
+				// STRT (A4.1.105) FIXED UNDEFINED
+				if ((inst & 0x0d700000) === 0x04200000 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf; // only for detecting unpredictability
 					const Rd = inst >>> 12 & 0xf;
 					const addressing = loadAddressingMode(inst);
 					const u = unpredictable(Rd === Rn);
-					if (ASM) lines.push(`str${cond}t ${r[Rd]}, ${addressing}` + u);
-					continue;
+					if (addressing) {
+						if (ASM) lines.push(`str${cond}t ${r[Rd]}, ${addressing}` + u);
+						continue;
+					}
 				}
 
-				// SUB (A4.1.106)
-				if ((inst & 0x0de00000) === 0x00400000) {
+				// SUB (A4.1.106) OK
+				if ((inst & 0x0de00000) === 0x00400000 && cond !== conds[0b1111]) {
 					const S = inst >>> 20 & 1;
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
@@ -5228,15 +5262,15 @@
 					}
 				}
 
-				// SWI (A4.1.107)
-				if ((inst & 0x0f000000) === 0x0f000000) {
+				// SWI (A4.1.107) OK
+				if ((inst & 0x0f000000) === 0x0f000000 && cond !== conds[0b1111]) {
 					const immed = inst & 0xffffff;
 					if (ASM) lines.push(`swi${cond} ${imm(immed)}`);
 					continue;
 				}
 
 				// SWP (A4.1.108)
-				if ((inst & 0x0ff000f0) === 0x01000090) {
+				if ((inst & 0x0ff000f0) === 0x01000090 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
 					const Rm = inst & 0xf;
@@ -5246,8 +5280,8 @@
 					continue;
 				}
 
-				// SWPB (A4.1.109)
-				if ((inst & 0x0ff000f0) === 0x01400090) {
+				// SWPB (A4.1.109) OK
+				if ((inst & 0x0ff000f0) === 0x01400090 && cond !== conds[0b1111]) {
 					const Rn = inst >>> 16 & 0xf;
 					const Rd = inst >>> 12 & 0xf;
 					const Rm = inst & 0xf;
@@ -5257,7 +5291,7 @@
 					continue;
 				}
 
-				// TEQ (A4.1.116)
+				// TEQ (A4.1.116) OK
 				if ((inst & 0x0df00000) === 0x01300000) {
 					const Rn = inst >>> 16 & 0xf;
 					const shifter = shifterOperand(inst);
@@ -5268,7 +5302,7 @@
 					}
 				}
 
-				// TST (A4.1.117)
+				// TST (A4.1.117) OK
 				if ((inst & 0x0df00000) === 0x01100000) {
 					const Rn = inst >>> 16 & 0xf;
 					const shifter = shifterOperand(inst);
@@ -5279,7 +5313,7 @@
 					}
 				}
 
-				// UMLAL (A4.1.128)
+				// UMLAL (A4.1.128) OK
 				if ((inst & 0x0fe000f0) === 0x00a00090) {
 					const S = inst >>> 20 & 1;
 					const RdHi = inst >>> 16 & 0xf;
@@ -5292,7 +5326,7 @@
 					continue;
 				}
 
-				// UMULL (A4.1.129)
+				// UMULL (A4.1.129) OK
 				if ((inst & 0x0fe000f0) === 0x00800090) {
 					const S = inst >>> 20 & 1;
 					const RdHi = inst >>> 16 & 0xf;
@@ -5361,16 +5395,16 @@
 				} else if ((inst & 0xf800) === 0xa000) { // (5) (A7.1.7)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`add r${Rd}, PC, #${imm(immed)} * 4`);
+					if (ASM) lines.push(`add r${Rd}, pc, #${imm(immed)} * 4`);
 					continue;
 				} else if ((inst & 0xf800) === 0xa800) { // (6) (A7.1.8)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`add r${Rd}, SP, #${imm(immed)} * 4`);
+					if (ASM) lines.push(`add r${Rd}, sp, #${imm(immed)} * 4`);
 					continue;
 				} else if ((inst & 0xff80) === 0xb000) { // (7) (A7.1.9)
 					const immed = inst & 0x7f;
-					if (ASM) lines.push(`add SP, #${imm(immed)} * 4`);
+					if (ASM) lines.push(`add sp, #${imm(immed)} * 4`);
 					continue;
 				}
 
@@ -5541,12 +5575,12 @@
 				} else if ((inst & 0xf800) === 0x4800) { // (3) (A7.1.30)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`ldr r${Rd}, [PC, #${imm(immed)} * 4]`);
+					if (ASM) lines.push(`ldr r${Rd}, [pc, #${imm(immed)} * 4]`);
 					continue;
 				} else if ((inst & 0xf800) === 0x9800) { // (4) (A7.1.31)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`ldr r${Rd}, [SP, #${imm(immed)} * 4]`);
+					if (ASM) lines.push(`ldr r${Rd}, [sp, #${imm(immed)} * 4]`);
 					continue;
 				}
 
@@ -5758,7 +5792,7 @@
 				} else if ((inst & 0xf800) === 0x9000) { // (3) (A7.1.60)
 					const Rd = inst >> 8 & 7;
 					const immed = inst & 0xff;
-					if (ASM) lines.push(`str r${Rd}, [SP, #${imm(immed)} * 4]`);
+					if (ASM) lines.push(`str r${Rd}, [sp, #${imm(immed)} * 4]`);
 					continue;
 				}
 
@@ -5812,7 +5846,7 @@
 					continue;
 				} else if ((inst & 0xff80) === 0xb080) { // (4) (A7.1.68)
 					const immed = inst & 0x7f;
-					if (ASM) lines.push(`sub SP, #${imm(immed)} * 4`);
+					if (ASM) lines.push(`sub sp, #${imm(immed)} * 4`);
 					continue;
 				}
 
@@ -5866,7 +5900,8 @@
 
 			const renderStart = performance.now();
 			addHTML(display, `<div style="white-space: pre;"><code>${instructions.map((x, i) => {
-				return `${str16(i * instSize)} <span style="color: #666; padding: 0 32px;">${bytes(i * instSize, instSize, binary)}</span> ${x}`;
+				const loc = str16(i * instSize);
+				return `${loc.length === 4 ? '&nbsp;' + loc : loc} <span style="color: #666; padding: 0 32px;">${bytes(i * instSize, instSize, binary)}</span> ${x}`;
 			}).join('\r\n')}</code></div>`);
 
 			requestAnimationFrame(() => {
@@ -5885,13 +5920,13 @@
 	// devtools console help
 	console.log(
 		`Dumping functions: \
-	\n%creadString(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \
+	\n%clatin1(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \
 	\ndownload(name, dat, mime = 'application/octet-stream') %c \
 	\n\nCompression/Packing functions: \
-	\n%cblz(indat) \nblzCompress(indat) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
+	\n%cblz(indat) \nblzCompress(indat, minimumSize?) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
 	\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
 	\n\nSections: \
-	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx %c \
+	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset bmes disassembler %c \
 	\n\nFile: %cfile%c`,
 		'color: #3cc;',
 		'color: unset;',
