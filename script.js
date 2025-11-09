@@ -3951,13 +3951,14 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: BMes                                                                                                 |
+	// | Section: Mes                                                                                                 |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const bmes = (window.bmes = createSection('Battle Messages', (section) => {
-		const bmes = {};
+	const mes = (window.mes = createSection('*Mes', (section) => {
+		const mes = {};
 
-		const paths = ['/BAI/BMes_cf.dat', '/BAI/BMes_ji.dat', '/BAI/BMes_yo.dat']; // TODO: add SMes_yo.dat
+		const paths
+			= ['/BAI/BMes_cf.dat', '/BAI/BMes_ji.dat', '/BAI/BMes_yo.dat', '/MAI/MMes_yo.dat', '/SAI/SMes_yo.dat'];
 		const fileSelect = dropdown(paths, 0, () => update());
 		section.appendChild(fileSelect);
 
@@ -3994,7 +3995,7 @@
 				table.innerHTML = '';
 
 				const columns = unpackSegmented(tables[filteredTableIds[scriptSelect.value]]);
-				bmes.columns = columns;
+				mes.columns = columns;
 				const invalidColumns = [];
 				const zeroedColumns = [];
 				const rows = [['<td></td>']];
@@ -4053,7 +4054,7 @@
 		};
 		update();
 
-		return bmes;
+		return mes;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
@@ -5926,7 +5927,7 @@
 	\n%cblz(indat) \nblzCompress(indat, minimumSize?) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
 	\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
 	\n\nSections: \
-	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset bmes disassembler %c \
+	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset mes disassembler %c \
 	\n\nFile: %cfile%c`,
 		'color: #3cc;',
 		'color: unset;',
