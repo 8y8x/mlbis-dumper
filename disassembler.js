@@ -8,7 +8,6 @@ window.initDisassembler = () => {
 			`arm7 entry (${headers.arm7size} bytes)`,
 		];
 		for (const entry of fs.overlayEntries.values()) {
-			console.log(entry);
 			const file = fs.get(entry.fileId);
 			options.push(`${String(entry.id).padStart(4, '0')} (len ${entry.ramSize})`);
 		}

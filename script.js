@@ -219,7 +219,7 @@
 			end = o + l;
 		} else {
 			end = o;
-			while (dat.getUint8(end++));
+			while (dat.getUint8(end)) ++end;
 		}
 
 		const u8 = bufToU8(sliceDataView(dat, o, Math.min(end, dat.byteLength)));
@@ -231,7 +231,7 @@
 	const byteToHex = [];
 	for (let i = 0; i < 256; ++i) byteToHex[i] = i.toString(16).padStart(2, '0');
 	const bytes = window.bytes = (o, l, buf = file) => {
-		const slice = new Uint8Array(buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + o + l));
+		const slice = new Uint8Array(buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + Math.min(o + l, buf.byteLength)));
 		const arr = new Array(slice.length);
 		for (let i = 0; i < slice.length; ++i) arr[i] = byteToHex[slice[i]];
 		return arr.join(' ');
@@ -4140,6 +4140,190 @@
 	if (!window.initDisassembler) await waitFor(() => window.initDisassembler);
 	window.initDisassembler();
 
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Sound Data                                                                                           |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const sound = (window.sound = createSection('Sound', (section) => {
+		const sound = {};
+
+		addHTML(section, '<div>very unfinished section</div>');
+
+		const soundFile = fs.get('/Sound/sound_data.sdat');
+
+		const symbStart = soundFile.getUint32(0x10, true);
+		const symbLength = soundFile.getUint32(0x14, true);
+		const symbDat = sound.symbDat = sliceDataView(soundFile, symbStart, symbStart + symbLength);
+
+		const infoStart = soundFile.getUint32(0x18, true);
+		const infoLength = soundFile.getUint32(0x1c, true);
+		const infoDat = sound.infoDat = sliceDataView(soundFile, infoStart, infoStart + infoLength);
+
+		const fatStart = soundFile.getUint32(0x20, true);
+		const fatLength = soundFile.getUint32(0x24, true);
+		const fatDat = sound.fatDat = sliceDataView(soundFile, fatStart, fatStart + fatLength);
+
+		const fileStart = soundFile.getUint32(0x28, true);
+		const fileLength = soundFile.getUint32(0x2c, true);
+		const fileDat = sound.fileDat = sliceDataView(soundFile, fileStart, fileStart + fileLength);
+
+		window.infoDat = infoDat;
+		window.symbDat = symbDat;
+		window.fatDat = fatDat;
+		window.fileDat = fileDat;
+
+		// symb block
+		const symbFileList = (o) => {
+			const length = symbDat.getUint32(o, true);
+			const files = [];
+			for (let i = 0; i < length; ++i) files.push(latin1(symbDat.getUint32(o + i*4, true), undefined, symbDat));
+			return files;
+		};
+		const symbFolderList = (o) => {
+			const length = symbDat.getUint32(o, true);
+			const folders = [];
+			for (let i = 0; i < length; ++i) {
+				const name = latin1(symbDat.getUint32(o + 4 + i*8, true), undefined, symbDat);
+				const files = symbFileList(symbDat.getUint32(o + 8 + i*8, true));
+				folders.push([name, files]);
+			}
+			return folders;
+		};
+		const symb = {};
+		symb.sseq = symbFileList(symbDat.getUint32(8, true));
+		symb.ssar = symbFolderList(symbDat.getUint32(12, true));
+		symb.bank = symbFileList(symbDat.getUint32(16, true));
+		symb.swar = symbFileList(symbDat.getUint32(20, true));
+		symb.player = symbFileList(symbDat.getUint32(24, true));
+		symb.group = symbFileList(symbDat.getUint32(28, true));
+		symb.player2 = symbFileList(symbDat.getUint32(32, true));
+		symb.strm = symbFileList(symbDat.getUint32(36, true));
+
+		// LET"S try this again
+		const symbSseqOffset = symbDat.byteLength ? symbDat.getUint32(8, true) : 0;
+		const infoSseqOffset = infoDat.getUint32(8, true);
+		const infoSseqLength = infoDat.getUint32(infoSseqOffset, true);
+		for (let i = 0; i < infoSseqLength; ++i) {
+			const offset = infoDat.getUint32(infoSseqOffset + 4 + i * 4, true);
+			const segment = sliceDataView(infoDat, offset, offset + 12);
+			const fatId = segment.getUint16(0, true);
+			const bank = segment.getUint16(4, true);
+			const volume = segment.getUint8(6);
+			const cpr = segment.getUint8(7);
+			const ppr = segment.getUint8(8);
+			const ply = segment.getUint8(9);
+
+			let name = '';
+			if (symbDat.byteLength) {
+				const nameOffset = symbDat.getUint32(symbSseqOffset + 4 + i * 4, true);
+				name = latin1(nameOffset, undefined, symbDat);
+			}
+
+			let html = `sseq[${i}] : ${name} (fatId ${fatId}) (bank ${bank}) (volume ${volume}) (cpr ${cpr}) (ppr ${ppr}) (ply ${ply});`;
+			if (12 + fatId * 16 + 8 <= fatDat.byteLength) {
+				const fileStart = fatDat.getUint32(12 + fatId * 16, true);
+				const fileSize = fatDat.getUint32(12 + fatId * 16 + 4, true);
+				html += ` (fileStart 0x${str32(fileStart)}) (fileSize 0x${fileSize.toString(16)})`;
+			}
+			addHTML(section, `<div><code>${html}</code></div>`);
+		}
+
+		return sound;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Fonts                                                                                                |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const font = (window.font = createSection('Fonts', (section) => {
+		const font = {};
+
+		const fontFile = fs.get('/Font/StatFontSet.dat');
+		const fontSegments = unpackSegmented(fontFile);
+		const options = [];
+		for (let i = 0; i < fontSegments.length; ++i) {
+			if (fontSegments[i].byteLength) options.push(i);
+		}
+
+		const select = dropdown(options.map(x => `StatFontSet ${x} (len ${fontSegments[x].byteLength})`), 0, () => update());
+		section.appendChild(select);
+
+		const display = document.createElement('div');
+		section.appendChild(display);
+
+		const update = () => {
+			const segment = fontSegments[options[select.value]];
+			display.innerHTML = '';
+
+			const charMapSize = segment.getUint32(0, true);
+			const charMapOffset = segment.getUint32(4, true);
+			const charMap = sliceDataView(segment, charMapOffset, charMapOffset + charMapSize);
+			const glyphTableOffset = segment.getUint32(8, true);
+			const glyphTable = sliceDataView(segment, glyphTableOffset, charMapOffset);
+
+			if (!glyphTable.byteLength) return;
+			const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
+			const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
+
+			const x = glyphTable.getUint16(1, true);
+			console.log(x);
+
+			const charWidthBytes = glyphTable.getUint8(3) * 4;
+			const glyphBitmapOffset = 4 + charWidthBytes;
+
+			console.log(glyphTable, glyphBitmapOffset, glyphWidth, glyphHeight);
+
+			const canvas = document.createElement('canvas');
+			canvas.width = glyphWidth * 16;
+			canvas.height = glyphHeight * 16;
+			canvas.style.width = `${glyphWidth * 16 * 4}px`;
+			canvas.style.height = `${glyphHeight * 16 * 4}px`;
+			display.appendChild(canvas);
+
+			const ctx = canvas.getContext('2d');
+			const bitmap = new Uint32Array(glyphWidth * glyphHeight * 256);
+			const shade = (i, alpha, color) => {
+				return [
+					0xffffffff,
+					0xffffffff,
+					0xff000000,
+					0xffcccccc,
+					0xffeeeeee,
+					0xffeeeeee,
+					0xff000000,
+					0xffaaaaaa
+				][(((i & 1) + (i >> 4 & 1)) % 2)*4 + alpha*2 + color];
+			};
+			const p = (x,y) => y * glyphWidth * 16 + x;
+			for (let i = 0, o = glyphBitmapOffset; o < glyphTable.byteLength; ++i) {
+				const xStart = (i & 0xf) * glyphWidth;
+				const yStart = (i >> 4) * glyphHeight;
+				console.log(o);
+				for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
+					const width = Math.min(4, (glyphWidth - xBase) / 2);
+					for (let y = 0; y < glyphHeight; y += 4) {
+						const alphaOffset = o;
+						o += width;
+						const colorOffset = o;
+						o += width;
+						for (let z = 0; z < width * 8; ++z) {
+							const alpha = (glyphTable.getUint8(alphaOffset + (z >> 3)) >> (z % 8)) & 1;
+							const color = (glyphTable.getUint8(colorOffset + (z >> 3)) >> (z % 8)) & 1;
+							bitmap[p(xStart + xBase + (z >> 2), yStart + y + (z % 4))] = shade(i, alpha, color);
+						}
+					}
+				}
+			}
+			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), glyphWidth * 16, glyphHeight * 16), 0, 0);
+
+			addHTML(display, `<div>charMap (${charMapOffset} len ${charMapSize}): <code>${bytes(charMapOffset, charMapSize, segment)}</code></div>`);
+			addHTML(display, `<div>glyphTable (${glyphTableOffset}): <code>${bytes(glyphTableOffset, charMapOffset - glyphTableOffset, segment)}</code></div>`);
+		};
+		update();
+
+		return font;
+	}));
+
 	// add spacing to the bottom of the page, for better scrolling
 	addHTML(document.body, '<div style="height: 100vh;"></div>');
 
@@ -4150,10 +4334,15 @@
 	\ndownload(name, dat, mime = 'application/octet-stream') %c \
 	\n\nCompression/Packing functions: \
 	\n%cblz(indat) \nblzCompress(indat, minimumSize?) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
-	\nzipStore(files) \nunpackSegmented(dat) \nsliceDataView(dat, start, end) %c \
+	\nzipStore(files) \nunpackSegmented(dat) %c \
+	\n\nView functions: \
+	\n%csliceDataView(dat, start, end) \nbufToU8(buf) \nbufToU8Clamped(buf) \nbufToU16(buf) \nbufToS16(buf) \
+	\nbufToU32(buf) \nbufToDat(buf) \nstr8(x) \nstr16(x) \nstr32(x) %c \
 	\n\nSections: \
-	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset mes disassembler %c \
+	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset mes disassembler sound %c \
 	\n\nFile: %cfile%c`,
+		'color: #3cc;',
+		'color: unset;',
 		'color: #3cc;',
 		'color: unset;',
 		'color: #3cc;',
