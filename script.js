@@ -184,22 +184,24 @@
 	// | Quick Data Display                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const latin1 = (o, l, buf = file) => {
+	const byteToChar = [];
+	for (let i = 0; i < 0x20; ++i) byteToChar[i] = '.';
+	for (let i = 0x20; i < 0x7f; ++i) byteToChar[i] = String.fromCharCode(i);
+	for (let i = 0x7f; i < 0xa0; ++i) byteToChar[i] = '.';
+	for (let i = 0xa0; i < 0x100; ++i) byteToChar[i] = String.fromCharCode(i);
+	const latin1 = (o, l, dat = file) => {
 		let end;
 		if (l !== undefined) {
 			end = o + l;
 		} else {
 			end = o;
-			while (file.getUint8(end++) !== 0);
+			while (dat.getUint8(end++));
 		}
 
-		const str = [];
-		for (let i = 0; i < end - o; i += 16384) {
-			const slice = buf.buffer.slice(buf.byteOffset + o + i, buf.byteOffset + Math.min(end, o + i + 16384));
-			str.push(String.fromCharCode(...new Uint8Array(slice).map((x) => (x < 0x20 ? 46 : x))));
-		}
-
-		return str.join('');
+		const u8 = bufToU8(sliceDataView(dat, o, Math.min(end, dat.byteLength)));
+		const arr = new Array(u8.length);
+		for (let i = 0; i < u8.length; ++i) arr[i] = byteToChar[u8[i]];
+		return arr.join('');
 	};
 
 	const byteToHex = [];
@@ -3310,7 +3312,20 @@
 				}).join('')}</ul>`);
 
 			if (room.tilesetAnimated) {
-				lines.push(`[7] tilesetAnimated: 0x${Math.ceil(room.tilesetAnimated.length / 32).toString(16)} tiles`);
+				let tilesEnd = 0;
+				for (const anim of room.tileAnimations) {
+					const end = anim.tilesetAnimatedStart
+						+ anim.replacementLength * (Math.max(...anim.keyframeIndices) + 1);
+					if (tilesEnd < end) tilesEnd = end;
+				}
+				let html = `[7] tilesetAnimated: 0x${tilesEnd} tiles`;
+				if (tilesEnd * 32 < room.tilesetAnimated.byteLength) {
+					html += `, debug info or unused tiles: <ul>
+						<li style="overflow-wrap: anywhere;"><code>${latin1(tilesEnd * 32, Infinity, room.tilesetAnimated)}</code></li>
+						<li><code>${bytes(tilesEnd * 32, Infinity, room.tilesetAnimated)}</code></li>
+					</ul>`;
+				}
+				lines.push(html);
 			} else {
 				lines.push('[7] tilesetAnimated:');
 			}
@@ -4128,7 +4143,7 @@
 		for (const entry of fs.overlayEntries.values()) {
 			console.log(entry);
 			const file = fs.get(entry.fileId);
-			options.push(`${String(entry.id).padStart(4, '0')} (len ${file.byteLength})`);
+			options.push(`${String(entry.id).padStart(4, '0')} (len ${entry.ramSize})`);
 		}
 		const select = dropdown(options, 0, () => update(), undefined, true);
 		section.appendChild(select);
@@ -4566,7 +4581,7 @@
 				if ((inst & 0x0ff000f0) === 0x01200010 && cond !== conds[0b1111]) {
 					const Rm = inst & 0xf;
 					const u = unpredictable((inst & 0x000fff00) !== 0x000fff00); // should-be-one
-					if (ASM) lines.push(`bx${cond} ${r[Rm]}` + u);
+					if (ASM) lines.push(`<span style="color:var(--green);">bx${cond}</span> ${r[Rm]}` + u);
 					continue;
 				}
 
@@ -4668,7 +4683,7 @@
 							for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
 								if (registers & bit) list.push(r[i]);
 							}
-							lines.push(`ldm${cond}${addressing} ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` + u);
+							lines.push(`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` + u);
 						}
 						continue;
 					}
@@ -4685,7 +4700,7 @@
 								if (registers & bit) list.push(r[i]);
 							}
 
-							lines.push(`ldm${cond}${addressing} ${r[Rn]}, {${list.join(', ')}}^` + u);
+							lines.push(`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}, {${list.join(', ')}}^` + u);
 						}
 						continue;
 					}
@@ -4703,7 +4718,7 @@
 						}
 						list.push(r[15]);
 
-						lines.push(`ldm${cond}${addressing} ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}^` + u);
+						lines.push(`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}^` + u);
 					}
 					continue;
 				}
@@ -5190,7 +5205,7 @@
 						for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
 							if (registers & bit) list.push(r[i]);
 						}
-						lines.push(`stm${cond}${addressing} ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` + u);
+						lines.push(`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` + u);
 					}
 					continue;
 				} else if ((inst & 0x0e700000) === 0x08400000 && cond !== conds[0b1111]) { // (2) (A4.1.98)
@@ -5203,7 +5218,7 @@
 						for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
 							if (registers & bit) list.push(r[i]);
 						}
-						lines.push(`stm${cond}${addressing} ${r[Rn]}, {${list.join(', ')}}^` + u);
+						lines.push(`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}, {${list.join(', ')}}^` + u);
 					}
 					continue;
 				}
