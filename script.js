@@ -988,7 +988,7 @@
 		}
 
 		const overlayCache = new Map();
-		fs.overlay = (id) => {
+		fs.overlay = (id, noCache) => {
 			const cached = overlayCache.get(id);
 			if (cached) return cached;
 
@@ -996,7 +996,7 @@
 			const entry = overlayEntries.get(id);
 			let dat = fs.get(entry.fileId);
 			if (entry?.compressed) dat = blz(dat);
-			if (dat) overlayCache.set(id, Object.assign(dat, { entry }));
+			if (dat && !noCache) overlayCache.set(id, Object.assign(dat, { entry }));
 			return dat;
 		};
 
@@ -1025,6 +1025,7 @@
 			if (overlayId === undefined) fs.set(path, obj);
 		}
 
+
 		const singleExport = document.createElement('div');
 		singleExport.textContent = 'File: ';
 		section.appendChild(singleExport);
@@ -1048,7 +1049,7 @@
 			else if (singleDecompression.value === 1) output = blz(fsentry);
 			else /* (singleDecompression.value === 2) */ {
 				const overlayId = fileToOverlayId.get(singleSelect.value);
-				if (overlayId !== undefined) output = fs.overlay(overlayId);
+				if (overlayId !== undefined) output = fs.overlay(overlayId, true);
 				else output = fsentry;
 			}
 
@@ -1060,12 +1061,53 @@
 		const singleOutput = document.createElement('span');
 		singleExport.appendChild(singleOutput);
 
-		for (let i = 0; i * 8 < headers.fatLength; ++i) {
-			const { path, start, end } = fs.get(i);
-			const lengthStr = (end - start).toString(16);
-			addHTML(section, `<div><code>0x${str8(i)}. 0x${str32(start)} - 0x${str32(end)} (len 0x${lengthStr})${'&nbsp;'.repeat(8 - lengthStr.length)} ${path}</code></div>`);
-		}
 
+		const multiExport = document.createElement('div');
+		multiExport.textContent = 'Everything: ';
+		section.appendChild(multiExport);
+
+		const multiDump = button('Dump Everything', () => {
+			const files = [];
+			for (let i = 0; i * 8 < headers.fatLength; ++i) {
+				const fsentry = fs.get(i);
+				const overlayId = fileToOverlayId.get(i);
+				if (overlayId !== undefined) {
+					const dat = fs.overlay(overlayId, true);
+					const suffix = (dat === fsentry) ? '' : '-decomp'
+					files.push({ name: `overlay${String(overlayId).padStart(4, '0')}${suffix}.bin`, dat });
+				} else {
+					files.push({ name: fsentry.name, dat: fsentry });
+				}
+			}
+			download(`${headers.gamecode}.zip`, zipStore(files));
+		});
+		multiExport.appendChild(multiDump);
+
+		addHTML(section, '<br>');
+
+
+		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => update(), undefined, true);
+		section.appendChild(sorting);
+
+		const listContainer = document.createElement('div');
+		section.appendChild(listContainer);
+		const update = () => {
+			listContainer.innerHTML = '';
+			const list = [];
+			for (let i = 0; i * 8 < headers.fatLength; ++i) list.push(fs.get(i));
+
+			if (sorting.value === 1) list.sort((a, b) => (a.end - a.start) - (b.end - b.start));
+
+			for (let i = 0; i < list.length; ++i) {
+				const { path, start, end } = list[i];
+				const lengthStr = (end - start).toString(16);
+				addHTML(listContainer, `<div><code>0x${str8(i)}. 0x${str32(start)} - 0x${str32(end)} (len 0x${lengthStr})${'&nbsp;'.repeat(8 - lengthStr.length)} ${path}</code></div>`);
+			}
+		}
+		update();
+
+
+		addHTML(section, '<br>');
 		addHTML(section, '<div>Overlays in RAM:</div>');
 
 		const overlayContainer = document.createElement('div');
@@ -1142,9 +1184,9 @@
 				addHTML(overlayContainer, `<div style="height: 1px; width: 100%; background: #333;"></div>`);
 			}
 		};
-		overlayEntry(headers.arm9ram, headers.arm9size, `<code>ARM9 0x${str32(headers.arm9ram)}
+		overlayEntry(headers.arm9ram, headers.arm9size, `<code>ARM9. 0x${str32(headers.arm9ram)}
 			- 0x${str32(headers.arm9ram + headers.arm9size)}</code>`);
-		overlayEntry(headers.arm7ram, headers.arm7size, `<code>ARM7 0x${str32(headers.arm7ram)}
+		overlayEntry(headers.arm7ram, headers.arm7size, `<code>ARM7. 0x${str32(headers.arm7ram)}
 			- 0x${str32(headers.arm7ram + headers.arm7size)}</code>`);
 		const ovtEntry = (o) => {
 			const id = file.getUint32(o, true);
@@ -1156,7 +1198,7 @@
 			const fileId = file.getUint32(o + 24, true);
 			const attributes = file.getUint32(o + 28, true);
 
-			overlayEntry(ramStart, ramSize, `<code>${id.toString().padStart(4, '0')} 0x${str32(ramStart)}
+			overlayEntry(ramStart, ramSize, `<code>${id.toString().padStart(4, '0')}. 0x${str32(ramStart)}
 				- 0x${str32(ramStart + ramSize)}</code>`);
 		}
 		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) ovtEntry(o);
