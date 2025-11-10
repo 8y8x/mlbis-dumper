@@ -952,239 +952,201 @@
 	// +---------------------------------------------------------------------------------------------------------------+
 
 	const fs = (window.fs = createSection('File System', (section) => {
-		const parseSubtable = (o, fileId) => {
-			const entries = [];
-			while (true) {
-				const composite = file.getUint8(headers.fntOffset + o);
-				const directory = !!(composite & 0x80);
-				const length = composite & 0x7f;
-				if (length === 0) return entries;
-				++o;
-
-				const name = latin1(headers.fntOffset + o, length);
-				o += length;
-
-				let subdirectoryId;
-				if (directory) {
-					subdirectoryId = file.getUint16(headers.fntOffset + o, true);
-					o += 2;
-				}
-
-				entries.push({
-					name,
-					directory,
-					id: directory ? subdirectoryId : fileId++,
-				});
-			}
-		};
-
-		const subtables = new Map();
-		// root subtable is stored slightly differently
-		subtables.set(
-			0xf000,
-			parseSubtable(file.getUint32(headers.fntOffset, true), file.getUint16(headers.fntOffset + 4, true)),
-		);
-		const numDirectories = file.getUint16(headers.fntOffset + 6, true);
-		for (let i = 1; i < numDirectories; ++i) {
-			const start = file.getUint32(headers.fntOffset + i * 8, true);
-			const startingFileId = file.getUint16(headers.fntOffset + i * 8 + 4, true);
-			subtables.set(0xf000 + i, parseSubtable(start, startingFileId));
-		}
-
 		const fs = new Map();
-		for (let i = 0; i < headers.fatLength / 8; ++i) {
-			const start = file.getUint32(headers.fatOffset + i * 8, true);
-			const end = file.getUint32(headers.fatOffset + i * 8 + 4, true);
-			fs.set(i, {
-				index: i,
-				path: `overlay ${i.toString().padStart(4, '0')}`,
-				name: `overlay${i.toString().padStart(4, '0')}.bin`,
-				overlay: true,
-				start,
-				end,
-			});
+
+		const names = new Map();
+		names.set(0xf000, ''); // so every fie path starts with '/'
+		const parents = new Map();
+		const numDirectories = file.getUint16(headers.fntOffset + 6, true);
+		for (let i = 0; i < numDirectories; ++i) {
+			let o = file.getUint32(headers.fntOffset + i * 8, true);
+			let fileId = file.getUint16(headers.fntOffset + i * 8 + 4, true);
+
+			while (true) {
+				const composite = file.getUint8(headers.fntOffset + o++);
+				if (!composite) break;
+
+				const name = latin1(headers.fntOffset + o, composite & 0x7f);
+				o += composite & 0x7f;
+				let id;
+				if (composite & 0x80) {
+					id = file.getUint16(headers.fntOffset + o, true);
+					o += 2;
+				} else id = fileId++;
+				names.set(id, name);
+				parents.set(id, 0xf000 + i);
+			}
 		}
 
-		const recurseDirectory = (subtable, prefix) => {
-			for (const entry of subtable) {
-				if (entry.directory) {
-					recurseDirectory(subtables.get(entry.id), `${prefix}${entry.name}/`);
-				} else {
-					const start = file.getUint32(headers.fatOffset + entry.id * 8, true);
-					const end = file.getUint32(headers.fatOffset + entry.id * 8 + 4, true);
-					const fsentry = fs.get(entry.id);
-					fsentry.path = prefix + entry.name;
-					fsentry.name = entry.name;
-					fsentry.overlay = false; // overlays aren't part of the file structure
-					fs.set(prefix + entry.name, fsentry);
+		const fileToOverlayId = fs.fileToOverlayId = new Map();
+		const overlayEntries = fs.overlayEntries = new Map();
+		for (let i = 0, o = headers.ov9Offset; i * 32 < headers.ov9Size; ++i, o += 32) {
+			const segment = bufToU32(sliceDataView(file, o, o + 32));
+			const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compressed] = segment;
+			fileToOverlayId.set(fileId, id);
+			overlayEntries.set(id, { id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compressed });
+		}
+
+		const overlayCache = new Map();
+		fs.overlay = (id) => {
+			const cached = overlayCache.get(id);
+			if (cached) return cached;
+
+			// no errors!
+			const entry = overlayEntries.get(id);
+			let dat = fs.get(entry.fileId);
+			if (entry?.compressed) dat = blz(dat);
+			if (dat) overlayCache.set(id, Object.assign(dat, { entry }));
+			return dat;
+		};
+
+		for (let i = 0, o = headers.fatOffset; i * 8 < headers.fatLength; ++i, o += 8) {
+			const start = file.getUint32(o, true);
+			const end = file.getUint32(o + 4, true);
+
+			let name, path;
+			const overlayId = fileToOverlayId.get(i);
+			if (overlayId !== undefined) {
+				const entry = overlayEntries.get(overlayId);
+				name = `overlay${overlayId.toString().padStart(4, '0')}.bin`;
+				path = `(overlay ${overlayId.toString().padStart(4, '0')}${entry.compressed ? ', compressed' : ''})`;
+			} else {
+				name = names.get(i);
+				path = name;
+				let parentId = parents.get(i);
+				for (let j = 0; j < 100 && parentId !== undefined; ++j) {
+					path = names.get(parentId) + '/' + path;
+					parentId = parents.get(parentId);
 				}
 			}
-		};
-		recurseDirectory(subtables.get(0xf000), '/');
 
-		for (const [key, fsentry] of fs) {
-			const dat = new DataView(file.buffer, fsentry.start, fsentry.end - fsentry.start);
-			Object.assign(dat, fsentry);
-			fs.set(key, dat);
+			const obj = Object.assign(sliceDataView(file, start, end), { name, path, start, end });
+			fs.set(i, obj);
+			if (overlayId === undefined) fs.set(path, obj);
 		}
 
 		const singleExport = document.createElement('div');
 		singleExport.textContent = 'File: ';
 		section.appendChild(singleExport);
 
-		const fileSelectEntries = [];
-		for (let i = 0; i < headers.fatLength / 8; ++i) {
-			const fsentry = fs.get(i);
-			fileSelectEntries.push(
-				`${str8(i)}. (len 0x${(fsentry.end - fsentry.start).toString(16)}) ${sanitize(fsentry.path)}`,
-			);
+		const singleSelectEntries = [];
+		for (let i = 0; i * 8 < headers.fatLength; ++i) {
+			const { start, end, path } = fs.get(i);
+			singleSelectEntries.push(`0x${str8(i)}. (len 0x${(end - start).toString(16)}) ${sanitize(path)}`);
 		}
-		const fileSelect = dropdown(fileSelectEntries, 0, () => {});
-		singleExport.appendChild(fileSelect);
+		const singleSelect = dropdown(singleSelectEntries, 0, () => {});
+		singleExport.appendChild(singleSelect);
 
-		const singleDecompression = dropdown(['No decompression', 'Backwards LZSS'], 0, () => {}, undefined, true);
+		const singleDecompression = dropdown(['No decompression', 'Backwards LZSS', 'Auto'], 2, () => {}, undefined, true);
 		singleExport.appendChild(singleDecompression);
 
-		const singleDump = document.createElement('button');
-		singleDump.textContent = 'Dump';
-		singleExport.appendChild(singleDump);
-
-		const downloadOutput = document.createElement('div');
-		singleExport.appendChild(downloadOutput);
-
-		singleDump.addEventListener('mousedown', () => {
-			const fsentry = fs.get(fileSelect.value);
+		const singleDump = button('Dump', () => {
+			const fsentry = fs.get(singleSelect.value);
 
 			let output;
-			if (singleDecompression.value === 0) output = file.buffer.slice(fsentry.start, fsentry.end);
-			else if (singleDecompression.value === 1) output = blz(file); // no caching
-
-			if (!output) {
-				downloadOutput.textContent = 'Failed to load/decompress';
-				return;
+			if (singleDecompression.value === 0) output = fsentry;
+			else if (singleDecompression.value === 1) output = blz(fsentry);
+			else /* (singleDecompression.value === 2) */ {
+				const overlayId = fileToOverlayId.get(singleSelect.value);
+				if (overlayId !== undefined) output = fs.overlay(overlayId);
+				else output = fsentry;
 			}
 
-			downloadOutput.textContent = '';
+			singleOutput.textContent = '';
 			download(fsentry.name, output);
 		});
+		singleExport.appendChild(singleDump);
 
-		const multiExport = document.createElement('div');
-		multiExport.textContent = 'Everything: ';
-		section.appendChild(multiExport);
+		const singleOutput = document.createElement('span');
+		singleExport.appendChild(singleOutput);
 
-		const multiDecompression = dropdown(
-			['Backwards LZSS only on overlays', 'No decompression'],
-			0,
-			() => {},
-			undefined,
-			true,
-		);
-		multiExport.appendChild(multiDecompression);
+		for (let i = 0; i * 8 < headers.fatLength; ++i) {
+			const { path, start, end } = fs.get(i);
+			const lengthStr = (end - start).toString(16);
+			addHTML(section, `<div><code>0x${str8(i)}. 0x${str32(start)} - 0x${str32(end)} (len 0x${lengthStr})${'&nbsp;'.repeat(8 - lengthStr.length)} ${path}</code></div>`);
+		}
 
-		const multiDump = document.createElement('button');
-		multiDump.textContent = 'Dump Everything';
-		multiExport.appendChild(multiDump);
+		addHTML(section, '<div>Overlays in RAM:</div>');
 
-		multiDump.addEventListener('mousedown', () => {
-			const files = [];
-			for (let i = 0; i < headers.fatLength / 8; ++i) {
-				const fsentry = fs.get(i);
-				let dat = fsentry;
-				let name = fsentry.name;
-				if (multiDecompression.value === 0 && fsentry.overlay) {
-					dat = blz(dat); // no caching
-					if (dat) {
-						// if decompression succeeded
-						// rename /dir/file.xyz => /dir/file-decomp.xyz
-						const parts = name.split('.');
-						name = parts.pop();
-						name = `${parts.join('.')}-decomp.${name}`;
-					} else {
-						dat = fsentry;
-					}
-				}
-				files.push({ name, dat });
-			}
+		const overlayContainer = document.createElement('div');
+		overlayContainer.style.cssText = 'overflow-x: auto; overflow-y: hidden;';
+		section.appendChild(overlayContainer);
 
-			const zip = zipStore(files);
-			download(`${headers.gamecode}.zip`, zip, 'application/zip');
-		});
-
-		addHTML(section, '<div style="height: 1em;"></div>'); // separator
-
-		const fsList = [];
-		for (let i = 0; i < headers.fatLength / 8; ++i) fsList.push(fs.get(i));
-
-		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => resort(), undefined, true);
-		section.appendChild(sorting);
-		const sorted = document.createElement('div');
-		section.appendChild(sorted);
-		const resort = () => {
-			if (sorting.value === 0) {
-				fsList.sort((a, b) => a.index - b.index); // sort by index
-			} else if (sorting.value === 1) {
-				fsList.sort((a, b) => a.end - a.start - (b.end - b.start)); // sort by length
-			}
-
-			sorted.innerHTML = '';
-			for (const fsentry of fsList) {
-				addHTML(
-					sorted,
-					`<div><code>${str8(fsentry.index)}. 0x${str32(fsentry.start)} - 0x${str32(fsentry.end)}
-					(len 0x${(fsentry.end - fsentry.start).toString(16)})</code> ${sanitize(fsentry.path)}</div>`,
-				);
-			}
-		};
-		resort();
-
-		// JP and demo versions don't compress their overlays, but the others do
-		const SHOULD_DECOMPRESS = !['CLJJ', 'Y6PE', 'Y6PP'].includes(headers.gamecode);
-		const overlayCache = new Map();
-		fs.overlay = (index) => {
-			if (!SHOULD_DECOMPRESS) return fs.get(index);
-
-			const cached = overlayCache.get(index);
-			if (cached) return cached;
-
-			const file = fs.get(index);
-			if (!file) return undefined;
-
-			const decomp = blz(file);
-			overlayCache.set(index, decomp);
-			return decomp;
-		};
-
+		let hovering = undefined;
+		let selected = undefined;
 		const overlayLines = [];
 		const overlayEntry = (start, length, labelHtml) => {
 			const line = document.createElement('div');
 			line.style.cssText = 'height: 1.25em; position: relative;';
-			section.appendChild(line);
+			overlayContainer.appendChild(line);
 
-			const block = document.createElement('div');
-			block.style.cssText = `background: #222; border: 1px solid #ccc; position: absolute;
-				left: ${Math.ceil((start - 0x2000000) / 0x400000 * 800)}px;
-				width: ${Math.ceil(length / 0x400000 * 800)}px; height: 100%;`;
-			line.appendChild(block);
+			const showOverlaps = () => {
+				for (let i = 0; i < overlayLines.length; ++i) {
+					const other = overlayLines[i];
+					if (i === thisIndex) {
+						other.block.style.background = '#333';
+						other.block.style.borderColor = '#fff';
+					} else if (start < other.start + other.length && other.start < start + length) {
+						// check if ranges overlap (excluding the case when one starts where the other ends)
+						other.block.style.background = '#311';
+						other.block.style.borderColor = '#f66';
+					} else {
+						other.block.style.background = '#131';
+						other.block.style.borderColor = '#6f6';
+					}
+				}
+			}
+
+			const hideOverlaps = () => {
+				for (const { block } of overlayLines) {
+					block.style.background = '#222';
+					block.style.borderColor = '#ccc';
+				}
+			};
+
+			const thisIndex = overlayLines.length;
+			line.addEventListener('mouseenter', () => {
+				if (selected !== thisIndex) line.style.background = '#fff2';
+			});
+			line.addEventListener('mouseleave', () => {
+				if (selected !== thisIndex) line.style.background = '';
+			});
+			line.addEventListener('mousedown', () => {
+				if (selected === thisIndex) {
+					selected = undefined;
+					line.style.background = '#fff2';
+
+					if (hovering !== undefined) showOverlaps();
+					else hideOverlaps();
+				} else {
+					if (selected !== undefined) overlayLines[selected].line.style.background = '';
+					selected = thisIndex;
+					line.style.background = '#fff4';
+					showOverlaps();
+				}
+			});
 
 			const label = document.createElement('div');
-			label.style.cssText = 'position: absolute; left: 800px;';
+			label.style.cssText = 'position: absolute;';
 			label.innerHTML = labelHtml;
 			line.appendChild(label);
 
-			overlayLines.push({ block, label });
+			const block = document.createElement('div');
+			block.style.cssText = `background: #222; border: 1px solid #ccc; position: absolute;
+				left: calc(20em + ${Math.ceil((start - 0x2000000) / 0x400000 * 800)}px);
+				width: ${Math.ceil(length / 0x400000 * 800)}px; height: 100%;`;
+			line.appendChild(block);
+
+			overlayLines.push({ line, block, label, start, length });
 			if (overlayLines.length % 4 === 0) {
-				addHTML(section, `<div style="height: 1px; width: 100%; background: #333;"></div>`);
+				addHTML(overlayContainer, `<div style="height: 1px; width: 100%; background: #333;"></div>`);
 			}
 		};
-		overlayEntry(headers.arm9ram, headers.arm9size, `<code>
-			ARM9 initializer, 0x${str32(headers.arm9ram)} - 0x${str32(headers.arm9ram + headers.arm9size)}
-			(len 0x${headers.arm9size.toString(16)})
-		</code>`);
-		overlayEntry(headers.arm7ram, headers.arm7size, `<code>
-			ARM7 initializer, 0x${str32(headers.arm7ram)} - 0x${str32(headers.arm7ram + headers.arm7size)}
-			(len 0x${headers.arm7size.toString(16)})
-		</code>`);
-		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+		overlayEntry(headers.arm9ram, headers.arm9size, `<code>ARM9 0x${str32(headers.arm9ram)}
+			- 0x${str32(headers.arm9ram + headers.arm9size)}</code>`);
+		overlayEntry(headers.arm7ram, headers.arm7size, `<code>ARM7 0x${str32(headers.arm7ram)}
+			- 0x${str32(headers.arm7ram + headers.arm7size)}</code>`);
+		const ovtEntry = (o) => {
 			const id = file.getUint32(o, true);
 			const ramStart = file.getUint32(o + 4, true);
 			const ramSize = file.getUint32(o + 8, true);
@@ -1194,15 +1156,11 @@
 			const fileId = file.getUint32(o + 24, true);
 			const attributes = file.getUint32(o + 28, true);
 
-			const fileStart = file.getUint32(headers.fatOffset + i * 8, true);
-			const fileEnd = file.getUint32(headers.fatOffset + i * 8 + 4, true);
-
-			overlayEntry(ramStart, ramSize, `<code>
-				${id.toString().padStart(4, '0')}${fileId === id ? '' : ` (file ${str8(id)}`}. 0x${str32(ramStart)}
-				- 0x${str32(ramStart + ramSize)} (len 0x${ramSize.toString(16)})${attributes ? ', compressed' : ''}
-			</code>`);
+			overlayEntry(ramStart, ramSize, `<code>${id.toString().padStart(4, '0')} 0x${str32(ramStart)}
+				- 0x${str32(ramStart + ramSize)}</code>`);
 		}
-		for (let o = 0; o < headers.ov7Size; o += 0x20) overlayEntry(headers.ov7Offset + o, true);
+		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) ovtEntry(o);
+		for (let o = 0; o < headers.ov7Size; o += 0x20) ovtEntry(o);
 
 		return fs;
 	}));
@@ -4125,44 +4083,16 @@
 			`arm9 entry (${headers.arm9size} bytes)`,
 			`arm7 entry (${headers.arm7size} bytes)`,
 		];
-		for (let i = 0;; ++i) {
-			const file = fs.get(i);
-			if (!file) break;
-			if (file.overlay) options.push(`${file.name} (${file.byteLength} bytes)`);
+		for (const entry of fs.overlayEntries.values()) {
+			console.log(entry);
+			const file = fs.get(entry.fileId);
+			options.push(`${String(entry.id).padStart(4, '0')} (len ${file.byteLength})`);
 		}
 		const select = dropdown(options, 0, () => update(), undefined, true);
 		section.appendChild(select);
 
 		const setSelect = dropdown(['ARM9 (ARMv5TE)', 'ARM7 (ARMv4T)', 'Thumb (ARMv5TE)', 'Thumb (ARMv4T)'], 0, () => update(), undefined, true);
 		section.appendChild(setSelect);
-
-		section.appendChild(button('Download All', () => {
-			const textEncoder = new TextEncoder();
-			const encode = lines => new DataView(textEncoder.encode(lines.join('\n')).buffer);
-			const arm7 = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
-			const arm9 = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
-			const files = [
-				{ name: 'arm9-entry.txt', dat: encode(disassembler.arm(arm9, 'asm', true)) },
-				{ name: 'arm9-entry-thumb.txt', dat: encode(disassembler.thumb(arm9, 'asm', true)) },
-				{ name: 'arm7-entry.txt', dat: encode(disassembler.arm(arm7, 'asm', false)) },
-				{ name: 'arm7-entry-thumb.txt', dat: encode(disassembler.thumb(arm7, 'asm', false)) },
-			];
-			for (let i = 0;; ++i) {
-				const file = fs.get(i);
-				if (!file) break;
-				if (!file.overlay) continue;
-
-				const overlay = fs.overlay(i);
-				const baseName = `overlay${i.toString().padStart(4, '0')}`;
-				files.push(
-					{ name: `${baseName}-arm9.txt`, dat: encode(disassembler.arm(overlay, 'asm', true)) },
-					{ name: `${baseName}-thumb9.txt`, dat: encode(disassembler.thumb(overlay, 'asm', true)) },
-					{ name: `${baseName}-arm7.txt`, dat: encode(disassembler.arm(overlay, 'asm', false)) },
-					{ name: `${baseName}-thumb7.txt`, dat: encode(disassembler.thumb(overlay, 'asm', false)) },
-				);
-			}
-			download(`${headers.gamecode}-disassembly.zip`, zipStore(files), 'application/zip');
-		}));
 
 		const display = document.createElement('div');
 		section.appendChild(display);
