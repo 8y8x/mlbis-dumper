@@ -1101,14 +1101,14 @@
 		const update = () => {
 			listContainer.innerHTML = '';
 			const list = [];
-			for (let i = 0; i * 8 < headers.fatLength; ++i) list.push(fs.get(i));
+			for (let i = 0; i * 8 < headers.fatLength; ++i) list.push([i, fs.get(i)]);
 
-			if (sorting.value === 1) list.sort((a, b) => (a.end - a.start) - (b.end - b.start));
+			if (sorting.value === 1) list.sort(([_, a], [__, b]) => (a.end - a.start) - (b.end - b.start));
 
 			for (let i = 0; i < list.length; ++i) {
-				const { path, start, end } = list[i];
+				const [index, { path, start, end }] = list[i];
 				const lengthStr = (end - start).toString(16);
-				addHTML(listContainer, `<div><code>0x${str8(i)}. 0x${str32(start)} - 0x${str32(end)} (len 0x${lengthStr})${'&nbsp;'.repeat(8 - lengthStr.length)} ${path}</code></div>`);
+				addHTML(listContainer, `<div><code>0x${str8(index)}. 0x${str32(start)} - 0x${str32(end)} (len 0x${lengthStr})${'&nbsp;'.repeat(8 - lengthStr.length)} ${path}</code></div>`);
 			}
 		}
 		update();
@@ -4252,7 +4252,7 @@
 		section.appendChild(display);
 
 		const update = () => {
-			const segment = fontSegments[options[select.value]];
+			const segment = window.OVERRIDE || fontSegments[options[select.value]];
 			display.innerHTML = '';
 
 			const charMapSize = segment.getUint32(0, true);
@@ -4270,35 +4270,37 @@
 
 			const charWidthBytes = glyphTable.getUint8(3) * 4;
 			const glyphBitmapOffset = 4 + charWidthBytes;
+			const numGlyphs = charWidthBytes * 2;
 
-			console.log(glyphTable, glyphBitmapOffset, glyphWidth, glyphHeight);
+			const glyphRows = 32;
+
+			console.log(glyphTable, glyphBitmapOffset, glyphWidth, glyphHeight, glyphRows);
 
 			const canvas = document.createElement('canvas');
 			canvas.width = glyphWidth * 16;
-			canvas.height = glyphHeight * 16;
+			canvas.height = glyphHeight * glyphRows;
 			canvas.style.width = `${glyphWidth * 16 * 4}px`;
-			canvas.style.height = `${glyphHeight * 16 * 4}px`;
+			canvas.style.height = `${glyphHeight * glyphRows * 4}px`;
 			display.appendChild(canvas);
 
 			const ctx = canvas.getContext('2d');
-			const bitmap = new Uint32Array(glyphWidth * glyphHeight * 256);
+			const bitmap = new Uint32Array(glyphWidth * 16 * glyphHeight * glyphRows);
 			const shade = (i, alpha, color) => {
 				return [
 					0xffffffff,
-					0xffffffff,
+					0xffeeeeff,
 					0xff000000,
 					0xffcccccc,
 					0xffeeeeee,
-					0xffeeeeee,
+					0xffddddee,
 					0xff000000,
 					0xffaaaaaa
 				][(((i & 1) + (i >> 4 & 1)) % 2)*4 + alpha*2 + color];
 			};
 			const p = (x,y) => y * glyphWidth * 16 + x;
-			for (let i = 0, o = glyphBitmapOffset; o < glyphTable.byteLength; ++i) {
+			for (let i = 0, o = glyphBitmapOffset; o + glyphWidth * glyphHeight / 4 <= glyphTable.byteLength; ++i) {
 				const xStart = (i & 0xf) * glyphWidth;
 				const yStart = (i >> 4) * glyphHeight;
-				console.log(o);
 				for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
 					const width = Math.min(4, (glyphWidth - xBase) / 2);
 					for (let y = 0; y < glyphHeight; y += 4) {
@@ -4314,7 +4316,7 @@
 					}
 				}
 			}
-			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), glyphWidth * 16, glyphHeight * 16), 0, 0);
+			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), glyphWidth * 16, glyphHeight * glyphRows), 0, 0);
 
 			addHTML(display, `<div>charMap (${charMapOffset} len ${charMapSize}): <code>${bytes(charMapOffset, charMapSize, segment)}</code></div>`);
 			addHTML(display, `<div>glyphTable (${glyphTableOffset}): <code>${bytes(glyphTableOffset, charMapOffset - glyphTableOffset, segment)}</code></div>`);
