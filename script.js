@@ -681,6 +681,19 @@
 		return segments;
 	});
 
+	// crc table (for speed)
+	// TARGET: BA 78 E8 55, or 0x55e878ba
+	// https://stackoverflow.com/questions/18638900/javascript-crc32
+	const crcTable = new Uint32Array(256);
+	for (let i = 0; i < 256; ++i) {
+		let r = i;
+		for (let j = 0; j < 8; ++j) {
+			if (r & 1) r = 0xedb88320 ^ (r >>> 1);
+			else r >>>= 1;
+		}
+		crcTable[i] = r;
+	}
+
 	/**
 	 * Creates an uncompressed .zip archive containing multiple files
 	 * @param {{ name: string, dat: DataView }[]} files
@@ -703,19 +716,6 @@
 		const now = new Date();
 		const date = now.getDate() | ((now.getMonth() + 1) << 5) | ((now.getFullYear() - 1980) << 9);
 		const time = (now.getSeconds() >> 1) | (now.getMinutes() << 5) | (now.getHours() << 11);
-
-		// crc table (for speed)
-		// TARGET: BA 78 E8 55, or 0x55e878ba
-		// https://stackoverflow.com/questions/18638900/javascript-crc32
-		const crcTable = new Uint32Array(256);
-		for (let i = 0; i < 256; ++i) {
-			let r = i;
-			for (let j = 0; j < 8; ++j) {
-				if (r & 1) r = 0xedb88320 ^ (r >>> 1);
-				else r >>>= 1;
-			}
-			crcTable[i] = r;
-		}
 
 		// local files
 		const crc32s = [];
@@ -970,6 +970,9 @@
 	const fs = (window.fs = createSection('File System', (section) => {
 		const fs = new Map();
 
+		fs.arm9 = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
+		fs.arm7 = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
+
 		const names = new Map();
 		names.set(0xf000, ''); // so every fie path starts with '/'
 		const parents = new Map();
@@ -1068,11 +1071,11 @@
 		const singleDump = button('Dump', () => {
 			if (singleSelect.value === 0) {
 				singleOutput.textContent = '';
-				download('arm9.bin', sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size));
+				download('arm9.bin', fs.arm9);
 				return;
 			} else if (singleSelect.value === 1) {
 				singleOutput.textContent = '';
-				download('arm7.bin', sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size));
+				download('arm7.bin', fs.arm7);
 				return;
 			}
 			const fsentry = fs.get(singleSelect.value - 2);
@@ -1103,16 +1106,7 @@
 		section.appendChild(multiExport);
 
 		const multiDump = button('Dump Everything', () => {
-			const files = [
-				{
-					name: 'arm9.bin',
-					dat: sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size),
-				},
-				{
-					name: 'arm7.bin',
-					dat: sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size),
-				},
-			];
+			const files = [{ name: 'arm9.bin', dat: fs.arm9 }, { name: 'arm7.bin', dat: fs.arm7 }];
 
 			for (let i = 0; i * 8 < headers.fatLength; ++i) {
 				const fsentry = fs.get(i);
