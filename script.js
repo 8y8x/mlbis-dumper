@@ -5,19 +5,20 @@
 	let loadedCount = 1;
 	const checks = [() => window.initDisassembler];
 
-	const waitFor = (cb) => new Promise(r => {
-		let interval;
-		interval = setInterval(() => {
-			if (!cb()) return;
-			clearInterval(interval);
-			r();
+	const waitFor = (cb) =>
+		new Promise((r) => {
+			let interval;
+			interval = setInterval(() => {
+				if (!cb()) return;
+				clearInterval(interval);
+				r();
+			});
+			const rqa = () => {
+				if (cb()) r();
+				else requestAnimationFrame(rqa);
+			};
+			rqa();
 		});
-		const rqa = () => {
-			if (cb()) r();
-			else requestAnimationFrame(rqa);
-		};
-		rqa();
-	});
 	for (const cb of checks) {
 		waitFor(cb).then(() => {
 			++loadedCount;
@@ -47,7 +48,7 @@
 	// | Components                                                                                                    |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const dropdown = window.dropdown = (values, initialIndex, onchange, onhover, hideArrows) => {
+	const dropdown = (window.dropdown = (values, initialIndex, onchange, onhover, hideArrows) => {
 		const container = document.getElementById('dropdown').content.cloneNode(true);
 		const dropdown = container.querySelector('.dropdown');
 		const left = dropdown.querySelector('.left');
@@ -169,9 +170,9 @@
 		});
 
 		return dropdown;
-	};
+	});
 
-	const checkbox = window.checkbox = (name, checked, onchange) => {
+	const checkbox = (window.checkbox = (name, checked, onchange) => {
 		const container = document.getElementById('checkbox').content.cloneNode(true);
 		const checkbox = container.querySelector('.checkbox');
 		const check = checkbox.querySelector('.check');
@@ -195,14 +196,14 @@
 		checkbox.addEventListener('mousedown', () => checkbox.set(!checked));
 
 		return checkbox;
-	};
+	});
 
-	const button = window.button = (name, onchange) => {
+	const button = (window.button = (name, onchange) => {
 		const button = document.createElement('button');
 		button.innerHTML = name;
 		button.addEventListener('mousedown', () => onchange());
 		return button;
-	};
+	});
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Quick Data Display                                                                                            |
@@ -213,7 +214,7 @@
 	for (let i = 0x20; i < 0x7f; ++i) byteToChar[i] = String.fromCharCode(i);
 	for (let i = 0x7f; i < 0xa0; ++i) byteToChar[i] = '.';
 	for (let i = 0xa0; i < 0x100; ++i) byteToChar[i] = String.fromCharCode(i);
-	const latin1 = window.latin1 = (o, l, dat = file) => {
+	const latin1 = (window.latin1 = (o, l, dat = file) => {
 		let end;
 		if (l !== undefined) {
 			end = o + l;
@@ -226,33 +227,35 @@
 		const arr = new Array(u8.length);
 		for (let i = 0; i < u8.length; ++i) arr[i] = byteToChar[u8[i]];
 		return arr.join('');
-	};
+	});
 
 	const byteToHex = [];
 	for (let i = 0; i < 256; ++i) byteToHex[i] = i.toString(16).padStart(2, '0');
-	const bytes = window.bytes = (o, l, buf = file) => {
-		const slice = new Uint8Array(buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + Math.min(o + l, buf.byteLength)));
+	const bytes = (window.bytes = (o, l, buf = file) => {
+		const slice = new Uint8Array(
+			buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + Math.min(o + l, buf.byteLength)),
+		);
 		const arr = new Array(slice.length);
 		for (let i = 0; i < slice.length; ++i) arr[i] = byteToHex[slice[i]];
 		return arr.join(' ');
-	};
+	});
 
-	const bits = window.bits = (o, l, buf = file) => {
+	const bits = (window.bits = (o, l, buf = file) => {
 		const slice = buf.buffer.slice(buf.byteOffset + o, buf.byteOffset + o + l);
 		return Array.from(new Uint8Array(slice))
 			.map((x) => x.toString(2).padStart(8, '0'))
 			.join(' ');
-	};
+	});
 
-	const sanitize = window.sanitize = (s) => s.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+	const sanitize = (window.sanitize = (s) => s.replaceAll('<', '&lt;').replaceAll('>', '&gt;'));
 
-	const addHTML = window.addHTML = (el, html) => {
+	const addHTML = (window.addHTML = (el, html) => {
 		const container = document.createElement(el.tagName);
 		container.innerHTML = html;
 		for (const child of container.childNodes) el.appendChild(child);
-	};
+	});
 
-	const writeRgb16 = window.writeRgb16 = (bitmap, pixel, rgb16) => {
+	const writeRgb16 = (window.writeRgb16 = (bitmap, pixel, rgb16) => {
 		const r = rgb16 & 0x1f;
 		const g = (rgb16 >> 5) & 0x1f;
 		const b = (rgb16 >> 10) & 0x1f;
@@ -260,17 +263,17 @@
 		bitmap[pixel * 4 + 1] = (g << 3) | (g >> 2);
 		bitmap[pixel * 4 + 2] = (b << 3) | (b >> 2);
 		bitmap[pixel * 4 + 3] = 255;
-	};
+	});
 
-	const str8 = window.str8 = (x) => x.toString(16).padStart(2, '0');
-	const str16 = window.str16 = (x) => x.toString(16).padStart(4, '0');
-	const str32 = window.str32 = (x) => x.toString(16).padStart(8, '0');
+	const str8 = (window.str8 = (x) => x.toString(16).padStart(2, '0'));
+	const str16 = (window.str16 = (x) => x.toString(16).padStart(4, '0'));
+	const str32 = (window.str32 = (x) => x.toString(16).padStart(8, '0'));
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Compression and Packing                                                                                       |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const blz = window.blz = (indat) => {
+	const blz = (window.blz = (indat) => {
 		const composite = indat.getUint32(indat.byteLength - 8, true);
 		const offset = composite >> 24;
 		const compressedLength = composite & 0xffffff; // could be zero
@@ -303,13 +306,13 @@
 
 		outbuf.set(inbuf.slice(0, inbuf.byteLength - compressedLength)); // copy decompressed part
 		return new DataView(outbuf.buffer);
-	};
+	});
 
 	// compresses overlay files MOSTLY EXACTLY (i.e. blzCompress(blz(overlay)) == overlay for NEARLY ALL overlays)
 	// these overlays: NA 2, EU 2, KO 2, KO 123, KO 139 don't recompress exactly, there is likely some other
 	// scoring system that i haven't been able to reverse engineer
 	// `minimumSize` is useful for modding overlays without having to change the FAT or overlay tables or anything else
-	const blzCompress = window.blzCompress = (indat, minimumSize) => {
+	const blzCompress = (window.blzCompress = (indat, minimumSize) => {
 		const rightPadding = minimumSize === undefined ? 12 : 256;
 		const inbuf = bufToU8(indat);
 		// in the worst case, blz compression results in 9/8 (112.5%) of the original input size
@@ -465,12 +468,12 @@
 		outdat.setUint32(headerStart + 4, additionalLength, true);
 
 		return new DataView(outbuf.buffer, dataStart, dataLength);
-	};
+	});
 
 	/**
 	 * Decompresses the custom lzss-like used in various BIS files
 	 */
-	const lzBis = window.lzBis = (indat) => {
+	const lzBis = (window.lzBis = (indat) => {
 		let inoff = 0;
 		const readFunnyVarLength = () => {
 			const composite = indat.getUint8(inoff++);
@@ -520,14 +523,14 @@
 		}
 
 		return Object.assign(new DataView(outbuf.buffer), { inoff });
-	};
+	});
 
 	/**
 	 * Compresses the custom lzss-like format used in various BIS files.
 	 * The compression matches **exactly** what you would find in a ROM. (i.e. lzBisCompress(lzBis(dat)) = dat)
 	 * Using a custom `blockSize` larger than 512 will make the output smaller, but may cause the game to crash.
 	 */
-	const lzBisCompress = window.lzBisCompress = (indat, blockSize = 512) => {
+	const lzBisCompress = (window.lzBisCompress = (indat, blockSize = 512) => {
 		const outbuf = new Uint8Array(indat.byteLength * 2);
 		let outoff = 0;
 		const writeFunnyVarLength = (x) => {
@@ -645,9 +648,9 @@
 		}
 
 		return new DataView(outbuf.buffer, 0, Math.ceil(outoff / 4) * 4);
-	};
+	});
 
-	const unpackSegmented = window.unpackSegmented = (dat) => {
+	const unpackSegmented = (window.unpackSegmented = (dat) => {
 		if (dat.byteLength < 4) return [];
 		const offsetsEnd = dat.getUint32(0, true);
 		let lastSplit = offsetsEnd;
@@ -661,9 +664,9 @@
 
 		segments.push(sliceDataView(dat, lastSplit, dat.byteLength));
 		return segments;
-	};
+	});
 
-	const unpackSegmented16 = window.unpackSegmented16 = (dat) => {
+	const unpackSegmented16 = (window.unpackSegmented16 = (dat) => {
 		if (dat.byteLength < 2) return [];
 		const offsetsEnd = dat.getUint16(0, true);
 		let lastSplit = offsetsEnd;
@@ -676,14 +679,14 @@
 
 		segments.push(sliceDataView(dat, lastSplit * 2, dat.byteLength));
 		return segments;
-	};
+	});
 
 	/**
 	 * Creates an uncompressed .zip archive containing multiple files
 	 * @param {{ name: string, dat: DataView }[]} files
 	 * @returns {DataView}
 	 */
-	const zipStore = window.zipStore = (files) => {
+	const zipStore = (window.zipStore = (files) => {
 		// https://pkware.cachefly.net/webdocs/APPNOTE/APPNOTE-1.0.txt
 		let expectedSize = 26; // end of central directory
 		for (const file of files) {
@@ -790,9 +793,9 @@
 		(dat.setUint16(o, 0, true), (o += 2)); // zipfile comment length
 
 		return dat;
-	};
+	});
 
-	const rgb15To32 = window.rgb15To32 = (in16) => {
+	const rgb15To32 = (window.rgb15To32 = (in16) => {
 		const out32 = new Uint32Array(in16.length);
 		for (let i = 0; i < in16.length; ++i) {
 			const r = in16[i] & 0x1f;
@@ -808,7 +811,7 @@
 				(r >> 2);
 		}
 		return out32;
-	};
+	});
 
 	const sliceDataView = (dat, start, end) => new DataView(dat.buffer, dat.byteOffset + start, end - start);
 	const bufToU8 = (buf, off = buf.byteOffset, len = buf.byteLength) => new Uint8Array(buf.buffer, off, len);
@@ -824,7 +827,7 @@
 	// | Misc                                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const download = window.download = (name, dat, mime = 'application/octet-stream') => {
+	const download = (window.download = (name, dat, mime = 'application/octet-stream') => {
 		const blob = new Blob([dat], { type: mime });
 		const link = document.createElement('a');
 		link.href = URL.createObjectURL(blob);
@@ -833,9 +836,9 @@
 		link.click();
 		link.remove();
 		setTimeout(() => URL.revokeObjectURL(link.href), 1000); // idk if a timeout is really necessary
-	};
+	});
 
-	const readMessage = window.readMessage = (o, dat, ignoreSpecials) => {
+	const readMessage = (window.readMessage = (o, dat, ignoreSpecials) => {
 		const u8 = bufToU8(dat);
 		const s = [];
 		for (; o < u8.length; ) {
@@ -858,9 +861,9 @@
 		}
 
 		return s.join('');
-	};
+	});
 
-	const createSection = window.createSection = (title, cb) => {
+	const createSection = (window.createSection = (title, cb) => {
 		const section = document.createElement('section');
 		const reveal = document.createElement('div');
 		reveal.className = 'reveal';
@@ -902,7 +905,7 @@
 
 		if (content.children.length) document.body.appendChild(section);
 		return result;
-	};
+	});
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: ROM Headers                                                                                          |
@@ -921,15 +924,21 @@
 		headers.arm9entry = file.getUint32(0x24, true);
 		headers.arm9ram = file.getUint32(0x28, true);
 		headers.arm9size = file.getUint32(0x2c, true);
-		fields.push(['ARM9', `0x${str32(headers.arm9offset)}, len 0x${headers.arm9size.toString(16)},
-			ram 0x${headers.arm9ram.toString(16)}, entry 0x${headers.arm9entry.toString(16)}`]);
+		fields.push([
+			'ARM9',
+			`0x${str32(headers.arm9offset)}, len 0x${headers.arm9size.toString(16)},
+				ram 0x${headers.arm9ram.toString(16)}, entry 0x${headers.arm9entry.toString(16)}`,
+		]);
 
 		headers.arm7offset = file.getUint32(0x30, true);
 		headers.arm7entry = file.getUint32(0x34, true);
 		headers.arm7ram = file.getUint32(0x38, true);
 		headers.arm7size = file.getUint32(0x3c, true);
-		fields.push(['ARM7', `0x${str32(headers.arm7offset)}, len 0x${headers.arm7size.toString(16)},
-			ram 0x${headers.arm7ram.toString(16)}, entry 0x${headers.arm7entry.toString(16)}`]);
+		fields.push([
+			'ARM7',
+			`0x${str32(headers.arm7offset)}, len 0x${headers.arm7size.toString(16)},
+				ram 0x${headers.arm7ram.toString(16)}, entry 0x${headers.arm7entry.toString(16)}`,
+		]);
 
 		headers.fntOffset = file.getUint32(0x40, true);
 		headers.fntLength = file.getUint32(0x44, true);
@@ -985,8 +994,8 @@
 			}
 		}
 
-		const fileToOverlayId = fs.fileToOverlayId = new Map();
-		const overlayEntries = fs.overlayEntries = new Map();
+		const fileToOverlayId = (fs.fileToOverlayId = new Map());
+		const overlayEntries = (fs.overlayEntries = new Map());
 		for (let i = 0, o = headers.ov9Offset; i * 32 < headers.ov9Size; ++i, o += 32) {
 			const segment = bufToU32(sliceDataView(file, o, o + 32));
 			const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compressed] = segment;
@@ -1032,7 +1041,6 @@
 			if (overlayId === undefined) fs.set(path, obj);
 		}
 
-
 		const singleExport = document.createElement('div');
 		singleExport.textContent = 'File: ';
 		section.appendChild(singleExport);
@@ -1045,7 +1053,13 @@
 		const singleSelect = dropdown(singleSelectEntries, 0, () => {});
 		singleExport.appendChild(singleSelect);
 
-		const singleDecompression = dropdown(['No decompression', 'Backwards LZSS', 'Auto'], 2, () => {}, undefined, true);
+		const singleDecompression = dropdown(
+			['No decompression', 'Backwards LZSS', 'Auto'],
+			2,
+			() => {},
+			undefined,
+			true,
+		);
 		singleExport.appendChild(singleDecompression);
 
 		const singleDump = button('Dump', () => {
@@ -1054,7 +1068,7 @@
 			let output;
 			if (singleDecompression.value === 0) output = fsentry;
 			else if (singleDecompression.value === 1) output = blz(fsentry);
-			else /* (singleDecompression.value === 2) */ {
+			/* (singleDecompression.value === 2) */ else {
 				const overlayId = fileToOverlayId.get(singleSelect.value);
 				if (overlayId !== undefined) output = fs.overlay(overlayId, true);
 				else output = fsentry;
@@ -1068,7 +1082,6 @@
 		const singleOutput = document.createElement('span');
 		singleExport.appendChild(singleOutput);
 
-
 		const multiExport = document.createElement('div');
 		multiExport.textContent = 'Everything: ';
 		section.appendChild(multiExport);
@@ -1080,7 +1093,7 @@
 				const overlayId = fileToOverlayId.get(i);
 				if (overlayId !== undefined) {
 					const dat = fs.overlay(overlayId, true);
-					const suffix = (dat === fsentry) ? '' : '-decomp'
+					const suffix = dat === fsentry ? '' : '-decomp';
 					files.push({ name: `overlay${String(overlayId).padStart(4, '0')}${suffix}.bin`, dat });
 				} else {
 					files.push({ name: fsentry.name, dat: fsentry });
@@ -1092,7 +1105,6 @@
 
 		addHTML(section, '<br>');
 
-
 		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => update(), undefined, true);
 		section.appendChild(sorting);
 
@@ -1103,16 +1115,19 @@
 			const list = [];
 			for (let i = 0; i * 8 < headers.fatLength; ++i) list.push([i, fs.get(i)]);
 
-			if (sorting.value === 1) list.sort(([_, a], [__, b]) => (a.end - a.start) - (b.end - b.start));
+			if (sorting.value === 1) list.sort(([_, a], [__, b]) => a.end - a.start - (b.end - b.start));
 
 			for (let i = 0; i < list.length; ++i) {
 				const [index, { path, start, end }] = list[i];
 				const lengthStr = (end - start).toString(16);
-				addHTML(listContainer, `<div><code>0x${str8(index)}. 0x${str32(start)} - 0x${str32(end)} (len 0x${lengthStr})${'&nbsp;'.repeat(8 - lengthStr.length)} ${path}</code></div>`);
+				addHTML(
+					listContainer,
+					`<div><code>0x${str8(index)}. 0x${str32(start)} - 0x${str32(end)} (len 0x${lengthStr})
+						${'&nbsp;'.repeat(8 - lengthStr.length)} ${path}</code></div>`,
+				);
 			}
-		}
+		};
 		update();
-
 
 		addHTML(section, '<br>');
 		addHTML(section, '<div>Overlays in RAM:</div>');
@@ -1144,7 +1159,7 @@
 						other.block.style.borderColor = '#6f6';
 					}
 				}
-			}
+			};
 
 			const hideOverlaps = () => {
 				for (const { block } of overlayLines) {
@@ -1182,8 +1197,8 @@
 
 			const block = document.createElement('div');
 			block.style.cssText = `background: #222; border: 1px solid #ccc; position: absolute;
-				left: calc(20em + ${Math.ceil((start - 0x2000000) / 0x400000 * 800)}px);
-				width: ${Math.ceil(length / 0x400000 * 800)}px; height: 100%;`;
+				left: calc(20em + ${Math.ceil(((start - 0x2000000) / 0x400000) * 800)}px);
+				width: ${Math.ceil((length / 0x400000) * 800)}px; height: 100%;`;
 			line.appendChild(block);
 
 			overlayLines.push({ line, block, label, start, length });
@@ -1191,10 +1206,16 @@
 				addHTML(overlayContainer, `<div style="height: 1px; width: 100%; background: #333;"></div>`);
 			}
 		};
-		overlayEntry(headers.arm9ram, headers.arm9size, `<code>ARM9. 0x${str32(headers.arm9ram)}
-			- 0x${str32(headers.arm9ram + headers.arm9size)}</code>`);
-		overlayEntry(headers.arm7ram, headers.arm7size, `<code>ARM7. 0x${str32(headers.arm7ram)}
-			- 0x${str32(headers.arm7ram + headers.arm7size)}</code>`);
+		overlayEntry(
+			headers.arm9ram,
+			headers.arm9size,
+			`<code>ARM9. 0x${str32(headers.arm9ram)} - 0x${str32(headers.arm9ram + headers.arm9size)}</code>`,
+		);
+		overlayEntry(
+			headers.arm7ram,
+			headers.arm7size,
+			`<code>ARM7. 0x${str32(headers.arm7ram)} - 0x${str32(headers.arm7ram + headers.arm7size)}</code>`,
+		);
 		const ovtEntry = (o) => {
 			const id = file.getUint32(o, true);
 			const ramStart = file.getUint32(o + 4, true);
@@ -1205,9 +1226,12 @@
 			const fileId = file.getUint32(o + 24, true);
 			const attributes = file.getUint32(o + 28, true);
 
-			overlayEntry(ramStart, ramSize, `<code>${id.toString().padStart(4, '0')}. 0x${str32(ramStart)}
-				- 0x${str32(ramStart + ramSize)}</code>`);
-		}
+			overlayEntry(
+				ramStart,
+				ramSize,
+				`<code>${id.toString().padStart(4, '0')}. 0x${str32(ramStart)} - 0x${str32(ramStart + ramSize)}</code>`,
+			);
+		};
 		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) ovtEntry(o);
 		for (let o = 0; o < headers.ov7Size; o += 0x20) ovtEntry(o);
 
@@ -1221,7 +1245,7 @@
 	const fsext = (window.fsext = createSection('File System (Extended)', (section) => {
 		const fsext = {};
 
-		const varLengthSegments = fsext.varLengthSegments = (start, dat, segmentsDat) => {
+		const varLengthSegments = (fsext.varLengthSegments = (start, dat, segmentsDat) => {
 			const chunkLength = dat.getUint32(start, true);
 			const offsets = [];
 			const segments = [];
@@ -1235,19 +1259,19 @@
 				segments.push(sliceDataView(segmentsDat, offsets[offsets.length - 1], segmentsDat.byteLength));
 
 			return { offsets, segments };
-		};
+		});
 
-		const fixedIndices = fsext.fixedIndices = (o, end, dat) => {
+		const fixedIndices = (fsext.fixedIndices = (o, end, dat) => {
 			const indices = [];
 			for (; o < end; o += 4) indices.push(dat.getInt32(o, true));
 			return indices;
-		};
+		});
 
-		const fixedSegments = fsext.fixedSegments = (o, end, size, dat) => {
+		const fixedSegments = (fsext.fixedSegments = (o, end, size, dat) => {
 			const segments = [];
 			for (; o < end; o += size) segments.push(sliceDataView(dat, o, o + size));
 			return segments;
-		};
+		});
 
 		const fmapdata = fs.get('/FMap/FMapData.dat');
 
@@ -3311,16 +3335,25 @@
 				`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
 			);
 
-			lines.push(`[6] tileAnimations: <ul>${room.tileAnimations.map((x) => {
-				return '<li><code>' + x.parts.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`)
-					.join(' ') + '</code></li>';
-				}).join('')}</ul>`);
+			lines.push(
+				`[6] tileAnimations: <ul>${room.tileAnimations
+					.map((x) => {
+						return (
+							'<li><code>' +
+							x.parts
+								.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`)
+								.join(' ') +
+							'</code></li>'
+						);
+					})
+					.join('')}</ul>`,
+			);
 
 			if (room.tilesetAnimated) {
 				let tilesEnd = 0;
 				for (const anim of room.tileAnimations) {
-					const end = anim.tilesetAnimatedStart
-						+ anim.replacementLength * (Math.max(...anim.keyframeIndices) + 1);
+					const end =
+						anim.tilesetAnimatedStart + anim.replacementLength * (Math.max(...anim.keyframeIndices) + 1);
 					if (tilesEnd < end) tilesEnd = end;
 				}
 				let html = `[7] tilesetAnimated: 0x${tilesEnd} tiles`;
@@ -3994,7 +4027,8 @@
 
 				for (let j = 0; j < entries.length; ++j) {
 					rows[j + 1] ??= [`<td>${j}</td>`];
-					rows[j + 1][column] = `<td>${sanitize(readMessage(0, entries[j], ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`;
+					rows[j + 1][column] =
+						`<td>${sanitize(readMessage(0, entries[j], ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`;
 				}
 			}
 			mfset.selected = { segments, rows };
@@ -4002,8 +4036,7 @@
 			metaDisplay.innerHTML = '';
 			if (invalidColumns.length)
 				addHTML(metaDisplay, `<div>Invalid columns (fonts?): ${invalidColumns.join(', ')}</div>`);
-			if (zeroedColumns.length)
-				addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
+			if (zeroedColumns.length) addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
 
 			const numColumns = rows[0].length;
 			for (let i = 0; i < rows.length; ++i) {
@@ -4015,7 +4048,7 @@
 			if (rows.length === 1) {
 				table.innerHTML = '(no data)';
 			} else {
-				table.innerHTML = rows.map(x => '<tr>' + x.join('') + '</tr>').join('');
+				table.innerHTML = rows.map((x) => '<tr>' + x.join('') + '</tr>').join('');
 			}
 		};
 		update();
@@ -4030,8 +4063,13 @@
 	const mes = (window.mes = createSection('*Mes', (section) => {
 		const mes = {};
 
-		const paths
-			= ['/BAI/BMes_cf.dat', '/BAI/BMes_ji.dat', '/BAI/BMes_yo.dat', '/MAI/MMes_yo.dat', '/SAI/SMes_yo.dat'];
+		const paths = [
+			'/BAI/BMes_cf.dat',
+			'/BAI/BMes_ji.dat',
+			'/BAI/BMes_yo.dat',
+			'/MAI/MMes_yo.dat',
+			'/SAI/SMes_yo.dat',
+		];
 		const fileSelect = dropdown(paths, 0, () => update());
 		section.appendChild(fileSelect);
 
@@ -4103,8 +4141,8 @@
 
 					for (let j = 0; j < entries.length; ++j) {
 						rows[j + 1] ??= [`<td>${j}</td>`];
-						rows[j + 1][tableColumn]
-							= `<td>${sanitize(readMessage(0, entries[j], ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`;
+						rows[j + 1][tableColumn] =
+							`<td>${sanitize(readMessage(0, entries[j], ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`;
 					}
 				}
 
@@ -4116,8 +4154,7 @@
 
 				const numFilteredColumns = rows[0].length;
 				for (let i = 1; i < rows.length; ++i) {
-					for (let j = 0; j < numFilteredColumns; ++j)
-						rows[i][j] ??= '<td></td>'; // ensure there are no holes in the array
+					for (let j = 0; j < numFilteredColumns; ++j) rows[i][j] ??= '<td></td>'; // ensure there are no holes in the array
 				}
 
 				if (rows[0].length === 1) {
@@ -4153,19 +4190,19 @@
 
 		const symbStart = soundFile.getUint32(0x10, true);
 		const symbLength = soundFile.getUint32(0x14, true);
-		const symbDat = sound.symbDat = sliceDataView(soundFile, symbStart, symbStart + symbLength);
+		const symbDat = (sound.symbDat = sliceDataView(soundFile, symbStart, symbStart + symbLength));
 
 		const infoStart = soundFile.getUint32(0x18, true);
 		const infoLength = soundFile.getUint32(0x1c, true);
-		const infoDat = sound.infoDat = sliceDataView(soundFile, infoStart, infoStart + infoLength);
+		const infoDat = (sound.infoDat = sliceDataView(soundFile, infoStart, infoStart + infoLength));
 
 		const fatStart = soundFile.getUint32(0x20, true);
 		const fatLength = soundFile.getUint32(0x24, true);
-		const fatDat = sound.fatDat = sliceDataView(soundFile, fatStart, fatStart + fatLength);
+		const fatDat = (sound.fatDat = sliceDataView(soundFile, fatStart, fatStart + fatLength));
 
 		const fileStart = soundFile.getUint32(0x28, true);
 		const fileLength = soundFile.getUint32(0x2c, true);
-		const fileDat = sound.fileDat = sliceDataView(soundFile, fileStart, fileStart + fileLength);
+		const fileDat = (sound.fileDat = sliceDataView(soundFile, fileStart, fileStart + fileLength));
 
 		window.infoDat = infoDat;
 		window.symbDat = symbDat;
@@ -4176,15 +4213,15 @@
 		const symbFileList = (o) => {
 			const length = symbDat.getUint32(o, true);
 			const files = [];
-			for (let i = 0; i < length; ++i) files.push(latin1(symbDat.getUint32(o + i*4, true), undefined, symbDat));
+			for (let i = 0; i < length; ++i) files.push(latin1(symbDat.getUint32(o + i * 4, true), undefined, symbDat));
 			return files;
 		};
 		const symbFolderList = (o) => {
 			const length = symbDat.getUint32(o, true);
 			const folders = [];
 			for (let i = 0; i < length; ++i) {
-				const name = latin1(symbDat.getUint32(o + 4 + i*8, true), undefined, symbDat);
-				const files = symbFileList(symbDat.getUint32(o + 8 + i*8, true));
+				const name = latin1(symbDat.getUint32(o + 4 + i * 8, true), undefined, symbDat);
+				const files = symbFileList(symbDat.getUint32(o + 8 + i * 8, true));
 				folders.push([name, files]);
 			}
 			return folders;
@@ -4245,7 +4282,11 @@
 			if (fontSegments[i].byteLength) options.push(i);
 		}
 
-		const select = dropdown(options.map(x => `StatFontSet ${x} (len ${fontSegments[x].byteLength})`), 0, () => update());
+		const select = dropdown(
+			options.map((x) => `StatFontSet ${x} (len ${fontSegments[x].byteLength})`),
+			0,
+			() => update(),
+		);
 		section.appendChild(select);
 
 		const display = document.createElement('div');
@@ -4286,19 +4327,12 @@
 			const ctx = canvas.getContext('2d');
 			const bitmap = new Uint32Array(glyphWidth * 16 * glyphHeight * glyphRows);
 			const shade = (i, alpha, color) => {
-				return [
-					0xffffffff,
-					0xffeeeeff,
-					0xff000000,
-					0xffcccccc,
-					0xffeeeeee,
-					0xffddddee,
-					0xff000000,
-					0xffaaaaaa
-				][(((i & 1) + (i >> 4 & 1)) % 2)*4 + alpha*2 + color];
+				return [0xffffffff, 0xffeeeeff, 0xff000000, 0xffcccccc, 0xffeeeeee, 0xffddddee, 0xff000000, 0xffaaaaaa][
+					(((i & 1) + ((i >> 4) & 1)) % 2) * 4 + alpha * 2 + color
+				];
 			};
-			const p = (x,y) => y * glyphWidth * 16 + x;
-			for (let i = 0, o = glyphBitmapOffset; o + glyphWidth * glyphHeight / 4 <= glyphTable.byteLength; ++i) {
+			const p = (x, y) => y * glyphWidth * 16 + x;
+			for (let i = 0, o = glyphBitmapOffset; o + (glyphWidth * glyphHeight) / 4 <= glyphTable.byteLength; ++i) {
 				const xStart = (i & 0xf) * glyphWidth;
 				const yStart = (i >> 4) * glyphHeight;
 				for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
@@ -4309,8 +4343,8 @@
 						const colorOffset = o;
 						o += width;
 						for (let z = 0; z < width * 8; ++z) {
-							const alpha = (glyphTable.getUint8(alphaOffset + (z >> 3)) >> (z % 8)) & 1;
-							const color = (glyphTable.getUint8(colorOffset + (z >> 3)) >> (z % 8)) & 1;
+							const alpha = (glyphTable.getUint8(alphaOffset + (z >> 3)) >> z % 8) & 1;
+							const color = (glyphTable.getUint8(colorOffset + (z >> 3)) >> z % 8) & 1;
 							bitmap[p(xStart + xBase + (z >> 2), yStart + y + (z % 4))] = shade(i, alpha, color);
 						}
 					}
@@ -4318,8 +4352,14 @@
 			}
 			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), glyphWidth * 16, glyphHeight * glyphRows), 0, 0);
 
-			addHTML(display, `<div>charMap (${charMapOffset} len ${charMapSize}): <code>${bytes(charMapOffset, charMapSize, segment)}</code></div>`);
-			addHTML(display, `<div>glyphTable (${glyphTableOffset}): <code>${bytes(glyphTableOffset, charMapOffset - glyphTableOffset, segment)}</code></div>`);
+			addHTML(
+				display,
+				`<div>charMap (${charMapOffset} len ${charMapSize}): <code>${bytes(charMapOffset, charMapSize, segment)}</code></div>`,
+			);
+			addHTML(
+				display,
+				`<div>glyphTable (${glyphTableOffset}): <code>${bytes(glyphTableOffset, charMapOffset - glyphTableOffset, segment)}</code></div>`,
+			);
 		};
 		update();
 
