@@ -1,4 +1,8 @@
 window.initDisassembler = () => {
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Disassembler                                                                                         |
+	// +---------------------------------------------------------------------------------------------------------------+
+
 	const disassembler = (window.disassembler = createSection('Disassembler', (section) => {
 		const disassembler = {};
 
