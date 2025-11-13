@@ -2176,6 +2176,7 @@
 					mapCanvas.height = height;
 					if (room.tileset) {
 						const mapBitmap = new Uint32Array(512 * 256);
+						mapBitmap.fill(palette[0], 0, 512 * 256);
 						for (let i = 2; i >= 0; --i) {
 							const layerIndex = options.reverseLayers.checked ? 2 - i : i;
 							const tilemap = room.tilemaps[layerIndex];
