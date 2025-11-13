@@ -31,13 +31,13 @@
 		input.addEventListener('input', (e) => resolve(input.files[0]));
 	});
 
-	const file = new DataView(
+	const file = (window.file = new DataView(
 		await new Promise((resolve) => {
 			const reader = new FileReader();
 			reader.addEventListener('load', () => resolve(reader.result));
 			reader.readAsArrayBuffer(fileBlob);
 		}),
-	);
+	));
 
 	document.querySelector('#file-input').remove();
 	document.querySelector('#title').remove();
@@ -1045,7 +1045,10 @@
 		singleExport.textContent = 'File: ';
 		section.appendChild(singleExport);
 
-		const singleSelectEntries = [];
+		const singleSelectEntries = [
+			`ARM9 (len 0x${headers.arm9size.toString(16)})`,
+			`ARM7 (len 0x${headers.arm7size.toString(16)})`,
+		];
 		for (let i = 0; i * 8 < headers.fatLength; ++i) {
 			const { start, end, path } = fs.get(i);
 			singleSelectEntries.push(`0x${str8(i)}. (len 0x${(end - start).toString(16)}) ${sanitize(path)}`);
@@ -1054,8 +1057,8 @@
 		singleExport.appendChild(singleSelect);
 
 		const singleDecompression = dropdown(
-			['No decompression', 'Backwards LZSS', 'Auto'],
-			2,
+			['No decompression', 'BLZ on compressed overlays only'],
+			1,
 			() => {},
 			undefined,
 			true,
@@ -1063,15 +1066,28 @@
 		singleExport.appendChild(singleDecompression);
 
 		const singleDump = button('Dump', () => {
-			const fsentry = fs.get(singleSelect.value);
+			if (singleSelect.value === 0) {
+				singleOutput.textContent = '';
+				download('arm9.bin', sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size));
+				return;
+			} else if (singleSelect.value === 1) {
+				singleOutput.textContent = '';
+				download('arm7.bin', sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size));
+				return;
+			}
+			const fsentry = fs.get(singleSelect.value - 2);
 
 			let output;
 			if (singleDecompression.value === 0) output = fsentry;
-			else if (singleDecompression.value === 1) output = blz(fsentry);
-			/* (singleDecompression.value === 2) */ else {
+			else {
 				const overlayId = fileToOverlayId.get(singleSelect.value);
 				if (overlayId !== undefined) output = fs.overlay(overlayId, true);
 				else output = fsentry;
+			}
+
+			if (!output) {
+				singleOutput.textContent = '(Failed to decompress; only backwards LZSS is supported)';
+				return;
 			}
 
 			singleOutput.textContent = '';
@@ -1087,7 +1103,17 @@
 		section.appendChild(multiExport);
 
 		const multiDump = button('Dump Everything', () => {
-			const files = [];
+			const files = [
+				{
+					name: 'arm9.bin',
+					dat: sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size),
+				},
+				{
+					name: 'arm7.bin',
+					dat: sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size),
+				},
+			];
+
 			for (let i = 0; i * 8 < headers.fatLength; ++i) {
 				const fsentry = fs.get(i);
 				const overlayId = fileToOverlayId.get(i);
@@ -1272,8 +1298,6 @@
 			for (; o < end; o += size) segments.push(sliceDataView(dat, o, o + size));
 			return segments;
 		});
-
-		const fmapdata = fs.get('/FMap/FMapData.dat');
 
 		// i'm not sure how these file structures work, but this should cover all versions of MLBIS
 		// you can find these offsets yourself by going through overlay 0x03, which has lists of increasing
