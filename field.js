@@ -57,17 +57,18 @@ window.initField = () => {
 		optionRows[0].appendChild((options.bg2 = checkbox('BG2', true, () => (updateMaps = updateOverlay2d = true))));
 		optionRows[0].appendChild((options.bg3 = checkbox('BG3', true, () => (updateMaps = updateOverlay2d = true))));
 		optionRows[0].appendChild(
-			(options.previewPalettes = checkbox('Palettes', false, () => componentLayoutChanged())),
-		);
-		optionRows[0].appendChild(
-			(options.previewTilesets = checkbox('Tilesets', false, () => componentLayoutChanged())),
-		);
-		optionRows[0].appendChild(
 			(options.margins = checkbox(
 				'Margins',
 				true,
 				() => (updateMaps = updateOverlay2d = updateOverlay3d = true),
 			)),
+		);
+		optionRows[0].appendChild(button('Export PNG', () => exportPng()));
+		optionRows[0].appendChild(
+			(options.previewPalettes = checkbox('Palettes', false, () => componentLayoutChanged())),
+		);
+		optionRows[0].appendChild(
+			(options.previewTilesets = checkbox('Tilesets', false, () => componentLayoutChanged())),
 		);
 		let animationsToggledCallback = () => {};
 		optionRows[0].appendChild(
@@ -329,7 +330,7 @@ window.initField = () => {
 					unpackSegmented16(buf),
 				),
 				collision: room.props[14],
-				depth: room.props[15],
+				depth: room.props[8],
 			});
 			room.enabledLayerAnimations = new Set();
 			room.enabledTileAnimations = new Set();
@@ -1311,6 +1312,71 @@ window.initField = () => {
 			requestAnimationFrame(render);
 		};
 		render();
+
+		const exportPng = () => {
+			const room = field.rooms[options.roomDropdown.value];
+			const props = unpackSegmented(lzBis(fsext.fmapdata.segments[room.props]));
+			const tilemaps = [props[0], props[1], props[2]].map((buf) => bufToU16(buf));
+			const palettes = [props[3], props[4], props[5]].map((buf) => rgb15To32(bufToU16(buf)));
+
+			const layerWidth = props[6].getUint16(0, true);
+			const layerHeight = props[6].getUint16(2, true);
+			const layerFlags = props[6].getUint8(5);
+			const actualHeight = Math.max(
+				Math.max(tilemaps[0].length, tilemaps[1].length, tilemaps[2].length) / layerWidth,
+				layerHeight,
+			);
+
+			const inset = options.margins.checked ? 0 : 2;
+			const imageWidth = (layerWidth - inset * 2) * 8;
+			const imageHeight = (actualHeight - inset * 2) * 8;
+
+			const bitmap = new Uint32Array(imageWidth * imageHeight);
+			bitmap.fill(palettes[2][0], 0, bitmap.length);
+			for (let i = 2; i >= 0; --i) {
+				if (![options.bg1, options.bg2, options.bg3][i].checked || [room.l1, room.l2, room.l3][i] === -1) continue;
+				const palette = palettes[i];
+				const tilemap = tilemaps[i];
+				if (!tilemap.byteLength || !palette.byteLength) continue;
+				const tileset = bufToU8(lzBis(fsext.fmapdata.segments[[room.l1, room.l2, room.l3][i]]));
+
+				let tilemapOff = 0;
+				for (let x = inset; x < layerWidth - inset; ++x) {
+					for (let y = inset; y < actualHeight - inset; ++y) {
+						const tile = tilemap[y * layerWidth + x];
+						if (tile === undefined) continue;
+						const basePos = (y - inset) * imageWidth * 8 + (x - inset) * 8;
+						const horizontalFlip = tile & 0x400 ? 7 : 0;
+						const verticalFlip = tile & 0x800 ? 7 : 0;
+						if (layerFlags & (1 << i)) {
+							// 256-color
+							const tilesetOff = (tile & 0x3ff) * 64;
+							for (let o = 0; o < 64; ++o) {
+								const pos
+									= basePos + ((o >> 3) ^ verticalFlip) * imageWidth + ((o & 7) ^ horizontalFlip);
+								if (tileset[tilesetOff + o]) bitmap[pos] = palette[tileset[tilesetOff + o]];
+							}
+						} else {
+							// 16-color
+							const paletteShift = (tile >> 12) << 4;
+							const tilesetOff = (tile & 0x3ff) * 32;
+							for (let k = 0, o = 0; k < 64; k += 2, ++o) {
+								const pos
+									= basePos + ((k >> 3) ^ verticalFlip) * imageWidth + ((k & 7) ^ horizontalFlip);
+								const composite = tileset[tilesetOff + o] || 0;
+								if (composite & 0xf) bitmap[pos] = palette[paletteShift | (composite & 0xf)];
+								if (composite >> 4) bitmap[pos ^ 1] = palette[paletteShift | (composite >> 4)];
+							}
+						}
+					}
+				}
+			}
+
+			console.log(bitmap, layerWidth, actualHeight);
+
+			console.log(bitmap);
+			download(`fmap-${str16(options.roomDropdown.value)}.png`, png(bitmap, imageWidth, imageHeight), 'image/png');
+		};
 
 		return field;
 	}));

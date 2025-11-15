@@ -695,12 +695,40 @@
 	}
 
 	/**
-	 * Creates an uncompressed .zip archive containing multiple files
+	 * Computes a standard CRC32 check value
+	 * https://stackoverflow.com/questions/18638900/javascript-crc32
+	 */
+	const crc = (window.crc = (dat) => {
+		const u8 = bufToU8(dat);
+		let c = 0xffffffff;
+		for (let i = 0; i < u8.length; ++i) c = (c >>> 8) ^ crcTable[(c & 0xff) ^ u8[i]];
+		return c ^ 0xffffffff;
+	});
+
+	/**
+	 * Computes an ADLER32 check value
+	 * https://www.rfc-editor.org/rfc/pdfrfc/rfc1950.txt.pdf
+	 */
+	const adler32 = (window.adler32 = (dat) => {
+		let s1 = 1;
+		let s2 = 0;
+		const u8 = bufToU8(dat);
+		for (let i = 0; i < u8.length; ++i) {
+			s1 = (s1 + u8[i]) % 65521;
+			s2 = (s2 + s1) % 65521;
+		}
+
+		return s2 * 0x10000 + s1; // return unsigned
+	});
+
+	/**
+	 * Creates an uncompressed .zip archive containing multiple files.
+	 * This is intended to allow downloading several files at once.
+	 * https://pkware.cachefly.net/webdocs/APPNOTE/APPNOTE-1.0.txt
 	 * @param {{ name: string, dat: DataView }[]} files
 	 * @returns {DataView}
 	 */
 	const zipStore = (window.zipStore = (files) => {
-		// https://pkware.cachefly.net/webdocs/APPNOTE/APPNOTE-1.0.txt
 		let expectedSize = 26; // end of central directory
 		for (const file of files) {
 			expectedSize += 30 + file.name.length; // local file header
@@ -793,6 +821,216 @@
 		(dat.setUint16(o, 0, true), (o += 2)); // zipfile comment length
 
 		return dat;
+	});
+
+	/**
+	 * Generates a compressed PNG v1.2 file. Compression is necessary; for reference, all rooms in FMapData.dat as PNGs
+	 * would take about 558 MiB (whereas FMapData.dat itself is only 26.2 MiB).
+	 * PNG: https://www.libpng.org/pub/png/spec/1.2/png-1.2.pdf
+	 * Deflate: https://www.rfc-editor.org/rfc/pdfrfc/rfc1951.txt.pdf
+	 */
+	const png = (window.png = (u32, width, height) => {
+		// count all used colors, and generate the uncompressed IDAT data (perhaps with a palette or not)
+		let palette;
+		let uncompressedIdatBuf;
+		const seenColors = new Set(u32);
+		if (seenColors.size <= 256) {
+			// palette (assume 8-bit depth, anything below that is complicated and unnecessary)
+			palette = [];
+			const colorToIndex = new Map();
+			for (const color of seenColors) {
+				colorToIndex.set(color, colorToIndex.size);
+				palette.push(color);
+			}
+
+			uncompressedIdatBuf = new Uint8Array((width + 1) * height);
+			let inoff = 0;
+			let outoff = 0;
+			for (let y = 0; y < height; ++y) {
+				uncompressedIdatBuf[outoff++] = 0; // no filter
+				for (let x = 0; x < width; ++x) uncompressedIdatBuf[outoff++] = colorToIndex.get(u32[inoff++]);
+			}
+		} else {
+			// rgb triplets
+			uncompressedIdatBuf = new Uint8Array((width + 1) * height * 3);
+			let inoff = 0;
+			let outoff = 0;
+			for (let y = 0; y < height; ++y) {
+				uncompressedIdatBuf[outoff++] = 0; // no filter
+				for (let x = 0; x < width; ++x) {
+					uncompressedIdatBuf[outoff++] = u32[inoff];
+					uncompressedIdatBuf[outoff++] = u32[inoff] >>> 8;
+					uncompressedIdatBuf[outoff++] = u32[inoff++] >>> 16;
+				}
+			}
+		}
+
+		// TODO: what's a good maximum preallocation size?
+		const outdat = new DataView(new ArrayBuffer(Math.ceil(uncompressedIdatBuf.byteLength * 1.5 + 10000)));
+		const outbuf = bufToU8(outdat);
+		let outoff = 0;
+
+		// PNG header
+		(outbuf.set([137, 80, 78, 71, 13, 10, 26, 10], 0), outoff += 8);
+
+		// IHDR chunk
+		(outdat.setUint32(outoff, 13), outoff += 4); // chunk length
+		(outbuf.set([0x49, 0x48, 0x44, 0x52], outoff), outoff += 4); // chunk type (IHDR)
+
+		let chunkStart = outoff;
+		(outdat.setUint32(outoff, width), outoff += 4); // image width
+		(outdat.setUint32(outoff, height), outoff += 4); // image height
+		outbuf[outoff++] = 8; // image bit depth
+		outbuf[outoff++] = palette ? 3 : 2; // image color type (3 = palette, 2 = rgb triplets)
+		outbuf[outoff++] = 0; // image compression method (0 = Deflate)
+		outbuf[outoff++] = 0; // image filter method (0 = adaptive)
+		outbuf[outoff++] = 0; // image interlace method (0 = no interlace)
+
+		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), outoff += 4); // chunk crc
+
+		if (palette) {
+			// PLTE chunk
+			(outdat.setUint32(outoff, palette.length * 3), outoff += 4); // chunk length
+			(outbuf.set([0x50, 0x4c, 0x54, 0x45], outoff), outoff += 4); // chunk type (PLTE)
+
+			chunkStart = outoff;
+			for (let i = 0; i < palette.length; ++i) {
+				outbuf[outoff++] = palette[i];
+				outbuf[outoff++] = palette[i] >>> 8;
+				outbuf[outoff++] = palette[i] >>> 16;
+			}
+
+			(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), outoff += 4); // chunk crc
+		}
+
+		console.log(bytes(0, Infinity, uncompressedIdatBuf));
+
+		// IDAT chunk
+		const idatLengthOffset = outoff; // write this after compression
+		outoff += 4;
+		(outbuf.set([0x49, 0x44, 0x41, 0x54], outoff), outoff += 4); // chunk type (IDAT)
+
+		chunkStart = outoff;
+		// zlib header
+		outbuf[outoff++] = 8 | (7 << 4); // CM = 8 (Deflate), CINFO = 7 (32K window size)
+		outbuf[outoff++] = 1; // FCHECK = 1, no preset dictionary, no compression level
+
+		// Deflate, using fixed Huffman codes (dynamic is too complicated)
+		const deflateStart = outoff;
+		let outbit = 1;
+		const writeBits = (x, bits, invert) => {
+			// this is so stupid (TODO: optimize this bruh, store the huffman codes reversed)
+			if (invert) {
+				for (let bit = 1 << (bits - 1), i = 0; i < bits; bit >>= 1, ++i) {
+					if (outbit >= 0x100) {
+						++outoff;
+						outbit = 1;
+					}
+					outbuf[outoff] |= (x & bit) ? outbit : 0;
+					outbit <<= 1;
+				}
+			} else {
+				for (let bit = 1, i = 0; i < bits; bit <<= 1, ++i) {
+					if (outbit >= 0x100) {
+						++outoff;
+						outbit = 1;
+					}
+					outbuf[outoff] |= (x & bit) ? outbit : 0;
+					outbit <<= 1;
+				}
+			}
+		};
+		const writeToken = x => {
+			if (x <= 143) writeBits(0b00110000 + x, 8, true);
+			else if (x <= 255) writeBits(0b110010000 + (x - 144), 9, true);
+			else if (x <= 279) writeBits(0b0000000 + (x - 256), 7, true);
+			else writeBits(0b11000000 + (x - 280), 8, true);
+		};
+
+		writeBits(1, 1); // BFINAL = 1
+		writeBits(0b01, 2); // BTYPE = 01 (fixed Huffman codes)
+
+		let inoff = 0;
+		while (inoff < uncompressedIdatBuf.length) {
+			const byte = uncompressedIdatBuf[inoff];
+
+			// try back-reference
+			/*let backReferenceLength, backReferenceOffset;
+			for (let i = history[byte].length - 1; i >= 0 && (backReferenceLength ?? 0) < 258; --i) {
+				const historyoff = history[byte][i];
+				if (inoff - historyoff >= 0x1000) break;
+
+				let length = backReferenceLength ?? 1;
+				for (; length < 258; ++length) {
+					if (uncompressedIdatBuf[inoff + length] !== uncompressedIdatBuf[historyoff + length]) break;
+				}
+				if (length > (backReferenceLength ?? 3)) {
+					// has potential?
+					let l = 1;
+					for (; l < backReferenceLength; ++l) {
+						if (uncompressedIdatBuf[inoff + l] !== uncompressedIdatBuf[historyoff + l]) break;
+					}
+
+					if (l === backReferenceLength) {
+						backReferenceLength = length;
+						backReferenceOffset = historyoff;
+					}
+				}
+			}*/
+
+			if (/*backReferenceLength*/ false) {
+				// encode back reference
+				// would probably be better to do this in a loop, but it would be harder to verify against the RFC
+				const l = backReferenceLength;
+				if (l <= 10) writeToken(257 + l - 3);
+				else if (l <= 18) writeToken(265 + ((l - 11) >> 1)), writeBits((l - 11) & 1, 1);
+				else if (l <= 34) writeToken(269 + ((l - 19) >> 2)), writeBits((l - 19) & 3, 2);
+				else if (l <= 66) writeToken(273 + ((l - 35) >> 3)), writeBits((l - 35) & 7, 3);
+				else if (l <= 130) writeToken(277 + ((l - 67) >> 4)), writeBits((l - 67) & 0xf, 4);
+				else if (l <= 257) writeToken(281 + ((l - 131) >> 5)), writeBits((l - 131) & 0x1f, 5);
+				else writeToken(285); // length == 258
+
+				const o = inoff - backReferenceOffset;
+				if (o <= 4) writeBits(o - 1, 5);
+				else if (o <= 8) writeBits(4 + ((o - 5) >> 1), 5), writeBits((o - 5) & 1, 1);
+				else if (o <= 16) writeBits(6 + ((o - 9) >> 2), 5), writeBits((o - 9) & 3, 2);
+				else if (o <= 32) writeBits(8 + ((o - 17) >> 3), 5), writeBits((o - 17) & 7, 3);
+				else if (o <= 64) writeBits(10 + ((o - 33) >> 4), 5), writeBits((o - 33) & 0xf, 4);
+				else if (o <= 128) writeBits(12 + ((o - 65) >> 5), 5), writeBits((o - 65) & 0x1f, 5);
+				else if (o <= 256) writeBits(14 + ((o - 129) >> 6), 5), writeBits((o - 129) & 0x3f, 6);
+				else if (o <= 512) writeBits(16 + ((o - 257) >> 7), 5), writeBits((o - 257) & 0x7f, 7);
+				else if (o <= 1024) writeBits(18 + ((o - 513) >> 8), 5), writeBits((o - 513) & 0xff, 8);
+				else if (o <= 2048) writeBits(20 + ((o - 1025) >> 9), 5), writeBits((o - 1025) & 0x1ff, 9);
+				else if (o <= 4096) writeBits(22 + ((o - 2049) >> 10), 5), writeBits((o - 2049) & 0x3ff, 10);
+				else if (o <= 8192) writeBits(24 + ((o - 4097) >> 11), 5), writeBits((o - 4097) & 0x7ff, 11);
+				else if (o <= 16384) writeBits(26 + ((o - 8193) >> 12), 5), writeBits((o - 8193) & 0xfff, 12);
+				else writeBits(28 + ((o - 16385) >> 13), 5), writeBits((o - 16385) & 0x1fff, 13); // offset <= 32768
+
+				inoff += backReferenceLength;
+			} else {
+				// encode literal
+				writeToken(byte);
+				++inoff;
+			}
+		}
+
+		writeToken(256); // end of stream
+
+		// exit Deflate, write zlib ADLER32
+		console.log('ROUND UP', outbit, outoff);
+		++outoff; // round up to byte boundary
+		(outdat.setUint32(outoff, adler32(uncompressedIdatBuf)), outoff += 4);
+
+		// exit zlib, complete IDAT chunk
+		outdat.setUint32(idatLengthOffset, outoff - chunkStart); // chunk length
+		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), outoff += 4); // chunk crc
+
+		// IEND chunk
+		(outdat.setUint32(outoff, 0), outoff += 4); // chunk length
+		(outbuf.set([0x49, 0x45, 0x4e, 0x44], outoff), outoff += 4); // chunk type (IEND)
+		(outdat.setUint32(outoff, crc(sliceDataView(outdat, outoff - 4, outoff))), outoff += 4); // chunk crc
+
+		return sliceDataView(outdat, 0, outoff);
 	});
 
 	const rgb15To32 = (window.rgb15To32 = (in16) => {
