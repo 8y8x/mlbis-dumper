@@ -63,7 +63,16 @@ window.initField = () => {
 				() => (updateMaps = updateOverlay2d = updateOverlay3d = true),
 			)),
 		);
-		optionRows[0].appendChild(button('Export PNG', () => exportPng()));
+		optionRows[0].appendChild(button('Export PNG', () => {
+			const png = field.png(
+				options.roomDropdown.value,
+				options.bg1.checked,
+				options.bg2.checked,
+				options.bg3.checked,
+				options.margins.checked,
+			);
+			download(`fmap-${str16(options.roomDropdown.value)}.png`, png, 'image/png');
+		}));
 		optionRows[0].appendChild(
 			(options.previewPalettes = checkbox('Palettes', false, () => componentLayoutChanged())),
 		);
@@ -1313,8 +1322,8 @@ window.initField = () => {
 		};
 		render();
 
-		const exportPng = () => {
-			const room = field.rooms[options.roomDropdown.value];
+		field.png = (roomId, bg1, bg2, bg3, margins) => {
+			const room = field.rooms[roomId];
 			const props = unpackSegmented(lzBis(fsext.fmapdata.segments[room.props]));
 			const tilemaps = [props[0], props[1], props[2]].map((buf) => bufToU16(buf));
 			const palettes = [props[3], props[4], props[5]].map((buf) => rgb15To32(bufToU16(buf)));
@@ -1327,14 +1336,14 @@ window.initField = () => {
 				layerHeight,
 			);
 
-			const inset = options.margins.checked ? 0 : 2;
+			const inset = margins ? 0 : 2;
 			const imageWidth = (layerWidth - inset * 2) * 8;
 			const imageHeight = (actualHeight - inset * 2) * 8;
 
 			const bitmap = new Uint32Array(imageWidth * imageHeight);
 			bitmap.fill(palettes[2][0], 0, bitmap.length);
 			for (let i = 2; i >= 0; --i) {
-				if (![options.bg1, options.bg2, options.bg3][i].checked || [room.l1, room.l2, room.l3][i] === -1) continue;
+				if (![bg1, bg2, bg3][i] || [room.l1, room.l2, room.l3][i] === -1) continue;
 				const palette = palettes[i];
 				const tilemap = tilemaps[i];
 				if (!tilemap.byteLength || !palette.byteLength) continue;
@@ -1372,10 +1381,7 @@ window.initField = () => {
 				}
 			}
 
-			console.log(bitmap, layerWidth, actualHeight);
-
-			console.log(bitmap);
-			download(`fmap-${str16(options.roomDropdown.value)}.png`, png(bitmap, imageWidth, imageHeight), 'image/png');
+			return png(bitmap, imageWidth, imageHeight);
 		};
 
 		return field;

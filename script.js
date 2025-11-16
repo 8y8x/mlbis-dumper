@@ -824,8 +824,8 @@
 	});
 
 	/**
-	 * Generates a compressed PNG v1.2 file. Compression is necessary; for reference, all rooms in FMapData.dat as PNGs
-	 * would take about 558 MiB (whereas FMapData.dat itself is only 26.2 MiB).
+	 * Generates a compressed PNG v1.2 file. Compression is necessary; for reference, all rooms in FMapData.dat as
+	 * uncompressed PNGs would take up to 558 MiB (whereas FMapData.dat itself is only 26.2 MiB).
 	 * PNG: https://www.libpng.org/pub/png/spec/1.2/png-1.2.pdf
 	 * Deflate: https://www.rfc-editor.org/rfc/pdfrfc/rfc1951.txt.pdf
 	 */
@@ -903,8 +903,6 @@
 			(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), outoff += 4); // chunk crc
 		}
 
-		console.log(bytes(0, Infinity, uncompressedIdatBuf));
-
 		// IDAT chunk
 		const idatLengthOffset = outoff; // write this after compression
 		outoff += 4;
@@ -917,107 +915,116 @@
 
 		// Deflate, using fixed Huffman codes (dynamic is too complicated)
 		const deflateStart = outoff;
-		let outbit = 1;
-		const writeBits = (x, bits, invert) => {
-			// this is so stupid (TODO: optimize this bruh, store the huffman codes reversed)
-			if (invert) {
-				for (let bit = 1 << (bits - 1), i = 0; i < bits; bit >>= 1, ++i) {
-					if (outbit >= 0x100) {
-						++outoff;
-						outbit = 1;
-					}
-					outbuf[outoff] |= (x & bit) ? outbit : 0;
-					outbit <<= 1;
-				}
-			} else {
-				for (let bit = 1, i = 0; i < bits; bit <<= 1, ++i) {
-					if (outbit >= 0x100) {
-						++outoff;
-						outbit = 1;
-					}
-					outbuf[outoff] |= (x & bit) ? outbit : 0;
-					outbit <<= 1;
-				}
-			}
+		let outbit = 0;
+		const writeBits = (x, bits) => {
+			outbuf[outoff] |= x << outbit;
+			outbuf[outoff + 1] |= x >> (8 - outbit);
+			outbuf[outoff + 2] |= x >> (16 - outbit);
+			outoff += (outbit + bits) >> 3;
+			outbit = (outbit + bits) & 7;
 		};
-		const writeToken = x => {
-			if (x <= 143) writeBits(0b00110000 + x, 8, true);
+
+		const reverse = (x, bits) => {
+			let y = 0;
+			for (let xbit = 1, ybit = 1 << (bits - 1); ybit; xbit <<= 1, ybit >>= 1) {
+				if (x & xbit) y |= ybit;
+			}
+			return y;
+		};
+
+		// Bruh
+		const reversedLetterCodes = [];
+		for (let x = 0; x <= 143; ++x) reversedLetterCodes[x] = reverse(0b00110000 + x, 8);
+		for (let x = 144; x <= 255; ++x) reversedLetterCodes[x] = reverse(0b110010000 + (x - 144), 9);
+		for (let x = 256; x <= 279; ++x) reversedLetterCodes[x] = reverse(0b0000000 + (x - 256), 7);
+		for (let x = 280; x <= 287; ++x) reversedLetterCodes[x] = reverse(0b11000000 + (x - 280), 8);
+		const writeLetterCode = x => {
+			/*if (x <= 143) writeBits(0b00110000 + x, 8, true);
 			else if (x <= 255) writeBits(0b110010000 + (x - 144), 9, true);
 			else if (x <= 279) writeBits(0b0000000 + (x - 256), 7, true);
-			else writeBits(0b11000000 + (x - 280), 8, true);
+			else writeBits(0b11000000 + (x - 280), 8, true);*/
+			if (x <= 143) writeBits(reversedLetterCodes[x], 8);
+			else if (x <= 255) writeBits(reversedLetterCodes[x], 9);
+			else if (x <= 279) writeBits(reversedLetterCodes[x], 7);
+			else writeBits(reversedLetterCodes[x], 8);
 		};
+
+		const reversedDistCodes = [];
+		for (let x = 0; x <= 31; ++x) reversedDistCodes[x] = reverse(x, 5);
+		const writeDistCode = x => writeBits(reversedDistCodes[x], 5);
 
 		writeBits(1, 1); // BFINAL = 1
 		writeBits(0b01, 2); // BTYPE = 01 (fixed Huffman codes)
+
+		const history = new Array(256);
+		for (let i = 0; i < 256; ++i) history[i] = [];
 
 		let inoff = 0;
 		while (inoff < uncompressedIdatBuf.length) {
 			const byte = uncompressedIdatBuf[inoff];
 
-			// try back-reference
-			/*let backReferenceLength, backReferenceOffset;
-			for (let i = history[byte].length - 1; i >= 0 && (backReferenceLength ?? 0) < 258; --i) {
-				const historyoff = history[byte][i];
-				if (inoff - historyoff >= 0x1000) break;
+			let backReferenceLength = 2;
+			let backReferenceOffset;
 
-				let length = backReferenceLength ?? 1;
+			const byteHistory = history[byte];
+			for (let i = byteHistory.length - 1; i >= 0; --i) {
+				const historyoff = byteHistory[i];
+				if (inoff - historyoff > 0x8000) break;
+
+				// shortcut check if historyoff could even increase backReferenceLength by checking the next byte
+				if (uncompressedIdatBuf[inoff + backReferenceLength + 1]
+					!== uncompressedIdatBuf[historyoff + backReferenceLength + 1]) continue;
+
+				let length = 1;
 				for (; length < 258; ++length) {
 					if (uncompressedIdatBuf[inoff + length] !== uncompressedIdatBuf[historyoff + length]) break;
 				}
-				if (length > (backReferenceLength ?? 3)) {
-					// has potential?
-					let l = 1;
-					for (; l < backReferenceLength; ++l) {
-						if (uncompressedIdatBuf[inoff + l] !== uncompressedIdatBuf[historyoff + l]) break;
-					}
-
-					if (l === backReferenceLength) {
-						backReferenceLength = length;
-						backReferenceOffset = historyoff;
-					}
+				if (length > backReferenceLength) {
+					backReferenceLength = length;
+					backReferenceOffset = historyoff;
+					if (backReferenceLength === 258) break;
 				}
-			}*/
+			}
 
-			if (/*backReferenceLength*/ false) {
+			if (backReferenceLength >= 3) {
 				// encode back reference
-				// would probably be better to do this in a loop, but it would be harder to verify against the RFC
+				// i don't actually think this would look better in a loop, copy+paste is clearer
 				const l = backReferenceLength;
-				if (l <= 10) writeToken(257 + l - 3);
-				else if (l <= 18) writeToken(265 + ((l - 11) >> 1)), writeBits((l - 11) & 1, 1);
-				else if (l <= 34) writeToken(269 + ((l - 19) >> 2)), writeBits((l - 19) & 3, 2);
-				else if (l <= 66) writeToken(273 + ((l - 35) >> 3)), writeBits((l - 35) & 7, 3);
-				else if (l <= 130) writeToken(277 + ((l - 67) >> 4)), writeBits((l - 67) & 0xf, 4);
-				else if (l <= 257) writeToken(281 + ((l - 131) >> 5)), writeBits((l - 131) & 0x1f, 5);
-				else writeToken(285); // length == 258
+				if (l <= 10) writeLetterCode(257 + l - 3);
+				else if (l <= 18) writeLetterCode(265 + ((l - 11) >> 1)), writeBits((l - 11) & 1, 1);
+				else if (l <= 34) writeLetterCode(269 + ((l - 19) >> 2)), writeBits((l - 19) & 3, 2);
+				else if (l <= 66) writeLetterCode(273 + ((l - 35) >> 3)), writeBits((l - 35) & 7, 3);
+				else if (l <= 130) writeLetterCode(277 + ((l - 67) >> 4)), writeBits((l - 67) & 0xf, 4);
+				else if (l <= 257) writeLetterCode(281 + ((l - 131) >> 5)), writeBits((l - 131) & 0x1f, 5);
+				else writeLetterCode(285); // length == 258
 
 				const o = inoff - backReferenceOffset;
-				if (o <= 4) writeBits(o - 1, 5);
-				else if (o <= 8) writeBits(4 + ((o - 5) >> 1), 5), writeBits((o - 5) & 1, 1);
-				else if (o <= 16) writeBits(6 + ((o - 9) >> 2), 5), writeBits((o - 9) & 3, 2);
-				else if (o <= 32) writeBits(8 + ((o - 17) >> 3), 5), writeBits((o - 17) & 7, 3);
-				else if (o <= 64) writeBits(10 + ((o - 33) >> 4), 5), writeBits((o - 33) & 0xf, 4);
-				else if (o <= 128) writeBits(12 + ((o - 65) >> 5), 5), writeBits((o - 65) & 0x1f, 5);
-				else if (o <= 256) writeBits(14 + ((o - 129) >> 6), 5), writeBits((o - 129) & 0x3f, 6);
-				else if (o <= 512) writeBits(16 + ((o - 257) >> 7), 5), writeBits((o - 257) & 0x7f, 7);
-				else if (o <= 1024) writeBits(18 + ((o - 513) >> 8), 5), writeBits((o - 513) & 0xff, 8);
-				else if (o <= 2048) writeBits(20 + ((o - 1025) >> 9), 5), writeBits((o - 1025) & 0x1ff, 9);
-				else if (o <= 4096) writeBits(22 + ((o - 2049) >> 10), 5), writeBits((o - 2049) & 0x3ff, 10);
-				else if (o <= 8192) writeBits(24 + ((o - 4097) >> 11), 5), writeBits((o - 4097) & 0x7ff, 11);
-				else if (o <= 16384) writeBits(26 + ((o - 8193) >> 12), 5), writeBits((o - 8193) & 0xfff, 12);
-				else writeBits(28 + ((o - 16385) >> 13), 5), writeBits((o - 16385) & 0x1fff, 13); // offset <= 32768
+				if (o <= 4) writeDistCode(o - 1, 5);
+				else if (o <= 8) writeDistCode(4 + ((o - 5) >> 1), 5), writeBits((o - 5) & 1, 1);
+				else if (o <= 16) writeDistCode(6 + ((o - 9) >> 2), 5), writeBits((o - 9) & 3, 2);
+				else if (o <= 32) writeDistCode(8 + ((o - 17) >> 3), 5), writeBits((o - 17) & 7, 3);
+				else if (o <= 64) writeDistCode(10 + ((o - 33) >> 4), 5), writeBits((o - 33) & 0xf, 4);
+				else if (o <= 128) writeDistCode(12 + ((o - 65) >> 5), 5), writeBits((o - 65) & 0x1f, 5);
+				else if (o <= 256) writeDistCode(14 + ((o - 129) >> 6), 5), writeBits((o - 129) & 0x3f, 6);
+				else if (o <= 512) writeDistCode(16 + ((o - 257) >> 7), 5), writeBits((o - 257) & 0x7f, 7);
+				else if (o <= 1024) writeDistCode(18 + ((o - 513) >> 8), 5), writeBits((o - 513) & 0xff, 8);
+				else if (o <= 2048) writeDistCode(20 + ((o - 1025) >> 9), 5), writeBits((o - 1025) & 0x1ff, 9);
+				else if (o <= 4096) writeDistCode(22 + ((o - 2049) >> 10), 5), writeBits((o - 2049) & 0x3ff, 10);
+				else if (o <= 8192) writeDistCode(24 + ((o - 4097) >> 11), 5), writeBits((o - 4097) & 0x7ff, 11);
+				else if (o <= 16384) writeDistCode(26 + ((o - 8193) >> 12), 5), writeBits((o - 8193) & 0xfff, 12);
+				else writeDistCode(28 + ((o - 16385) >> 13), 5), writeBits((o - 16385) & 0x1fff, 13); // offset <= 32768
 
-				inoff += backReferenceLength;
+				for (let i = 0; i < backReferenceLength; ++i) history[uncompressedIdatBuf[inoff]].push(inoff++);
 			} else {
 				// encode literal
-				writeToken(byte);
-				++inoff;
+				writeLetterCode(byte);
+				history[byte].push(inoff++);
 			}
 		}
 
-		writeToken(256); // end of stream
+		writeLetterCode(256); // end of stream
 
 		// exit Deflate, write zlib ADLER32
-		console.log('ROUND UP', outbit, outoff);
 		++outoff; // round up to byte boundary
 		(outdat.setUint32(outoff, adler32(uncompressedIdatBuf)), outoff += 4);
 
