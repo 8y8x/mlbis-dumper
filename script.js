@@ -2163,6 +2163,16 @@
 				updateMap = true;
 			})),
 		);
+		section.appendChild(button('Export PNG', () => {
+			const pngFile = battle.png(
+				bmapDropdown.value,
+				options.bgChecks[0].checked,
+				options.bgChecks[1].checked,
+				options.bgChecks[2].checked,
+				options.margins.checked,
+			);
+			download(`bmap-${str16(bmapDropdown.value)}.png`, pngFile, 'image/png');
+		}));
 		section.appendChild(
 			(options.paletteAnimations = checkbox('Palette Animations', true, () => {
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
@@ -2460,6 +2470,54 @@
 		};
 		update();
 		render();
+
+		battle.png = (roomId, bg1, bg2, bg3, margins) => {
+			// this is almost identical to field.png
+			const rawRoom = battle.bmaps[roomId];
+			const tileset = bufToU8(lzBis(rawRoom.tileset));
+			const palette = rgb15To32(bufToU16(rawRoom.palette));
+			const tilemaps = rawRoom.tilemaps.map((x) => (x?.byteLength ? bufToU16(x) : undefined));
+
+			const inset = margins ? 0 : 4;
+
+			const bitmap = new Uint32Array(512 * (margins ? 256 : 192));
+			bitmap.fill(palette[0], 0, bitmap.length);
+			for (let i = 2; i >= 0; --i) {
+				const tilemap = tilemaps[i];
+				if (![bg1, bg2, bg3][i] || !tilemap) continue;
+
+				for (let y = inset; y < 32 - inset; ++y) {
+					for (let x = 0; x < 64; ++x) {
+						const basePos = ((y - inset) << 12) | (x << 3);
+						const tile = tilemap[y * 64 + x];
+						// 16-color
+						const paletteShift = (tile >> 12) << 4;
+						for (let j = 0, o = (tile & 0x3ff) * 32; j < 64; j += 2, ++o) {
+							let pos = basePos | ((j >> 3) << 9) | (j & 7);
+							if (tile & 0x400) pos ^= 7; // horizontal flip
+							if (tile & 0x800) pos ^= 7 << 9; // vertical flip
+							const composite = tileset[o] ?? 0;
+							if (composite & 0xf) bitmap[pos] = palette[paletteShift | (composite & 0xf)];
+							if (composite >> 4) bitmap[pos ^ 1] = palette[paletteShift | (composite >> 4)];
+						}
+					}
+				}
+			}
+
+			return png(bitmap, 512, margins ? 256 : 192);
+
+			/*
+			battle.room = room = {
+				tileset: rawRoom.tileset?.byteLength ? bufToU8(lzBis(rawRoom.tileset)) : undefined,
+				palette: rawRoom.palette?.byteLength ? rgb15To32(bufToU16(rawRoom.palette)) : undefined,
+				tilemaps: rawRoom.tilemaps.map((x) => (x?.byteLength ? bufToU16(x) : undefined)),
+				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength
+					? bufToU8(lzBis(rawRoom.tilesetAnimated))
+					: undefined,
+				paletteAnimations: rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [],
+			};
+			*/
+		};
 
 		return battle;
 	}));

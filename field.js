@@ -64,14 +64,14 @@ window.initField = () => {
 			)),
 		);
 		optionRows[0].appendChild(button('Export PNG', () => {
-			const png = field.png(
+			const pngFile = field.png(
 				options.roomDropdown.value,
 				options.bg1.checked,
 				options.bg2.checked,
 				options.bg3.checked,
 				options.margins.checked,
 			);
-			download(`fmap-${str16(options.roomDropdown.value)}.png`, png, 'image/png');
+			download(`fmap-${str16(options.roomDropdown.value)}.png`, pngFile, 'image/png');
 		}));
 		optionRows[0].appendChild(
 			(options.previewPalettes = checkbox('Palettes', false, () => componentLayoutChanged())),
