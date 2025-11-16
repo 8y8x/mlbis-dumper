@@ -339,7 +339,7 @@ window.initField = () => {
 					unpackSegmented16(buf),
 				),
 				collision: room.props[14],
-				depth: room.props[8],
+				depth: room.props[15],
 			});
 			room.enabledLayerAnimations = new Set();
 			room.enabledTileAnimations = new Set();
