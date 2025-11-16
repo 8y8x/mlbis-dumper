@@ -2169,6 +2169,7 @@
 				options.bgChecks[0].checked,
 				options.bgChecks[1].checked,
 				options.bgChecks[2].checked,
+				options.reverseLayers.checked,
 				options.margins.checked,
 			);
 			download(`bmap-${str16(bmapDropdown.value)}.png`, pngFile, 'image/png');
@@ -2471,7 +2472,7 @@
 		update();
 		render();
 
-		battle.png = (roomId, bg1, bg2, bg3, margins) => {
+		battle.png = (roomId, bg1, bg2, bg3, reverseLayers, margins) => {
 			// this is almost identical to field.png
 			const rawRoom = battle.bmaps[roomId];
 			const tileset = bufToU8(lzBis(rawRoom.tileset));
@@ -2482,7 +2483,8 @@
 
 			const bitmap = new Uint32Array(512 * (margins ? 256 : 192));
 			bitmap.fill(palette[0], 0, bitmap.length);
-			for (let i = 2; i >= 0; --i) {
+			const layers = reverseLayers ? [0, 1, 2] : [2, 1, 0];
+			for (const i of layers) {
 				const tilemap = tilemaps[i];
 				if (![bg1, bg2, bg3][i] || !tilemap) continue;
 
