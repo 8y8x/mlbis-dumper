@@ -205,6 +205,22 @@
 		return button;
 	});
 
+	const hovery = (window.hovery = (html, onhover) => {
+		const span = document.createElement('span');
+		span.style.cssText =
+			'background: #333; border: 1px solid #fff; color: #ccc; cursor: default; font-size: 0.9rem; padding: 0 3px;';
+		span.innerHTML = html;
+		span.addEventListener('mouseenter', () => {
+			span.style.background = '#666';
+			onhover(true);
+		});
+		span.addEventListener('mouseleave', () => {
+			span.style.background = '#333';
+			onhover(false);
+		});
+		return span;
+	});
+
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Quick Data Display                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
@@ -252,7 +268,7 @@
 	const addHTML = (window.addHTML = (el, html) => {
 		const container = document.createElement(el.tagName);
 		container.innerHTML = html;
-		for (const child of container.childNodes) el.appendChild(child);
+		for (const child of container.childNodes) el.append(child);
 	});
 
 	const writeRgb16 = (window.writeRgb16 = (bitmap, pixel, rgb16) => {
@@ -871,27 +887,27 @@
 		let outoff = 0;
 
 		// PNG header
-		(outbuf.set([137, 80, 78, 71, 13, 10, 26, 10], 0), outoff += 8);
+		(outbuf.set([137, 80, 78, 71, 13, 10, 26, 10], 0), (outoff += 8));
 
 		// IHDR chunk
-		(outdat.setUint32(outoff, 13), outoff += 4); // chunk length
-		(outbuf.set([0x49, 0x48, 0x44, 0x52], outoff), outoff += 4); // chunk type (IHDR)
+		(outdat.setUint32(outoff, 13), (outoff += 4)); // chunk length
+		(outbuf.set([0x49, 0x48, 0x44, 0x52], outoff), (outoff += 4)); // chunk type (IHDR)
 
 		let chunkStart = outoff;
-		(outdat.setUint32(outoff, width), outoff += 4); // image width
-		(outdat.setUint32(outoff, height), outoff += 4); // image height
+		(outdat.setUint32(outoff, width), (outoff += 4)); // image width
+		(outdat.setUint32(outoff, height), (outoff += 4)); // image height
 		outbuf[outoff++] = 8; // image bit depth
 		outbuf[outoff++] = palette ? 3 : 2; // image color type (3 = palette, 2 = rgb triplets)
 		outbuf[outoff++] = 0; // image compression method (0 = Deflate)
 		outbuf[outoff++] = 0; // image filter method (0 = adaptive)
 		outbuf[outoff++] = 0; // image interlace method (0 = no interlace)
 
-		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), outoff += 4); // chunk crc
+		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc
 
 		if (palette) {
 			// PLTE chunk
-			(outdat.setUint32(outoff, palette.length * 3), outoff += 4); // chunk length
-			(outbuf.set([0x50, 0x4c, 0x54, 0x45], outoff), outoff += 4); // chunk type (PLTE)
+			(outdat.setUint32(outoff, palette.length * 3), (outoff += 4)); // chunk length
+			(outbuf.set([0x50, 0x4c, 0x54, 0x45], outoff), (outoff += 4)); // chunk type (PLTE)
 
 			chunkStart = outoff;
 			for (let i = 0; i < palette.length; ++i) {
@@ -900,13 +916,13 @@
 				outbuf[outoff++] = palette[i] >>> 16;
 			}
 
-			(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), outoff += 4); // chunk crc
+			(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc
 		}
 
 		// IDAT chunk
 		const idatLengthOffset = outoff; // write this after compression
 		outoff += 4;
-		(outbuf.set([0x49, 0x44, 0x41, 0x54], outoff), outoff += 4); // chunk type (IDAT)
+		(outbuf.set([0x49, 0x44, 0x41, 0x54], outoff), (outoff += 4)); // chunk type (IDAT)
 
 		chunkStart = outoff;
 		// zlib header
@@ -938,7 +954,7 @@
 		for (let x = 144; x <= 255; ++x) reversedLetterCodes[x] = reverse(0b110010000 + (x - 144), 9);
 		for (let x = 256; x <= 279; ++x) reversedLetterCodes[x] = reverse(0b0000000 + (x - 256), 7);
 		for (let x = 280; x <= 287; ++x) reversedLetterCodes[x] = reverse(0b11000000 + (x - 280), 8);
-		const writeLetterCode = x => {
+		const writeLetterCode = (x) => {
 			/*if (x <= 143) writeBits(0b00110000 + x, 8, true);
 			else if (x <= 255) writeBits(0b110010000 + (x - 144), 9, true);
 			else if (x <= 279) writeBits(0b0000000 + (x - 256), 7, true);
@@ -951,7 +967,7 @@
 
 		const reversedDistCodes = [];
 		for (let x = 0; x <= 31; ++x) reversedDistCodes[x] = reverse(x, 5);
-		const writeDistCode = x => writeBits(reversedDistCodes[x], 5);
+		const writeDistCode = (x) => writeBits(reversedDistCodes[x], 5);
 
 		writeBits(1, 1); // BFINAL = 1
 		writeBits(0b01, 2); // BTYPE = 01 (fixed Huffman codes)
@@ -972,8 +988,11 @@
 				if (inoff - historyoff > 0x8000) break;
 
 				// shortcut check if historyoff could even increase backReferenceLength by checking the next byte
-				if (uncompressedIdatBuf[inoff + backReferenceLength + 1]
-					!== uncompressedIdatBuf[historyoff + backReferenceLength + 1]) continue;
+				if (
+					uncompressedIdatBuf[inoff + backReferenceLength + 1] !==
+					uncompressedIdatBuf[historyoff + backReferenceLength + 1]
+				)
+					continue;
 
 				let length = 1;
 				for (; length < 258; ++length) {
@@ -991,28 +1010,28 @@
 				// i don't actually think this would look better in a loop, copy+paste is clearer
 				const l = backReferenceLength;
 				if (l <= 10) writeLetterCode(257 + l - 3);
-				else if (l <= 18) writeLetterCode(265 + ((l - 11) >> 1)), writeBits((l - 11) & 1, 1);
-				else if (l <= 34) writeLetterCode(269 + ((l - 19) >> 2)), writeBits((l - 19) & 3, 2);
-				else if (l <= 66) writeLetterCode(273 + ((l - 35) >> 3)), writeBits((l - 35) & 7, 3);
-				else if (l <= 130) writeLetterCode(277 + ((l - 67) >> 4)), writeBits((l - 67) & 0xf, 4);
-				else if (l <= 257) writeLetterCode(281 + ((l - 131) >> 5)), writeBits((l - 131) & 0x1f, 5);
+				else if (l <= 18) (writeLetterCode(265 + ((l - 11) >> 1)), writeBits((l - 11) & 1, 1));
+				else if (l <= 34) (writeLetterCode(269 + ((l - 19) >> 2)), writeBits((l - 19) & 3, 2));
+				else if (l <= 66) (writeLetterCode(273 + ((l - 35) >> 3)), writeBits((l - 35) & 7, 3));
+				else if (l <= 130) (writeLetterCode(277 + ((l - 67) >> 4)), writeBits((l - 67) & 0xf, 4));
+				else if (l <= 257) (writeLetterCode(281 + ((l - 131) >> 5)), writeBits((l - 131) & 0x1f, 5));
 				else writeLetterCode(285); // length == 258
 
 				const o = inoff - backReferenceOffset;
 				if (o <= 4) writeDistCode(o - 1, 5);
-				else if (o <= 8) writeDistCode(4 + ((o - 5) >> 1), 5), writeBits((o - 5) & 1, 1);
-				else if (o <= 16) writeDistCode(6 + ((o - 9) >> 2), 5), writeBits((o - 9) & 3, 2);
-				else if (o <= 32) writeDistCode(8 + ((o - 17) >> 3), 5), writeBits((o - 17) & 7, 3);
-				else if (o <= 64) writeDistCode(10 + ((o - 33) >> 4), 5), writeBits((o - 33) & 0xf, 4);
-				else if (o <= 128) writeDistCode(12 + ((o - 65) >> 5), 5), writeBits((o - 65) & 0x1f, 5);
-				else if (o <= 256) writeDistCode(14 + ((o - 129) >> 6), 5), writeBits((o - 129) & 0x3f, 6);
-				else if (o <= 512) writeDistCode(16 + ((o - 257) >> 7), 5), writeBits((o - 257) & 0x7f, 7);
-				else if (o <= 1024) writeDistCode(18 + ((o - 513) >> 8), 5), writeBits((o - 513) & 0xff, 8);
-				else if (o <= 2048) writeDistCode(20 + ((o - 1025) >> 9), 5), writeBits((o - 1025) & 0x1ff, 9);
-				else if (o <= 4096) writeDistCode(22 + ((o - 2049) >> 10), 5), writeBits((o - 2049) & 0x3ff, 10);
-				else if (o <= 8192) writeDistCode(24 + ((o - 4097) >> 11), 5), writeBits((o - 4097) & 0x7ff, 11);
-				else if (o <= 16384) writeDistCode(26 + ((o - 8193) >> 12), 5), writeBits((o - 8193) & 0xfff, 12);
-				else writeDistCode(28 + ((o - 16385) >> 13), 5), writeBits((o - 16385) & 0x1fff, 13); // offset <= 32768
+				else if (o <= 8) (writeDistCode(4 + ((o - 5) >> 1), 5), writeBits((o - 5) & 1, 1));
+				else if (o <= 16) (writeDistCode(6 + ((o - 9) >> 2), 5), writeBits((o - 9) & 3, 2));
+				else if (o <= 32) (writeDistCode(8 + ((o - 17) >> 3), 5), writeBits((o - 17) & 7, 3));
+				else if (o <= 64) (writeDistCode(10 + ((o - 33) >> 4), 5), writeBits((o - 33) & 0xf, 4));
+				else if (o <= 128) (writeDistCode(12 + ((o - 65) >> 5), 5), writeBits((o - 65) & 0x1f, 5));
+				else if (o <= 256) (writeDistCode(14 + ((o - 129) >> 6), 5), writeBits((o - 129) & 0x3f, 6));
+				else if (o <= 512) (writeDistCode(16 + ((o - 257) >> 7), 5), writeBits((o - 257) & 0x7f, 7));
+				else if (o <= 1024) (writeDistCode(18 + ((o - 513) >> 8), 5), writeBits((o - 513) & 0xff, 8));
+				else if (o <= 2048) (writeDistCode(20 + ((o - 1025) >> 9), 5), writeBits((o - 1025) & 0x1ff, 9));
+				else if (o <= 4096) (writeDistCode(22 + ((o - 2049) >> 10), 5), writeBits((o - 2049) & 0x3ff, 10));
+				else if (o <= 8192) (writeDistCode(24 + ((o - 4097) >> 11), 5), writeBits((o - 4097) & 0x7ff, 11));
+				else if (o <= 16384) (writeDistCode(26 + ((o - 8193) >> 12), 5), writeBits((o - 8193) & 0xfff, 12));
+				else (writeDistCode(28 + ((o - 16385) >> 13), 5), writeBits((o - 16385) & 0x1fff, 13)); // offset <= 32768
 
 				for (let i = 0; i < backReferenceLength; ++i) history[uncompressedIdatBuf[inoff]].push(inoff++);
 			} else {
@@ -1026,16 +1045,16 @@
 
 		// exit Deflate, write zlib ADLER32
 		++outoff; // round up to byte boundary
-		(outdat.setUint32(outoff, adler32(uncompressedIdatBuf)), outoff += 4);
+		(outdat.setUint32(outoff, adler32(uncompressedIdatBuf)), (outoff += 4));
 
 		// exit zlib, complete IDAT chunk
 		outdat.setUint32(idatLengthOffset, outoff - chunkStart); // chunk length
-		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), outoff += 4); // chunk crc
+		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc
 
 		// IEND chunk
-		(outdat.setUint32(outoff, 0), outoff += 4); // chunk length
-		(outbuf.set([0x49, 0x45, 0x4e, 0x44], outoff), outoff += 4); // chunk type (IEND)
-		(outdat.setUint32(outoff, crc(sliceDataView(outdat, outoff - 4, outoff))), outoff += 4); // chunk crc
+		(outdat.setUint32(outoff, 0), (outoff += 4)); // chunk length
+		(outbuf.set([0x49, 0x45, 0x4e, 0x44], outoff), (outoff += 4)); // chunk type (IEND)
+		(outdat.setUint32(outoff, crc(sliceDataView(outdat, outoff - 4, outoff))), (outoff += 4)); // chunk crc
 
 		return sliceDataView(outdat, 0, outoff);
 	});
@@ -1351,7 +1370,10 @@
 		section.appendChild(multiExport);
 
 		const multiDump = button('Dump Everything', () => {
-			const files = [{ name: 'arm9.bin', dat: fs.arm9 }, { name: 'arm7.bin', dat: fs.arm7 }];
+			const files = [
+				{ name: 'arm9.bin', dat: fs.arm9 },
+				{ name: 'arm7.bin', dat: fs.arm7 },
+			];
 
 			for (let i = 0; i * 8 < headers.fatLength; ++i) {
 				const fsentry = fs.get(i);
@@ -1913,7 +1935,7 @@
 		for (let i = 15; i >= 0; --i) globalPalette256.setUint16(0x1e0 + i * 2, 0 | (i << 5) | 0xf, true);
 
 		const globalPalette16 = (fmapdataTiles.globalPalette16 = new DataView(new ArrayBuffer(512)));
-		const rgb16s = [
+		const rgb15s = [
 			[31, 0, 0],
 			[31, 10, 0],
 			[31, 20, 0],
@@ -1932,9 +1954,9 @@
 			[31, 0, 31],
 		];
 		for (let i = 0; i < 16; ++i) {
-			const [b, g, r] = rgb16s[i];
-			const rgb16 = (r << 10) | (g << 5) | b;
-			for (let o = 0; o < 512; o += 32) globalPalette16.setUint16(o + i * 2, rgb16, true);
+			const [b, g, r] = rgb15s[i];
+			const rgb15 = (r << 10) | (g << 5) | b;
+			for (let o = 0; o < 512; o += 32) globalPalette16.setUint16(o + i * 2, rgb15, true);
 		}
 
 		let paletteSelectPlaceholder = document.createElement('button');
@@ -2163,17 +2185,19 @@
 				updateMap = true;
 			})),
 		);
-		section.appendChild(button('Export PNG', () => {
-			const pngFile = battle.png(
-				bmapDropdown.value,
-				options.bgChecks[0].checked,
-				options.bgChecks[1].checked,
-				options.bgChecks[2].checked,
-				options.reverseLayers.checked,
-				options.margins.checked,
-			);
-			download(`bmap-${str16(bmapDropdown.value)}.png`, pngFile, 'image/png');
-		}));
+		section.appendChild(
+			button('Export PNG', () => {
+				const pngFile = battle.png(
+					bmapDropdown.value,
+					options.bgChecks[0].checked,
+					options.bgChecks[1].checked,
+					options.bgChecks[2].checked,
+					options.reverseLayers.checked,
+					options.margins.checked,
+				);
+				download(`bmap-${str16(bmapDropdown.value)}.png`, pngFile, 'image/png');
+			}),
+		);
 		section.appendChild(
 			(options.paletteAnimations = checkbox('Palette Animations', true, () => {
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;

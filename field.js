@@ -63,16 +63,18 @@ window.initField = () => {
 				() => (updateMaps = updateOverlay2d = updateOverlay3d = true),
 			)),
 		);
-		optionRows[0].appendChild(button('Export PNG', () => {
-			const pngFile = field.png(
-				options.roomDropdown.value,
-				options.bg1.checked,
-				options.bg2.checked,
-				options.bg3.checked,
-				options.margins.checked,
-			);
-			download(`fmap-${str16(options.roomDropdown.value)}.png`, pngFile, 'image/png');
-		}));
+		optionRows[0].appendChild(
+			button('Export PNG', () => {
+				const pngFile = field.png(
+					options.roomDropdown.value,
+					options.bg1.checked,
+					options.bg2.checked,
+					options.bg3.checked,
+					options.margins.checked,
+				);
+				download(`fmap-${str16(options.roomDropdown.value)}.png`, pngFile, 'image/png');
+			}),
+		);
 		optionRows[0].appendChild(
 			(options.previewPalettes = checkbox('Palettes', false, () => componentLayoutChanged())),
 		);
@@ -192,9 +194,11 @@ window.initField = () => {
 		sideProperties.appendChild((side.treasureDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.loadingZoneDropdown = dropdown(['0 loading zones'], 0, () => {})));
 		sideProperties.appendChild((side.loadingZoneDisplay = document.createElement('div')));
-		sideProperties.appendChild((side.collisionDropdown = dropdown(['0 prisms, 0 specials'], 0, () => {})));
+		sideProperties.appendChild((side.collisionSort = dropdown([''], 0, () => {})));
+		sideProperties.appendChild((side.collisionDropdown = dropdown([''], 0, () => {})));
 		sideProperties.appendChild((side.collisionDisplay = document.createElement('div')));
-		sideProperties.appendChild((side.layerAnimList = document.createElement('div')));
+		sideProperties.appendChild((side.toggleList = document.createElement('div')));
+		sideProperties.appendChild((side.toggleDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.tileAnimList = document.createElement('div')));
 		sideProperties.appendChild((side.metadataDisplay = document.createElement('div')));
 
@@ -333,7 +337,7 @@ window.initField = () => {
 				palettes: [room.props[3], room.props[4], room.props[5]].map((buf) => rgb15To32(bufToU16(buf))),
 				map: room.props[6],
 				loadingZones: room.props[7],
-				layerAnimations: room.props[9],
+				toggles: room.props[9],
 				tileAnimations: room.props[10],
 				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map((buf) =>
 					unpackSegmented16(buf),
@@ -341,7 +345,6 @@ window.initField = () => {
 				collision: room.props[14],
 				depth: room.props[15],
 			});
-			room.enabledLayerAnimations = new Set();
 			room.enabledTileAnimations = new Set();
 
 			const mapWidth = room.map.getUint16(0, true);
@@ -477,167 +480,277 @@ window.initField = () => {
 
 			// side properties collision
 			if (room.collision.byteLength) {
-				const numBoxes = room.collision.getUint32(0, true);
-				const numSpecials = room.collision.getUint32(4, true);
-
-				const options = [`${numBoxes} prisms, ${numSpecials} specials`];
-				for (let i = 0, o = 8; i < numBoxes; ++i, o += 40) {
-					const solidActions = room.collision.getUint16(o + 4, true);
-					const attributes = room.collision.getUint16(o + 6, true);
-
-					let color;
-					if (solidActions !== 0xffff) color = '#0ff';
-					if (attributes & 0xfffe) color = '#f90';
-					if (attributes & 1) color = '#f00';
-
-					options.push(`[${i}] Prism ${color ? `<span style="color: ${color}">◼︎</span>` : ''}`);
-				}
-				for (let i = 0; i < numSpecials; ++i) options.push(`[${i}] Special`);
-				side.collisionDropdown.replaceWith(
-					(side.collisionDropdown = dropdown(
-						options,
-						0,
-						() => {
-							updateOverlay3d = updateOverlay3dTriangles = true;
-							if (side.collisionDropdown.value === 0) {
-								side.collisionDisplay.innerHTML = '';
-								return;
-							}
-
-							const index = side.collisionDropdown.value - 1;
-							let o = 8;
-							o += Math.min(index, numBoxes) * 40; // first chunk of prisms
-							o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
-
-							if (index < numBoxes) {
-								// prism
-								const config = room.collision.getUint16(o, true);
-								const debugId = room.collision.getUint16(o + 2, true);
-								const solidActions = room.collision.getUint16(o + 4, true);
-								const attributes = room.collision.getUint16(o + 6, true);
-
-								const html = [];
-
-								const configStrings = [];
-								if (config & 1) configStrings.push('last');
-								// if (config & 2) configStrings.push('snaps up'); // needs more research
-								if (config & 4) configStrings.push('simple');
-								if (configStrings.length) html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
-
-								for (let i = 0; i < 4; ++i) {
-									const x = room.collision.getInt16(o + 8 + i * 8, true);
-									const y = room.collision.getInt16(o + 8 + i * 8 + 2, true);
-									const ztop = room.collision.getInt16(o + 8 + i * 8 + 4, true);
-									const zbottom = room.collision.getInt16(o + 8 + i * 8 + 6, true);
-
-									if (i === 3 && !(config & 8)) {
-										// (config & 8) means the prism is four-pointed, 0 if three-pointed
-										// very few prisms have a fourth vertex that isn't zeroed out
-										if (x || y || ztop || zbottom) {
-											html.push(
-												`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
-											);
-										}
-									} else {
-										html.push(
-											`<div>v${i + 1} <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
-										);
-									}
-								}
-
-								html.push(`<div>Debug ID: ${debugId >> 6}</div>`);
-
-								const actions = [
-									'Walking', // 0x1
-									'M&L Drilling', // 0x2
-									'Mini Mario', // 0x4
-									'M&L Stacked (before drill/twirl)', // 0x8
-									'M&L Twirling', // 0x10
-									,
-									,
-									,
-									// 0x20
-									// 0x40
-									// 0x80
-									'B Spike Balling', // 0x100
-									,
-									,
-									,
-									// 0x200
-									// 0x400
-									// 0x800
-									'M&L Hammering / B Punching', // 0x1000
-									'B Flaming', // 0x2000
-									// 0x4000
-									// 0x8000
-									,
-									,
-								];
-								const solidNames = [];
-								const notSolidNames = [];
-								for (let bit = 1, i = 0; bit < 0xffff; bit <<= 1, ++i) {
-									if (!actions[i]) continue;
-									if (solidActions & bit) solidNames.push(actions[i]);
-									else notSolidNames.push(actions[i]);
-								}
-								if (notSolidNames.length === 0) {
-									// do nothing
-								} else if (solidNames.length === 0) {
-									// not solid at all?
-									html.push('<div style="color: #0ff;">Not solid</div>');
-								} else if (solidNames.length >= notSolidNames.length) {
-									html.push(
-										`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`,
-									);
-								} else {
-									html.push(
-										`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`,
-									);
-								}
-
-								const attributeStrings = [];
-								if (attributes & 1) attributeStrings.push('no-enter');
-								if (attributes & 4) attributeStrings.push('spike ball grippy');
-								if (attributes & 0x40) attributeStrings.push('unisolid');
-
-								if (attributeStrings.length)
-									html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
-								Attributes: ${attributeStrings.join(', ')}</div>`);
-
-								side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-							margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
-							} else {
-								// special
-								side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-							margin-left: 1px; padding-left: 8px;"><code>${bytes(o, 24, room.collision)}</code></div>`;
-							}
-						},
-						() => {
-							updateOverlay3d = updateOverlay3dTriangles = true;
-						},
+				side.collisionSort.replaceWith(
+					(side.collisionSort = dropdown(
+						['By index', 'By ID'],
+						side.collisionSort.value,
+						() => updateCollisionDropdown(),
+						undefined,
+						true,
 					)),
 				);
+				const updateCollisionDropdown = () => {
+					const numBoxes = room.collision.getUint32(0, true);
+					const numSpecials = room.collision.getUint32(4, true);
+
+					let options = [[-Infinity, `${numBoxes} prisms`]];
+					for (let i = 0, o = 8; i < numBoxes; ++i, o += 40) {
+						const id = room.collision.getUint16(o + 2, true) >> 6;
+						const solidActions = room.collision.getUint16(o + 4, true);
+						const attributes = room.collision.getUint16(o + 6, true);
+
+						let color;
+						if (solidActions !== 0xffff) color = '#0ff';
+						if (attributes & 0xfffe) color = '#f90';
+						if (attributes & 1) color = '#f00';
+
+						options.push([
+							side.collisionSort.value === 0 ? i : id,
+							`${i}. [ID ${id}] ${color ? `<span style="color: ${color};">◼︎</span>` : ''}`,
+						]);
+					}
+					options = options.sort(([weightA, _], [weightB, __]) => weightA - weightB).map((x) => x[1]);
+
+					side.collisionDropdown.replaceWith(
+						(side.collisionDropdown = dropdown(
+							options,
+							0,
+							() => {
+								updateOverlay3d = updateOverlay3dTriangles = true;
+								if (side.collisionDropdown.value === 0) {
+									side.collisionDisplay.innerHTML = '';
+									return;
+								}
+
+								const index = side.collisionDropdown.value - 1;
+								let o = 8;
+								o += Math.min(index, numBoxes) * 40; // first chunk of prisms
+								o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
+
+								if (index < numBoxes) {
+									// prism
+									const config = room.collision.getUint16(o, true);
+									const debugId = room.collision.getUint16(o + 2, true);
+									const solidActions = room.collision.getUint16(o + 4, true);
+									const attributes = room.collision.getUint16(o + 6, true);
+
+									const html = [];
+
+									const configStrings = [];
+									if (config & 1) configStrings.push('last');
+									// if (config & 2) configStrings.push('snaps up'); // needs more research
+									if (config & 4) configStrings.push('simple');
+									if (configStrings.length)
+										html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
+
+									for (let i = 0; i < 4; ++i) {
+										const x = room.collision.getInt16(o + 8 + i * 8, true);
+										const y = room.collision.getInt16(o + 8 + i * 8 + 2, true);
+										const ztop = room.collision.getInt16(o + 8 + i * 8 + 4, true);
+										const zbottom = room.collision.getInt16(o + 8 + i * 8 + 6, true);
+
+										if (i === 3 && !(config & 8)) {
+											// (config & 8) means the prism is four-pointed, 0 if three-pointed
+											// very few prisms have a fourth vertex that isn't zeroed out
+											if (x || y || ztop || zbottom) {
+												html.push(
+													`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
+												);
+											}
+										} else {
+											html.push(
+												`<div>v${i + 1} <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
+											);
+										}
+									}
+
+									const actions = [
+										'Walking', // 0x1
+										'M&L Drilling', // 0x2
+										'Mini Mario', // 0x4
+										'M&L Stacked (before drill/twirl)', // 0x8
+										'M&L Twirling', // 0x10
+										undefined, // 0x20
+										undefined, // 0x40
+										undefined, // 0x80
+										'B Spike Balling', // 0x100
+										undefined, // 0x200
+										undefined, // 0x400
+										undefined, // 0x800
+										'M&L Hammering / B Punching', // 0x1000
+										'B Flaming', // 0x2000
+										undefined, // 0x4000
+										undefined, // 0x8000
+									];
+									const solidNames = [];
+									const notSolidNames = [];
+									for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
+										if (!actions[i]) continue;
+										if (solidActions & bit) solidNames.push(actions[i]);
+										else notSolidNames.push(actions[i]);
+									}
+									if (notSolidNames.length === 0) {
+										// do nothing
+									} else if (solidNames.length === 0) {
+										// not solid at all?
+										html.push('<div style="color: #0ff;">Not solid</div>');
+									} else if (solidNames.length >= notSolidNames.length) {
+										html.push(
+											`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`,
+										);
+									} else {
+										html.push(
+											`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`,
+										);
+									}
+
+									const attributeStrings = [];
+									if (attributes & 1) attributeStrings.push('no-enter');
+									if (attributes & 4) attributeStrings.push('spike ball grippy');
+									if (attributes & 0x40) attributeStrings.push('unisolid');
+
+									if (attributeStrings.length)
+										html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
+							Attributes: ${attributeStrings.join(', ')}</div>`);
+
+									html.push(`<div><code>${bytes(o, 40, room.collision)}</code></div>`);
+
+									side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+								margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
+								} else {
+									// special
+									side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+								margin-left: 1px; padding-left: 8px;"><code>${bytes(o, 24, room.collision)}</code></div>`;
+								}
+							},
+							() => {
+								updateOverlay3d = updateOverlay3dTriangles = true;
+							},
+						)),
+					);
+				};
+				updateCollisionDropdown();
 			} else {
-				side.collisionDropdown.replaceWith(
-					(side.collisionDropdown = dropdown(['0 prisms, 0 specials'], 0, () => {})),
+				side.collisionSort.replaceWith(
+					(side.collisionSort = dropdown(
+						['By index', 'By ID'],
+						side.collisionSort.value,
+						() => {},
+						undefined,
+						true,
+					)),
 				);
+				side.collisionDropdown.replaceWith((side.collisionDropdown = dropdown(['0 prisms'], 0, () => {})));
 			}
 			side.collisionDisplay.innerHTML = '';
 
-			// side properties layer animations
-			const layerAnimations = unpackSegmented(room.layerAnimations);
-			side.layerAnimList.innerHTML = 'Layer Animations: ';
-			for (let i = 1, j = 0; i < layerAnimations.length; i += 3, ++j) {
-				if (layerAnimations[i].byteLength < 8) continue;
+			// side properties toggles
+			side.toggleDisplay.style.cssText =
+				'border-left: 1px solid var(--checkbox-fg); margin-left: 1px; padding: 2px 0 2px 8px;';
+			side.toggleDisplay.style.display = 'none';
+			side.toggleDisplay.innerHTML = '';
+			side.toggleList.innerHTML = 'Toggles: ';
 
-				const container = { segment: layerAnimations[i] }; // may contain the other two layers later
+			room.togglesEnabled = new Set();
+			room.toggleHoveringTilemapRegion = undefined;
+			const toggles = unpackSegmented(room.toggles);
+			for (let i = 1, j = 0; i < toggles.length; i += 3, ++j) {
+				const tilemap = toggles[i];
+				const collision = toggles[i + 1];
+				const depth = toggles[i + 2];
+				const container = { tilemap, collision, depth, index: j };
 				const check = checkbox('', false, () => {
-					if (check.checked) room.enabledLayerAnimations.add(container);
-					else room.enabledLayerAnimations.delete(container);
-					updateMaps = true;
+					if (check.checked) room.togglesEnabled.add(container);
+					else room.togglesEnabled.delete(container);
+
+					if (tilemap.byteLength) updateMaps = true;
+					if (toggles[i + 1]?.byteLength) updateOverlay2d = true;
+					if (toggles[i + 2]?.byteLength) updateOverlay3d = updateOverlay3dTriangles = true;
+
+					updateToggleDisplay();
 				});
-				side.layerAnimList.appendChild(check);
+				side.toggleList.appendChild(check);
 			}
+
+			const updateToggleDisplay = () => {
+				// use the most recently checked toggle; this feels the most intuitive
+				let container;
+				for (const newContainer of room.togglesEnabled) container = newContainer;
+
+				side.toggleDisplay.innerHTML = '';
+				if (!container) {
+					side.toggleDisplay.style.display = 'none';
+					return;
+				}
+
+				const { tilemap, depth, collision, index } = container;
+
+				side.toggleDisplay.style.display = '';
+				addHTML(
+					side.toggleDisplay,
+					`<div><code>[${index}]</code> header: <code>${bytes(index * 4, 4, toggles[0])}</code></div>`,
+				);
+
+				if (tilemap.byteLength) {
+					const u16 = bufToU16(tilemap);
+					const [x, y, w, h] = u16.slice(0, 4);
+					let counts = [0, 0, 0];
+					for (let layer = 0, o = 4; layer < 3; ++layer) {
+						for (let i = 0; i < w * h; ++i) {
+							if (u16[o++] !== 0x3ff) ++counts[layer];
+						}
+					}
+
+					const changes = [];
+					if (counts[0]) changes.push(`BG1 ${Math.round((counts[0] / (w * h)) * 100)}%`);
+					if (counts[1]) changes.push(`BG2 ${Math.round((counts[1] / (w * h)) * 100)}%`);
+					if (counts[2]) changes.push(`BG3 ${Math.round((counts[2] / (w * h)) * 100)}%`);
+					if (!changes.length) parts.push('(no changes)');
+
+					const line = document.createElement('div');
+					const regionObj = { x, y, w, h };
+					line.append(
+						hovery(`(${x},${y}) size (${w},${h})`, (hovering) => {
+							updateOverlay2d = true;
+							if (hovering) room.toggleHoveringTilemapRegion = regionObj;
+							else if (room.toggleHoveringTilemapRegion === regionObj) {
+								room.toggleHoveringTilemapRegion = undefined;
+							}
+						}),
+					);
+					addHTML(line, ', ' + changes.join(', '));
+					side.toggleDisplay.append(line);
+				} else {
+					addHTML(side.toggleDisplay, '<div>(no tilemap changes)</div>');
+				}
+
+				if (collision?.byteLength) {
+					const s16 = bufToS16(collision);
+					const ids = [];
+					for (let o = 0; o < s16.length; o += 8) {
+						const id = s16[o] >> 1;
+						const last = s16[o] & 1;
+						ids.push(id);
+					}
+
+					addHTML(side.toggleDisplay, `<div>prisms ${ids.join(', ')}</div>`);
+				} else {
+					addHTML(side.toggleDisplay, `<div>(no collision changes)</div>`);
+				}
+
+				if (depth?.byteLength) {
+					const u16 = bufToU16(depth);
+					const ids = [];
+					for (let o = 0; o < u16.length; o += 8) {
+						const id = u16[o];
+						ids.push(id);
+					}
+
+					addHTML(side.toggleDisplay, `<div>depths ${ids.join(', ')}</div>`);
+				} else {
+					addHTML(side.toggleDisplay, `<div>(no depth changes)</div>`);
+				}
+			};
 
 			// side properties tile animations
 			const tileAnimations = unpackSegmented(room.tileAnimations);
@@ -710,12 +823,12 @@ window.initField = () => {
 			addHTML(
 				bottomProperties,
 				`<div>Layers: <code>
-				BG1 ${indices.l1 !== -1 ? '0x' + indices.l1.toString(16) : '-1'},
-				BG2 ${indices.l2 !== -1 ? '0x' + indices.l2.toString(16) : '-1'},
-				BG3 ${indices.l3 !== -1 ? '0x' + indices.l3.toString(16) : '-1'},
-				Props 0x${indices.props.toString(16)},
-				Treasure ${indices.treasure !== -1 ? '0x' + indices.treasure.toString(16) : '-1'}
-			</code></div>`,
+					BG1 ${indices.l1 !== -1 ? '0x' + indices.l1.toString(16) : '-1'},
+					BG2 ${indices.l2 !== -1 ? '0x' + indices.l2.toString(16) : '-1'},
+					BG3 ${indices.l3 !== -1 ? '0x' + indices.l3.toString(16) : '-1'},
+					Props 0x${indices.props.toString(16)},
+					Treasure ${indices.treasure !== -1 ? '0x' + indices.treasure.toString(16) : '-1'}
+				</code></div>`,
 			);
 
 			const blendingItems = [];
@@ -724,7 +837,10 @@ window.initField = () => {
 				blendingItems.push(`<code>${bytes(0, blending[i].byteLength, blending[i])}</code>`);
 			}
 
-			const layerAnimationItems = [];
+			/*const layerAnimationItems = [];
+			if (layerAnimations.length) {
+				layerAnimationItems.push(`header: <code>${bytes(0, Infinity, layerAnimations[0])}</code>`);
+			}
 			for (let i = 0, j = 1; j < layerAnimations.length; ++i, j += 3) {
 				const segment = layerAnimations[j];
 				const second = layerAnimations[j + 1];
@@ -761,7 +877,7 @@ window.initField = () => {
 					str += '</ul>';
 				}
 				layerAnimationItems.push(str);
-			}
+			}*/
 
 			const tileAnimationItems = [];
 			for (let i = 0; i < tileAnimations.length; ++i) {
@@ -792,7 +908,7 @@ window.initField = () => {
 				`[6] map: <code>${bytes(0, room.map.byteLength, room.map)}</code>`,
 				`[7] loadingZones: ${room.loadingZones.byteLength} bytes`,
 				`[8] blending: <ul>${blendingItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
-				`[9] layerAnimations: <ul>${layerAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
+				/*`[9] layerAnimations: <ul>${layerAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,*/
 				`[10] tileAnimations: <ul>${tileAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[11] paletteAnimations BG1: <ul>${fpaf
 					.stringify(room.paletteAnimations[0])
@@ -969,19 +1085,19 @@ window.initField = () => {
 						}
 					}
 
-					// layer animations first
-					for (const { segment } of room.enabledLayerAnimations) {
-						const segmentU16 = bufToU16(segment);
-						const x = segment.getInt16(0, true);
-						const y = segment.getInt16(2, true);
-						const w = segment.getInt16(4, true);
-						const h = segment.getInt16(6, true);
-						for (let i = 0; i < 3; ++i) {
+					// perform toggles
+					for (const { tilemap } of room.togglesEnabled) {
+						const u16 = bufToU16(tilemap);
+						const x = u16[0];
+						const y = u16[1];
+						const w = u16[2];
+						const h = u16[3];
+						for (let layer = 0; layer < 3; ++layer) {
 							for (let j = 0; j < w * h; ++j) {
 								const jx = j % w;
 								const jy = Math.floor(j / w);
-								const newTile = segmentU16[4 + i * w * h + j];
-								if (newTile !== 0x3ff) mapLayouts[i][(y + jy) * layerWidth + x + jx] = newTile;
+								const newTile = u16[4 + layer * w * h + j];
+								if (newTile !== 0x3ff) mapLayouts[layer][(y + jy) * layerWidth + x + jx] = newTile;
 							}
 						}
 					}
@@ -1116,6 +1232,19 @@ window.initField = () => {
 					}
 				}
 
+				if (room.toggleHoveringTilemapRegion) {
+					// drawn when hovering over a "(x,y) size (w,h)" hovery on the side panel area for toggles
+					const { x, y, w, h } = room.toggleHoveringTilemapRegion;
+					const drawX = x - (options.margins.checked ? 0 : 2);
+					const drawY = y - (options.margins.checked ? 0 : 2);
+
+					ctx.fillStyle = '#0008';
+					ctx.strokeStyle = '#fff';
+					ctx.lineWidth = 1;
+					ctx.fillRect(drawX * 8, drawY * 8, w * 8, h * 8);
+					ctx.strokeRect(drawX * 8 + 0.5, drawY * 8 + 0.5, w * 8 - 1, h * 8 - 1);
+				}
+
 				ctx.restore();
 			}
 
@@ -1229,7 +1358,7 @@ window.initField = () => {
 							let o = 8;
 							for (let i = 0; i < numPrisms; ++i, o += 40) {
 								const flags1 = room.collision.getUint16(o, true);
-								const flags2 = room.collision.getUint16(o + 2, true);
+								const id = room.collision.getUint16(o + 2, true) >> 6;
 								const flags3 = room.collision.getUint16(o + 4, true);
 								const flags4 = room.collision.getUint16(o + 6, true);
 
@@ -1256,7 +1385,7 @@ window.initField = () => {
 								if (flags4 & 1) color = [1, 0, 0]; // can't enter
 								if (flags4 & 0xfffc) color = [1, 0.6, 0.1]; // strange attributes (unisolid, grippy, ..)
 
-								if (selectedPrism === i) color = [0, 0, 1];
+								if (selectedPrism === (side.collisionSort.value === 0 ? i : id)) color = [0, 0, 1];
 
 								// random-ish but predictable shading, so depth is way easier to see
 								const rotr8 = (x, r) => (x >> r) | (x << (8 - r));
@@ -1277,19 +1406,20 @@ window.initField = () => {
 								}
 							}
 
-							for (let i = 0; i < numSpecials; ++i, o += 24) {
+							/* for (let i = 0; i < numSpecials; ++i, o += 24) {
 								const x1 = room.collision.getUint16(o + 4, true);
 								const x2 = room.collision.getUint16(o + 6, true);
 								const y1 = room.collision.getUint16(o + 8, true);
 								const y2 = room.collision.getUint16(o + 10, true);
 								const z = room.collision.getUint16(o + 12, true);
 								quad([x1, y1, z], [x2, y1, z], [x2, y2, z], [x1, y2, z], [0.25, 1, 0.25]);
-							}
+							} */
 						}
 					}
 
 					gl.bindBuffer(gl.ARRAY_BUFFER, map3d.buffer);
 					gl.bufferData(gl.ARRAY_BUFFER, vertexFloats, gl.STATIC_DRAW);
+					console.log(vertexFloats, vertexFloatsUsed, 'vertices', vertexFloatsUsed / 3, 'triangles');
 
 					gl.uniform3f(map3d.uniforms.pivot, (minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
 				}
@@ -1361,8 +1491,8 @@ window.initField = () => {
 							// 256-color
 							const tilesetOff = (tile & 0x3ff) * 64;
 							for (let o = 0; o < 64; ++o) {
-								const pos
-									= basePos + ((o >> 3) ^ verticalFlip) * imageWidth + ((o & 7) ^ horizontalFlip);
+								const pos =
+									basePos + ((o >> 3) ^ verticalFlip) * imageWidth + ((o & 7) ^ horizontalFlip);
 								if (tileset[tilesetOff + o]) bitmap[pos] = palette[tileset[tilesetOff + o]];
 							}
 						} else {
@@ -1370,8 +1500,8 @@ window.initField = () => {
 							const paletteShift = (tile >> 12) << 4;
 							const tilesetOff = (tile & 0x3ff) * 32;
 							for (let k = 0, o = 0; k < 64; k += 2, ++o) {
-								const pos
-									= basePos + ((k >> 3) ^ verticalFlip) * imageWidth + ((k & 7) ^ horizontalFlip);
+								const pos =
+									basePos + ((k >> 3) ^ verticalFlip) * imageWidth + ((k & 7) ^ horizontalFlip);
 								const composite = tileset[tilesetOff + o] || 0;
 								if (composite & 0xf) bitmap[pos] = palette[paletteShift | (composite & 0xf)];
 								if (composite >> 4) bitmap[pos ^ 1] = palette[paletteShift | (composite >> 4)];
