@@ -688,7 +688,7 @@ window.initField = () => {
 				side.toggleDisplay.style.display = '';
 				addHTML(
 					side.toggleDisplay,
-					`<div><code>[${index}]</code> header: <code>${bytes(index * 4, 4, toggles[0])}</code></div>`,
+					`<div><code>[${index}]</code> attributes: <code>${bytes(index * 4, 4, toggles[0])}</code></div>`,
 				);
 
 				if (tilemap.byteLength) {
@@ -894,7 +894,9 @@ window.initField = () => {
 						expandable.style.cssText = 'width: 100%; overflow-x: auto; display: none;';
 						expandable.innerHTML = `<table class="bordered">
 							<tr><th>BG1</th><th>BG2</th><th>BG3</th></tr>
-							<tr>${grids.map(x => `<td style="white-space: pre;"><code>${x}</code></td>`).join('')}</tr>
+							<tr>
+								${grids.map((x) => `<td style="white-space: pre;"><code>${x}</code></td>`).join('')}
+							</tr>
 						</table>`;
 						const expander = checkbox('Tilemap', false, () => {
 							expandable.style.display = expander.checked ? '' : 'none';
@@ -908,7 +910,10 @@ window.initField = () => {
 						for (let j = 0; j * 16 < collision.byteLength; ++j) {
 							const segment = sliceDataView(collision, j * 16, j * 16 + 16);
 							const id = segment.getUint16(0, true) >> 1;
-							addHTML(selfList, `<li><code>collision[${j}]: (ID ${id}) ${bytes(2, 14, segment)}</code></li>`);
+							addHTML(
+								selfList,
+								`<li><code>collision[${j}]: (ID ${id}) ${bytes(2, 14, segment)}</code></li>`,
+							);
 						}
 					}
 
