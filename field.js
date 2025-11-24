@@ -663,8 +663,8 @@ window.initField = () => {
 					else room.togglesEnabled.delete(container);
 
 					if (tilemap.byteLength) updateMaps = true;
-					if (toggles[i + 1]?.byteLength) updateOverlay2d = true;
-					if (toggles[i + 2]?.byteLength) updateOverlay3d = updateOverlay3dTriangles = true;
+					if (collision.byteLength) updateOverlay3d = updateOverlay3dTriangles = true;
+					if (depth.byteLength) updateOverlay2d = true;
 
 					updateToggleDisplay();
 				});
@@ -684,10 +684,20 @@ window.initField = () => {
 
 				const { tilemap, depth, collision, index } = container;
 
+				const attributes = toggles[0].getUint32(index * 4, true);
+				const missingFalseVariable = attributes >>> 31;
+				const falseVariable = (attributes >>> 19) & 0xfff;
+				const missingTrueVariable = (attributes >>> 18) & 1;
+				const trueVariable = (attributes >>> 6) & 0xfff;
+
+				const parts = [];
+				if (!missingTrueVariable) parts.push(`var 0x${trueVariable.toString(16).padStart(3, '0')} is true`);
+				if (!missingFalseVariable) parts.push(`var 0x${falseVariable.toString(16).padStart(3, '0')} is false`);
+
 				side.toggleDisplay.style.display = '';
 				addHTML(
 					side.toggleDisplay,
-					`<div><code>[${index}]</code> attributes: <code>${bytes(index * 4, 4, toggles[0])}</code></div>`,
+					`<div><code>[${index}]</code> ${parts.length ? 'when ' + parts.join(' or ') : '(no variable)'}</div>`,
 				);
 
 				if (tilemap.byteLength) {
@@ -719,8 +729,6 @@ window.initField = () => {
 					);
 					addHTML(line, ', ' + changes.join(', '));
 					side.toggleDisplay.append(line);
-				} else {
-					addHTML(side.toggleDisplay, '<div>(no tilemap changes)</div>');
 				}
 
 				if (collision?.byteLength) {
@@ -732,9 +740,7 @@ window.initField = () => {
 						ids.push(id);
 					}
 
-					addHTML(side.toggleDisplay, `<div>prisms ${ids.join(', ')}</div>`);
-				} else {
-					addHTML(side.toggleDisplay, `<div>(no collision changes)</div>`);
+					addHTML(side.toggleDisplay, `<div>prisms: ${ids.join(', ')}</div>`);
 				}
 
 				if (depth?.byteLength) {
@@ -745,9 +751,7 @@ window.initField = () => {
 						ids.push(id);
 					}
 
-					addHTML(side.toggleDisplay, `<div>depths ${ids.join(', ')}</div>`);
-				} else {
-					addHTML(side.toggleDisplay, `<div>(no depth changes)</div>`);
+					addHTML(side.toggleDisplay, `<div>depths: ${ids.join(', ')}</div>`);
 				}
 			};
 
@@ -843,7 +847,7 @@ window.initField = () => {
 					if (tilemap.byteLength) parts.push('tilemap');
 					if (collision.byteLength) parts.push('collision');
 					if (depth.byteLength) parts.push('depth');
-					entry.innerHTML = `<code>[${i}]</code> ${parts.join(', ')}`;
+					entry.innerHTML = `<code>[${i}]</code> has ${parts.length ? parts.join(', ') : 'nothing'}`;
 					list.append(entry);
 					if (!parts.length) continue;
 
@@ -1255,17 +1259,23 @@ window.initField = () => {
 
 				if (options.depth.checked && room.depth.byteLength >= 4) {
 					const numDepths = room.depth.getUint32(0, true);
-					const enabledLayers =
-						!!options.bg1.checked | (!!options.bg2.checked << 1) | (!!options.bg3.checked << 2);
-					for (let i = 0, o = 4; i < numDepths; ++i, o += 12) {
-						const data = room.depth.getUint16(o, true);
-						const flags = room.depth.getUint16(o + 2, true);
-						if (!(flags & enabledLayers)) continue; // don't show if none of its layers are drawn
+					const depths = [];
+					for (let i = 0, o = 4; i < numDepths; ++i, o += 12)
+						depths.push(sliceDataView(room.depth, o, o + 12));
 
-						const x1 = room.depth.getInt16(o + 4, true);
-						const x2 = room.depth.getInt16(o + 6, true);
-						const y1 = room.depth.getInt16(o + 8, true);
-						const y2 = room.depth.getInt16(o + 10, true);
+					for (const toggle of room.togglesEnabled) {
+						if (!toggle.depth.byteLength) continue;
+						for (let o = 0; o < toggle.depth.byteLength; o += 16) {
+							const id = toggle.depth.getUint32(o, true) >> 1;
+							depths[id] = sliceDataView(toggle.depth, o + 4, o + 16);
+						}
+					}
+
+					const enabledLayers =
+						options.bg1.checked | (options.bg2.checked << 1) | (options.bg3.checked << 2);
+					for (const depth of depths) {
+						const [data, flags, x1, x2, y1, y2] = bufToU16(depth);
+						if (!(flags & enabledLayers)) continue; // don't show if its layers are disabled
 
 						const drawX = x1 - (options.margins.checked ? 0 : 16);
 						const drawY = y1 - (options.margins.checked ? 0 : 16);
@@ -1458,15 +1468,6 @@ window.initField = () => {
 									prism(...bottom, ...top, lowColor, midColor, midColor, midColor, color);
 								}
 							}
-
-							/* for (let i = 0; i < numSpecials; ++i, o += 24) {
-								const x1 = room.collision.getUint16(o + 4, true);
-								const x2 = room.collision.getUint16(o + 6, true);
-								const y1 = room.collision.getUint16(o + 8, true);
-								const y2 = room.collision.getUint16(o + 10, true);
-								const z = room.collision.getUint16(o + 12, true);
-								quad([x1, y1, z], [x2, y1, z], [x2, y2, z], [x1, y2, z], [0.25, 1, 0.25]);
-							} */
 						}
 					}
 
@@ -1504,6 +1505,7 @@ window.initField = () => {
 		};
 		render();
 
+		// totally separate from the rest of field.js; this is all you need to render a room
 		field.png = (roomId, bg1, bg2, bg3, margins) => {
 			const room = field.rooms[roomId];
 			const props = unpackSegmented(lzBis(fsext.fmapdata.segments[room.props]));
