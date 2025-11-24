@@ -837,47 +837,93 @@ window.initField = () => {
 				blendingItems.push(`<code>${bytes(0, blending[i].byteLength, blending[i])}</code>`);
 			}
 
-			/*const layerAnimationItems = [];
-			if (layerAnimations.length) {
-				layerAnimationItems.push(`header: <code>${bytes(0, Infinity, layerAnimations[0])}</code>`);
-			}
-			for (let i = 0, j = 1; j < layerAnimations.length; ++i, j += 3) {
-				const segment = layerAnimations[j];
-				const second = layerAnimations[j + 1];
-				const third = layerAnimations[j + 2];
+			if (room.toggles.byteLength) {
+				const segments = unpackSegmented(room.toggles);
+				const container = document.createElement('div');
+				container.innerHTML = '<code>[9] toggles:</code> ';
+				bottomProperties.append(container);
 
-				let str = `<code>${i}:</code> `;
-				if (segment.byteLength >= 8) {
-					const x = segment.getUint16(0, true);
-					const y = segment.getUint16(2, true);
-					const w = segment.getUint16(4, true);
-					const h = segment.getUint16(6, true);
-					str += `<code>(${x}, ${y})</code> size <code>(${w}, ${h})</code>, `;
+				const list = document.createElement('ul');
+				bottomProperties.append(list);
 
-					const displays = [];
-					for (let j = 0; j < 3; ++j) {
-						let tally = 0;
-						for (let k = 0; k < w * h; ++k) {
-							const tile = segment.getUint16(8 + (j * w * h + k) * 2, true);
-							if (tile !== 0x3ff) ++tally;
+				// attributes
+				const parts = [];
+				for (let o = 0; o < segments[0].byteLength; o += 4) {
+					parts.push(`<span style="color: ${o % 8 ? '#666' : '#999'}">${bytes(o, 4, segments[0])}</span>`);
+				}
+				addHTML(list, `<li>attributes: <code>${parts.join(' ')}</code></li>`);
+
+				// toggles (every toggle has corresponding 4-bytes of attributes)
+				for (let i = 0; i * 4 < segments[0].byteLength; ++i) {
+					const tilemap = segments[i * 3 + 1];
+					const collision = segments[i * 3 + 2];
+					const depth = segments[i * 3 + 3];
+
+					const entry = document.createElement('li');
+					entry.innerHTML = `<code>[${i}]</code> tilemap len ${tilemap.byteLength}, collision len ${collision.byteLength}, depth len ${depth.byteLength}`;
+					list.append(entry);
+					if (!tilemap.byteLength && !collision.byteLength && !depth.byteLength) continue;
+
+					const selfList = document.createElement('ul');
+					entry.append(selfList);
+
+					// tilemap
+					if (tilemap.byteLength) {
+						const tilemapEntry = document.createElement('li');
+						selfList.appendChild(tilemapEntry);
+
+						const tilemapU16 = bufToU16(tilemap);
+						const [x, y, w, h] = tilemapU16.slice(0, 4);
+						addHTML(tilemapEntry, `<code>(${x}, ${y}) size (${w}, ${h})</code>`);
+
+						const grids = [];
+						for (let layer = 0, o = 4; layer < 3; ++layer) {
+							const lines = [];
+							for (let y = 0; y < h; ++y) {
+								const line = [];
+								for (let x = 0; x < w; ++x) {
+									const tile = tilemapU16[o++];
+									line.push(tile === 0x3ff ? '----' : str16(tile));
+								}
+								lines.push(line.join(' '));
+							}
+							grids.push(lines.join('\n'));
 						}
 
-						if (tally) displays.push(`BG${j + 1} ${Math.round((tally / (w * h)) * 100)}%`);
+						const expandable = document.createElement('div');
+						expandable.style.cssText = 'width: 100%; overflow-x: auto; display: none;';
+						expandable.innerHTML = `<table class="bordered">
+							<tr><th>BG1</th><th>BG2</th><th>BG3</th></tr>
+							<tr>${grids.map(x => `<td style="white-space: pre;"><code>${x}</code></td>`).join('')}</tr>
+						</table>`;
+						const expander = checkbox('Tilemap', false, () => {
+							expandable.style.display = expander.checked ? '' : 'none';
+						});
+						tilemapEntry.appendChild(expander);
+						tilemapEntry.appendChild(expandable);
 					}
-					str += displays.join(', ');
-				} else {
-					str += '(no tiles)';
-				}
 
-				if (second?.byteLength || third?.byteLength) {
-					str += '<ul>';
-					if (second?.byteLength)
-						str += `<li>second: <code>${bytes(0, second.byteLength, second)}</code></li>`;
-					if (third?.byteLength) str += `<li>third: <code>${bytes(0, third.byteLength, third)}</code></li>`;
-					str += '</ul>';
+					// collision
+					if (collision.byteLength) {
+						for (let j = 0; j * 16 < collision.byteLength; ++j) {
+							const segment = sliceDataView(collision, j * 16, j * 16 + 16);
+							const id = segment.getUint16(0, true) >> 1;
+							addHTML(selfList, `<li><code>collision[${j}]: (ID ${id}) ${bytes(2, 14, segment)}</code></li>`);
+						}
+					}
+
+					// depth
+					if (depth.byteLength) {
+						for (let j = 0; j * 16 < depth.byteLength; ++j) {
+							const segment = sliceDataView(depth, j * 16, j * 16 + 16);
+							const id = segment.getUint32(0, true) >> 1;
+							addHTML(selfList, `<li><code>depth[${j}]: (ID ${id}) ${bytes(4, 12, segment)}</code></li>`);
+						}
+					}
 				}
-				layerAnimationItems.push(str);
-			}*/
+			} else {
+				addHTML(bottomProperties, `<div><code>[9] toggles:</code> (empty)</div>`);
+			}
 
 			const tileAnimationItems = [];
 			for (let i = 0; i < tileAnimations.length; ++i) {
