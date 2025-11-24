@@ -200,7 +200,6 @@ window.initField = () => {
 		sideProperties.appendChild((side.toggleList = document.createElement('div')));
 		sideProperties.appendChild((side.toggleDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.tileAnimList = document.createElement('div')));
-		sideProperties.appendChild((side.metadataDisplay = document.createElement('div')));
 
 		// setup basic 3d overlay
 		const map3d = (() => {
@@ -443,7 +442,7 @@ window.initField = () => {
 				const flags = room.loadingZones.getUint16(o, true);
 				const toRoom = room.loadingZones.getUint16(o + 2, true);
 				const direction = '↑→↓←'[(flags >> 2) & 3];
-				loadingZoneOptions.push(`[${i}] ${direction} 0x${toRoom.toString(16)}`);
+				loadingZoneOptions.push(`[${i}] ${direction} Room 0x${toRoom.toString(16)}`);
 			}
 
 			side.loadingZoneDropdown.replaceWith(
@@ -798,26 +797,6 @@ window.initField = () => {
 				}
 			};
 
-			// side properties map metadata
-			if (fsext.fmapmetadata) {
-				side.metadataDisplay.innerHTML = 'Metadata:';
-				const metadata = bufToU32(fsext.fmapmetadata[options.roomDropdown.value]);
-				addHTML(
-					side.metadataDisplay,
-					`<ul>
-				<li>X.b1: ${metadata[0] & 1}</li>
-				<li>X.b2: ${metadata[0] & 2}</li>
-				<li>X.SELECT map ID: 0x${((metadata[0] >> 2) & 0x3ff).toString(16)}</li>
-				<li>X.SELECT map anim: ${(metadata[0] >> 12) & 0x3ff}</li>
-				<li>X.variable: ${metadata[0] >> 22}</li>
-				<li>Y.unknown: ${metadata[1] & 0x3ffff}</li>
-				<li>Y.baseX: ${metadata[1] >> 20}</li>
-				<li>Z.baseY: ${metadata[2] & 0xfff}</li>
-				<li>Z.musicID: ${metadata[2] >> 12}</li>
-			</ul>`,
-				);
-			}
-
 			// bottom properties
 			bottomProperties.innerHTML = '';
 			addHTML(
@@ -983,6 +962,25 @@ window.initField = () => {
 				`[17] unused: <code>${bytes(0, Math.min(1024, room.props[17].byteLength), room.props[17])}</code>`,
 			];
 			for (const line of lines) addHTML(bottomProperties, '<div>' + line + '</div>');
+
+			// bottom properties map metadata (clean this up later)
+			if (fsext.fmapmetadata) {
+				const metadata = bufToU32(fsext.fmapmetadata[options.roomDropdown.value]);
+				addHTML(
+					bottomProperties,
+					`Metadata: <ul>
+						<li>X.b1: ${metadata[0] & 1}</li>
+						<li>X.b2: ${metadata[0] & 2}</li>
+						<li>X.SELECT map ID: 0x${((metadata[0] >> 2) & 0x3ff).toString(16)}</li>
+						<li>X.SELECT map anim: ${(metadata[0] >> 12) & 0x3ff}</li>
+						<li>X.variable: ${metadata[0] >> 22}</li>
+						<li>Y.unknown: ${metadata[1] & 0x3ffff}</li>
+						<li>Y.baseX: ${metadata[1] >> 20}</li>
+						<li>Z.baseY: ${metadata[2] & 0xfff}</li>
+						<li>Z.musicID: ${metadata[2] >> 12}</li>
+					</ul>`,
+				);
+			}
 		};
 		roomPicked();
 
@@ -1474,7 +1472,6 @@ window.initField = () => {
 
 					gl.bindBuffer(gl.ARRAY_BUFFER, map3d.buffer);
 					gl.bufferData(gl.ARRAY_BUFFER, vertexFloats, gl.STATIC_DRAW);
-					console.log(vertexFloats, vertexFloatsUsed, 'vertices', vertexFloatsUsed / 3, 'triangles');
 
 					gl.uniform3f(map3d.uniforms.pivot, (minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
 				}

@@ -266,9 +266,10 @@
 	const sanitize = (window.sanitize = (s) => s.replaceAll('<', '&lt;').replaceAll('>', '&gt;'));
 
 	const addHTML = (window.addHTML = (el, html) => {
-		const container = document.createElement(el.tagName);
+		const container = document.createElement(el.tagName); // tables do a *lot* of weird stuff without this
 		container.innerHTML = html;
-		for (const child of container.childNodes) el.append(child);
+		// make a copy of childNodes first; it will end up empty
+		for (const child of Array.from(container.childNodes)) el.append(child);
 	});
 
 	const writeRgb16 = (window.writeRgb16 = (bitmap, pixel, rgb16) => {
