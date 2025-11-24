@@ -654,12 +654,12 @@ window.initField = () => {
 			room.togglesEnabled = new Set();
 			room.toggleHoveringTilemapRegion = undefined;
 			const toggles = unpackSegmented(room.toggles);
-			for (let i = 1, j = 0; i < toggles.length; i += 3, ++j) {
+			for (let i = 1, j = 0; i + 1 < toggles.length; i += 3, ++j) {
 				const tilemap = toggles[i];
 				const collision = toggles[i + 1];
 				const depth = toggles[i + 2];
 				const container = { tilemap, collision, depth, index: j };
-				const check = checkbox('', false, () => {
+				const check = checkbox(`<code>${j}</code>`, false, () => {
 					if (check.checked) room.togglesEnabled.add(container);
 					else room.togglesEnabled.delete(container);
 
@@ -840,7 +840,7 @@ window.initField = () => {
 			if (room.toggles.byteLength) {
 				const segments = unpackSegmented(room.toggles);
 				const container = document.createElement('div');
-				container.innerHTML = '<code>[9] toggles:</code> ';
+				container.innerHTML = '<code>[9]</code> toggles: ';
 				bottomProperties.append(container);
 
 				const list = document.createElement('ul');
@@ -860,9 +860,13 @@ window.initField = () => {
 					const depth = segments[i * 3 + 3];
 
 					const entry = document.createElement('li');
-					entry.innerHTML = `<code>[${i}]</code> tilemap len ${tilemap.byteLength}, collision len ${collision.byteLength}, depth len ${depth.byteLength}`;
+					const parts = [];
+					if (tilemap.byteLength) parts.push('tilemap');
+					if (collision.byteLength) parts.push('collision');
+					if (depth.byteLength) parts.push('depth');
+					entry.innerHTML = `<code>[${i}]</code> ${parts.join(', ')}`;
 					list.append(entry);
-					if (!tilemap.byteLength && !collision.byteLength && !depth.byteLength) continue;
+					if (!parts.length) continue;
 
 					const selfList = document.createElement('ul');
 					entry.append(selfList);
@@ -874,7 +878,7 @@ window.initField = () => {
 
 						const tilemapU16 = bufToU16(tilemap);
 						const [x, y, w, h] = tilemapU16.slice(0, 4);
-						addHTML(tilemapEntry, `<code>(${x}, ${y}) size (${w}, ${h})</code>`);
+						addHTML(tilemapEntry, `(${x}, ${y}) size (${w}, ${h}) `);
 
 						const grids = [];
 						for (let layer = 0, o = 4; layer < 3; ++layer) {
@@ -927,7 +931,7 @@ window.initField = () => {
 					}
 				}
 			} else {
-				addHTML(bottomProperties, `<div><code>[9] toggles:</code> (empty)</div>`);
+				addHTML(bottomProperties, `<div><code>[9]</code> toggles:</div>`);
 			}
 
 			const tileAnimationItems = [];
