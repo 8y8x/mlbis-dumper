@@ -197,6 +197,8 @@ window.initField = () => {
 		sideProperties.appendChild((side.collisionSort = dropdown([''], 0, () => {})));
 		sideProperties.appendChild((side.collisionDropdown = dropdown([''], 0, () => {})));
 		sideProperties.appendChild((side.collisionDisplay = document.createElement('div')));
+		sideProperties.appendChild((side.depthDropdown = dropdown([''], 0, () => {})));
+		sideProperties.appendChild((side.depthDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.toggleList = document.createElement('div')));
 		sideProperties.appendChild((side.toggleDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.tileAnimList = document.createElement('div')));
@@ -478,6 +480,7 @@ window.initField = () => {
 			side.loadingZoneDisplay.innerHTML = '';
 
 			// side properties collision
+			let updateCollisionDisplay = () => {};
 			if (room.collision.byteLength) {
 				side.collisionSort.replaceWith(
 					(side.collisionSort = dropdown(
@@ -488,10 +491,118 @@ window.initField = () => {
 						true,
 					)),
 				);
-				const updateCollisionDropdown = () => {
-					const numBoxes = room.collision.getUint32(0, true);
-					const numSpecials = room.collision.getUint32(4, true);
 
+				const numBoxes = room.collision.getUint32(0, true);
+				const numSpecials = room.collision.getUint32(4, true);
+
+				updateCollisionDisplay = () => {
+					updateOverlay3d = updateOverlay3dTriangles = true;
+					if (side.collisionDropdown.value === 0) {
+						side.collisionDisplay.innerHTML = '';
+						return;
+					}
+
+					const index = side.collisionDropdown.value - 1;
+					let o = 8;
+					o += Math.min(index, numBoxes) * 40; // first chunk of prisms
+					o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things (layer changes?)
+
+					// prism
+					let config = room.collision.getUint16(o, true);
+					let id = room.collision.getUint16(o + 2, true) >> 6;
+					let solidActions = room.collision.getUint16(o + 4, true);
+					let attributes = room.collision.getUint16(o + 6, true);
+					let translateUp = 0;
+					let expandDown = 0;
+					for (const toggle of room.togglesEnabled) {
+						if (!toggle.collision.byteLength) continue;
+						const s16 = bufToS16(toggle.collision);
+						for (let o2 = 0; o2 < s16.length; o2 += 8) {
+							if (s16[o2] >> 1 !== id) continue;
+							translateUp = s16[o2 + 2];
+							expandDown = s16[o2 + 5];
+							solidActions = s16[o2 + 6];
+							attributes = s16[o2 + 7];
+						}
+					}
+
+					const html = [];
+
+					const configStrings = [];
+					if (config & 1) configStrings.push('last');
+					if (config & 2) configStrings.push('above another');
+					if (config & 4) configStrings.push('simple');
+					if (configStrings.length) html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
+
+					for (let i = 0; i < 4; ++i) {
+						const x = room.collision.getInt16(o + 8 + i * 8, true);
+						const y = room.collision.getInt16(o + 8 + i * 8 + 2, true);
+						const ztop = room.collision.getInt16(o + 8 + i * 8 + 4, true) + translateUp;
+						const zbottom = room.collision.getInt16(o + 8 + i * 8 + 6, true) + translateUp - expandDown;
+
+						if (i === 3 && !(config & 8)) {
+							// (config & 8) means the prism is four-pointed, 0 if three-pointed
+							// very few prisms have a fourth vertex that isn't zeroed out
+							if (x || y || ztop || zbottom) {
+								html.push(
+									`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
+								);
+							}
+						} else {
+							html.push(`<div>v${i + 1} <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`);
+						}
+					}
+
+					const actions = [
+						'No action', // 0x1
+						'M&L Drilling', // 0x2
+						'Mini Mario', // 0x4
+						'M&L Stacked', // 0x8
+						'M&L Twirling', // 0x10
+						'M&L Slooshy', // 0x20
+						'0x0040', // 0x40 (not unused?)
+						'M&L Balloony', // 0x80
+						'B Flaming*', // 0x100 (different from 0x2000; flame always appears)
+						'B Spike Balling', // 0x200 (not unused?)
+						'0x0400', // 0x400 (not unused?)
+						undefined, // 0x800 (unused?)
+						'M&L Hammering/B Punching', // 0x1000
+						'B Flaming', // 0x2000
+						undefined, // 0x4000 (unused?)
+						undefined, // 0x8000 (unused?)
+					];
+					const solidNames = [];
+					const notSolidNames = [];
+					for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
+						if (!actions[i]) continue;
+						if (solidActions & bit) solidNames.push(actions[i]);
+						else notSolidNames.push(actions[i]);
+					}
+					if (notSolidNames.length === 0) {
+						// do nothing
+					} else if (solidNames.length === 0) {
+						// not solid at all
+						html.push('<div style="color: #0f0;">Not solid</div>');
+					} else if (solidNames.length >= notSolidNames.length) {
+						html.push(`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`);
+					} else {
+						html.push(`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`);
+					}
+
+					const attributeStrings = [];
+					if (attributes & 1) attributeStrings.push('no-enter');
+					if (attributes & 4) attributeStrings.push('spike ball grippy');
+					if (attributes & 0x40) attributeStrings.push('unisolid');
+
+					if (attributeStrings.length)
+						html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
+							Attributes: ${attributeStrings.join(', ')}</div>`);
+
+					side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
+						margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
+				};
+
+				const updateCollisionDropdown = () => {
 					let options = [[-Infinity, `${numBoxes} prisms`]];
 					for (let i = 0, o = 8; i < numBoxes; ++i, o += 40) {
 						const id = room.collision.getUint16(o + 2, true) >> 6;
@@ -499,7 +610,8 @@ window.initField = () => {
 						const attributes = room.collision.getUint16(o + 6, true);
 
 						let color;
-						if (solidActions !== 0xffff) color = '#0ff';
+						if (solidActions === 0) color = '#0f0';
+						else if ((solidActions & 0x37ff) !== 0x37ff) color = '#0ff';
 						if (attributes & 0xfffe) color = '#f90';
 						if (attributes & 1) color = '#f00';
 
@@ -514,114 +626,7 @@ window.initField = () => {
 						(side.collisionDropdown = dropdown(
 							options,
 							0,
-							() => {
-								updateOverlay3d = updateOverlay3dTriangles = true;
-								if (side.collisionDropdown.value === 0) {
-									side.collisionDisplay.innerHTML = '';
-									return;
-								}
-
-								const index = side.collisionDropdown.value - 1;
-								let o = 8;
-								o += Math.min(index, numBoxes) * 40; // first chunk of prisms
-								o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things
-
-								if (index < numBoxes) {
-									// prism
-									const config = room.collision.getUint16(o, true);
-									const debugId = room.collision.getUint16(o + 2, true);
-									const solidActions = room.collision.getUint16(o + 4, true);
-									const attributes = room.collision.getUint16(o + 6, true);
-
-									const html = [];
-
-									const configStrings = [];
-									if (config & 1) configStrings.push('last');
-									// if (config & 2) configStrings.push('snaps up'); // needs more research
-									if (config & 4) configStrings.push('simple');
-									if (configStrings.length)
-										html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
-
-									for (let i = 0; i < 4; ++i) {
-										const x = room.collision.getInt16(o + 8 + i * 8, true);
-										const y = room.collision.getInt16(o + 8 + i * 8 + 2, true);
-										const ztop = room.collision.getInt16(o + 8 + i * 8 + 4, true);
-										const zbottom = room.collision.getInt16(o + 8 + i * 8 + 6, true);
-
-										if (i === 3 && !(config & 8)) {
-											// (config & 8) means the prism is four-pointed, 0 if three-pointed
-											// very few prisms have a fourth vertex that isn't zeroed out
-											if (x || y || ztop || zbottom) {
-												html.push(
-													`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
-												);
-											}
-										} else {
-											html.push(
-												`<div>v${i + 1} <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
-											);
-										}
-									}
-
-									const actions = [
-										'Walking', // 0x1
-										'M&L Drilling', // 0x2
-										'Mini Mario', // 0x4
-										'M&L Stacked (before drill/twirl)', // 0x8
-										'M&L Twirling', // 0x10
-										undefined, // 0x20
-										undefined, // 0x40
-										undefined, // 0x80
-										'B Spike Balling', // 0x100
-										undefined, // 0x200
-										undefined, // 0x400
-										undefined, // 0x800
-										'M&L Hammering / B Punching', // 0x1000
-										'B Flaming', // 0x2000
-										undefined, // 0x4000
-										undefined, // 0x8000
-									];
-									const solidNames = [];
-									const notSolidNames = [];
-									for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
-										if (!actions[i]) continue;
-										if (solidActions & bit) solidNames.push(actions[i]);
-										else notSolidNames.push(actions[i]);
-									}
-									if (notSolidNames.length === 0) {
-										// do nothing
-									} else if (solidNames.length === 0) {
-										// not solid at all?
-										html.push('<div style="color: #0ff;">Not solid</div>');
-									} else if (solidNames.length >= notSolidNames.length) {
-										html.push(
-											`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`,
-										);
-									} else {
-										html.push(
-											`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`,
-										);
-									}
-
-									const attributeStrings = [];
-									if (attributes & 1) attributeStrings.push('no-enter');
-									if (attributes & 4) attributeStrings.push('spike ball grippy');
-									if (attributes & 0x40) attributeStrings.push('unisolid');
-
-									if (attributeStrings.length)
-										html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
-							Attributes: ${attributeStrings.join(', ')}</div>`);
-
-									html.push(`<div><code>${bytes(o, 40, room.collision)}</code></div>`);
-
-									side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-								margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
-								} else {
-									// special
-									side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-								margin-left: 1px; padding-left: 8px;"><code>${bytes(o, 24, room.collision)}</code></div>`;
-								}
-							},
+							() => updateCollisionDisplay(),
 							() => {
 								updateOverlay3d = updateOverlay3dTriangles = true;
 							},
@@ -643,6 +648,35 @@ window.initField = () => {
 			}
 			side.collisionDisplay.innerHTML = '';
 
+			// side properties depth
+			if (room.depth.byteLength) {
+				const numFaces = room.depth.getUint32(0, true);
+				const options = [`${numFaces} faces`];
+				for (let i = 0; i < numFaces; ++i) options.push(`${i}. Face`);
+				side.depthDropdown.replaceWith(
+					(side.depthDropdown = dropdown(
+						options,
+						0,
+						() => {
+							updateOverlay2d = true;
+							if (side.depthDropdown.value === 0) {
+								side.depthDisplay.innerHTML = '';
+								return;
+							}
+
+							const index = side.depthDropdown.value - 1;
+							side.depthDisplay.innerHTML = `<div style="border-left: 1px solid #76f; margin-left: 1px; padding-left: 8px;"><code>${bytes(4 + index * 12, 12, room.depth)}</code></div>`;
+						},
+						() => {
+							updateOverlay2d = true;
+						},
+					)),
+				);
+			} else {
+				side.depthDropdown.replaceWith((side.depthDropdown = dropdown(['0 faces'], 0, () => {})));
+			}
+			side.depthDisplay.innerHTML = '';
+
 			// side properties toggles
 			side.toggleDisplay.style.cssText =
 				'border-left: 1px solid var(--checkbox-fg); margin-left: 1px; padding: 2px 0 2px 8px;';
@@ -663,7 +697,10 @@ window.initField = () => {
 					else room.togglesEnabled.delete(container);
 
 					if (tilemap.byteLength) updateMaps = true;
-					if (collision.byteLength) updateOverlay3d = updateOverlay3dTriangles = true;
+					if (collision.byteLength) {
+						updateCollisionDisplay();
+						updateOverlay3d = updateOverlay3dTriangles = true;
+					}
 					if (depth.byteLength) updateOverlay2d = true;
 
 					updateToggleDisplay();
@@ -829,27 +866,32 @@ window.initField = () => {
 				const list = document.createElement('ul');
 				bottomProperties.append(list);
 
-				// attributes
-				const parts = [];
-				for (let o = 0; o < segments[0].byteLength; o += 4) {
-					parts.push(`<span style="color: ${o % 8 ? '#666' : '#999'}">${bytes(o, 4, segments[0])}</span>`);
-				}
-				addHTML(list, `<li>attributes: <code>${parts.join(' ')}</code></li>`);
-
 				// toggles (every toggle has corresponding 4-bytes of attributes)
 				for (let i = 0; i * 4 < segments[0].byteLength; ++i) {
+					const entry = document.createElement('li');
+
+					const parts1 = [];
+					const attributes = segments[0].getUint32(i * 4, true);
+					const falseVariable = attributes >>> 19;
+					const trueVariable = (attributes >>> 6) & 0x1fff;
+					if (falseVariable !== 0x1fff)
+						parts1.push(`var <code>0x${falseVariable.toString(16).padStart(3, '0')}</code> is false`);
+					if (trueVariable !== 0x1fff)
+						parts1.push(`var <code>0x${trueVariable.toString(16).padStart(3, '0')}</code> is true`);
+
+					const parts2 = [];
 					const tilemap = segments[i * 3 + 1];
 					const collision = segments[i * 3 + 2];
 					const depth = segments[i * 3 + 3];
+					if (tilemap.byteLength) parts2.push('tilemap');
+					if (collision.byteLength) parts2.push('collision');
+					if (depth.byteLength) parts2.push('depth');
 
-					const entry = document.createElement('li');
-					const parts = [];
-					if (tilemap.byteLength) parts.push('tilemap');
-					if (collision.byteLength) parts.push('collision');
-					if (depth.byteLength) parts.push('depth');
-					entry.innerHTML = `<code>[${i}]</code> has ${parts.length ? parts.join(', ') : 'nothing'}`;
+					entry.innerHTML = `<code>[${i}]</code> ${parts1.length ? `when ${parts1.join(' or ')}, ` : ''}
+						has ${parts2.length ? parts2.join(', ') : 'nothing'}`;
 					list.append(entry);
-					if (!parts.length) continue;
+
+					if (!(attributes & 7)) continue; // no tilemap, collision, or depth
 
 					const selfList = document.createElement('ul');
 					entry.append(selfList);
@@ -1271,10 +1313,10 @@ window.initField = () => {
 						}
 					}
 
-					const enabledLayers =
-						options.bg1.checked | (options.bg2.checked << 1) | (options.bg3.checked << 2);
-					for (const depth of depths) {
-						const [data, flags, x1, x2, y1, y2] = bufToU16(depth);
+					const enabledLayers = options.bg1.checked | (options.bg2.checked << 1) | (options.bg3.checked << 2);
+					const selectedIndex = (side.depthDropdown.hovered ?? side.depthDropdown.value) - 1;
+					for (let i = 0; i < depths.length; ++i) {
+						const [data, flags, x1, x2, y1, y2] = bufToU16(depths[i]);
 						if (!(flags & enabledLayers)) continue; // don't show if its layers are disabled
 
 						const drawX = x1 - (options.margins.checked ? 0 : 16);
@@ -1282,7 +1324,7 @@ window.initField = () => {
 
 						ctx.fillStyle =
 							'#' + [0, 1, 2].map((i) => (flags & enabledLayers & (1 << i) ? 'f' : '6')).join('') + '8';
-						ctx.strokeStyle = '#000';
+						ctx.strokeStyle = selectedIndex === i ? '#fff' : '#000';
 						ctx.lineWidth = 1;
 						ctx.fillRect(drawX, drawY, x2 - x1, y2 - y1);
 						ctx.strokeRect(drawX + 0.5, drawY + 0.5, x2 - x1 - 1, y2 - y1 - 1);
@@ -1420,19 +1462,33 @@ window.initField = () => {
 
 							let o = 8;
 							for (let i = 0; i < numPrisms; ++i, o += 40) {
-								const flags1 = room.collision.getUint16(o, true);
-								const id = room.collision.getUint16(o + 2, true) >> 6;
-								const flags3 = room.collision.getUint16(o + 4, true);
-								const flags4 = room.collision.getUint16(o + 6, true);
+								let config = room.collision.getUint16(o, true);
+								let id = room.collision.getUint16(o + 2, true) >> 6;
+								let solidActions = room.collision.getUint16(o + 4, true);
+								let attributes = room.collision.getUint16(o + 6, true);
+								let translateUp = 0;
+								let expandDown = 0;
+								for (const toggle of room.togglesEnabled) {
+									if (!toggle.collision.byteLength) continue;
+									const s16 = bufToS16(toggle.collision);
+									for (let o2 = 0; o2 < s16.length; o2 += 8) {
+										if (s16[o2] >> 1 !== id) continue;
+										translateUp = s16[o2 + 2];
+										expandDown = s16[o2 + 5];
+										solidActions = s16[o2 + 6];
+										attributes = s16[o2 + 7];
+									}
+								}
 
-								const fourPointed = flags1 & 8;
+								const fourPointed = config & 8;
 								const top = [];
 								const bottom = [];
 								for (let j = 0; j < (fourPointed ? 4 : 3); ++j) {
 									const x = room.collision.getInt16(o + 8 + j * 8, true);
 									const y = room.collision.getInt16(o + 8 + j * 8 + 2, true);
-									const z1 = room.collision.getInt16(o + 8 + j * 8 + 4, true);
-									const z2 = room.collision.getInt16(o + 8 + j * 8 + 6, true);
+									const z1 = room.collision.getInt16(o + 8 + j * 8 + 4, true) + translateUp;
+									const z2 =
+										room.collision.getInt16(o + 8 + j * 8 + 6, true) + translateUp - expandDown;
 									top.push([x, y, z1]);
 									bottom.push([x, y, z2]);
 								}
@@ -1444,9 +1500,11 @@ window.initField = () => {
 									bottom[3]?.[2] === top[3]?.[2];
 
 								let color = [1, 1, 1];
-								if (flags3 !== 0xffff) color = [0, 1, 1]; // not solid in at least one action
-								if (flags4 & 1) color = [1, 0, 0]; // can't enter
-								if (flags4 & 0xfffc) color = [1, 0.6, 0.1]; // strange attributes (unisolid, grippy, ..)
+								if (!solidActions)
+									color = [0, 1, 0]; // not solid at all
+								else if ((solidActions & 0x37ff) !== 0x37ff) color = [0, 1, 1]; // not solid sometimes
+								if (attributes & 1) color = [1, 0, 0]; // can't enter
+								if (attributes & 0xfffc) color = [1, 0.6, 0.1]; // strange attributes (unisolid, grippy, ..)
 
 								if (selectedPrism === (side.collisionSort.value === 0 ? i : id)) color = [0, 0, 1];
 
