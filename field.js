@@ -502,10 +502,18 @@ window.initField = () => {
 						return;
 					}
 
-					const index = side.collisionDropdown.value - 1;
-					let o = 8;
-					o += Math.min(index, numBoxes) * 40; // first chunk of prisms
-					o += Math.max(index - numBoxes, 0) * 24; // second chunk of... things (layer changes?)
+					let index = side.collisionDropdown.value - 1;
+					if (side.collisionSort.value === 1) {
+						// by id
+						for (let i = 0; i < numBoxes; ++i) {
+							const id = room.collision.getUint16(8 + i * 40 + 2, true) >> 6;
+							if (id === side.collisionDropdown.value - 1) {
+								index = i;
+								break;
+							}
+						}
+					}
+					let o = 8 + index * 40;
 
 					// prism
 					let config = room.collision.getUint16(o, true);
@@ -528,11 +536,11 @@ window.initField = () => {
 
 					const html = [];
 
-					const configStrings = [];
-					if (config & 1) configStrings.push('last');
-					if (config & 2) configStrings.push('above another');
-					if (config & 4) configStrings.push('simple');
-					if (configStrings.length) html.push(`<div>Config: ${configStrings.join(', ')}</div>`);
+					const configNames = [];
+					if (config & 1) configNames.push('last');
+					if (config & 2) configNames.push('above another');
+					if (config & 4) configNames.push('simple');
+					if (configNames.length) html.push(`<div>Config: ${configNames.join(', ')}</div>`);
 
 					for (let i = 0; i < 4; ++i) {
 						const x = room.collision.getInt16(o + 8 + i * 8, true);
@@ -560,11 +568,11 @@ window.initField = () => {
 						'M&L Stacked', // 0x8
 						'M&L Twirling', // 0x10
 						'M&L Slooshy', // 0x20
-						'0x0040', // 0x40 (not unused?)
+						'0x0040', // 0x40
 						'M&L Balloony', // 0x80
-						'B Flaming*', // 0x100 (different from 0x2000; flame always appears)
-						'B Spike Balling', // 0x200 (not unused?)
-						'0x0400', // 0x400 (not unused?)
+						'M&L Blue Shell/B Flaming*', // 0x100 (different from 0x2000; flame always appears)
+						'B Spike Balling', // 0x200
+						'0x0400', // 0x400
 						undefined, // 0x800 (unused?)
 						'M&L Hammering/B Punching', // 0x1000
 						'B Flaming', // 0x2000
@@ -579,9 +587,8 @@ window.initField = () => {
 						else notSolidNames.push(actions[i]);
 					}
 					if (notSolidNames.length === 0) {
-						// do nothing
+						// do nothing, normal collision
 					} else if (solidNames.length === 0) {
-						// not solid at all
 						html.push('<div style="color: #0f0;">Not solid</div>');
 					} else if (solidNames.length >= notSolidNames.length) {
 						html.push(`<div style="color: #0ff;">Solid unless: ${notSolidNames.join(', ')}</div>`);
@@ -589,14 +596,18 @@ window.initField = () => {
 						html.push(`<div style="color: #0ff;">Not solid unless: ${solidNames.join(', ')}</div>`);
 					}
 
-					const attributeStrings = [];
-					if (attributes & 1) attributeStrings.push('no-enter');
-					if (attributes & 4) attributeStrings.push('spike ball grippy');
-					if (attributes & 0x40) attributeStrings.push('unisolid');
-
-					if (attributeStrings.length)
-						html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
-							Attributes: ${attributeStrings.join(', ')}</div>`);
+					const attributeNames = [
+						'no-enter', // 0x1
+						'no hammer bonk', // 0x2
+						'spike ball grippy', // 0x4
+						'0x08', // 0x8 (not understood)
+						'0x10', // 0x10 (not understood)
+						'0x20', // 0x20 (not understood)
+						'unisolid', // 0x40
+					].filter((_,i) => attributes & (1 << i));
+					if (attributeNames.length)
+						html.push(`<div style="color: ${(attributes & 1) ? '#f00' : '#f90'}">
+							Attributes: ${attributeNames.join(', ')}</div>`);
 
 					side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
 						margin-left: 1px; padding-left: 8px;">${html.join(' ')}</div>`;
