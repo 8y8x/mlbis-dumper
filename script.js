@@ -1164,7 +1164,7 @@
 			addHTML(
 				content,
 				`<span style="color: #f99;">${sanitize(err.name)}: ${sanitize(err.message)}<br>
-				${sanitize(err.stack).replace('\n', '<br>')}</span>`,
+				${sanitize(err.stack).replaceAll('\n', '<br>')}</span>`,
 			);
 		}
 
@@ -2532,18 +2532,6 @@
 			}
 
 			return png(bitmap, 512, margins ? 256 : 192);
-
-			/*
-			battle.room = room = {
-				tileset: rawRoom.tileset?.byteLength ? bufToU8(lzBis(rawRoom.tileset)) : undefined,
-				palette: rawRoom.palette?.byteLength ? rgb15To32(bufToU16(rawRoom.palette)) : undefined,
-				tilemaps: rawRoom.tilemaps.map((x) => (x?.byteLength ? bufToU16(x) : undefined)),
-				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength
-					? bufToU8(lzBis(rawRoom.tilesetAnimated))
-					: undefined,
-				paletteAnimations: rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [],
-			};
-			*/
 		};
 
 		return battle;
