@@ -1589,18 +1589,20 @@
 
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
+			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
 			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
 			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
-			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
+
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
+			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
+			fsext.fobjPalettes = fixedSegments(0x150c8, 0x15854, 4, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
+			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
 			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
 			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
@@ -1611,7 +1613,7 @@
 			// JP
 			fsext.fevent = varLengthSegments(0xcb18, fs.overlay(3));
 			fsext.fmapdata = varLengthSegments(0x11544, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xeb0c, fs.overlay(3));
+			fsext.fobj = varLengthSegments(0xeb0c, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0xbca8, fs.overlay(3));
 			fsext.fobjpc = varLengthSegments(0xc01c, fs.overlay(3));
 			fsext.fpaf = varLengthSegments(0xbb0c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
@@ -1622,7 +1624,7 @@
 			// EU
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3));
+			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
 			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
 			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
@@ -1633,7 +1635,7 @@
 			// EU Demo
 			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
 			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3));
+			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
 			fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
 			fsext.fpaf = varLengthSegments(0x965c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
@@ -1644,7 +1646,7 @@
 			// NA Demo
 			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
 			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3));
+			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
 			fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
 			fsext.fpaf = varLengthSegments(0x965c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
@@ -1862,6 +1864,7 @@
 						break commandLoop;
 					} else {
 						parts.push(`(0x${commandStr} 0x${str16(segment[o++] ?? 0)})`);
+						console.warn(`unknown command 0x${commandStr}`);
 					}
 				}
 
@@ -3392,6 +3395,69 @@
 		update();
 
 		return font;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Object Palette Animations                                                                            |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const objpalanim = (window.objpalanim = createSection('Object Palette Animations', (section) => {
+		const objpalanim = {};
+
+		const fileSelect = dropdown(['FObj'], 0, () => updateFile());
+		section.appendChild(fileSelect);
+
+		const table = document.createElement('table');
+		table.style.cssText = 'border-collapse: collapse;';
+		section.appendChild(table);
+
+		const updateFile = () => {
+			let paletteTable, segmentsTable;
+			if (fileSelect.value === 0) paletteTable = fsext.fobjPalettes, segmentsTable = fsext.fobj;
+
+			if (!paletteTable) {
+				table.innerHTML = '<tr><td>This entry doesn\'t exist in fpaf</td></tr>';
+				return;
+			}
+
+			table.innerHTML = '';
+			for (let i = 0; i < paletteTable.length; ++i) {
+				const palAnimIndex = paletteTable[i].getInt16(2, true);
+				if (palAnimIndex === -1) continue;
+
+				const bigSeg = fsext.fobj.segments[palAnimIndex];
+				let segments;
+				try {
+					segments = unpackSegmented16(bigSeg);
+				} catch (err) {
+					addHTML(table, `<tr style="border-bottom: 1px solid #666;">
+						<td><code>${i}</code></td>
+						<td style="padding: 10px 0;"><code>${bytes(0, bigSeg.byteLength, bigSeg)}</code></td>
+					</tr>`);
+					continue;
+				}
+
+				const items = [`<li><code>${bytes(0, segments[0].byteLength, segments[0])}</code></li>`];
+				for (let i = 1; i < segments.length - 1; ++i) {
+					try {
+						items.push(`<li><code>${fpaf.stringify([segments[i]]).join('<br>')}</code></li>`);
+					} catch (err) {
+						items.push(`<li><code>${bytes(0, segments[i].byteLength, segments[i])}</code></li>`);
+					}
+				}
+
+				addHTML(
+					table,
+					`<tr style="border-bottom: 1px solid #666;">
+						<td><code>${i} (s${palAnimIndex})</code></td>
+						<td style="padding: 10px 0;"><ul>${items.join('')}</ul></td>
+					</tr>`,
+				);
+			}
+		};
+		updateFile();
+
+		return objpalanim;
 	}));
 
 	// add spacing to the bottom of the page, for better scrolling
