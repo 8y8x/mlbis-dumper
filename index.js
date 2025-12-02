@@ -593,7 +593,7 @@
 			let output;
 			if (singleDecompression.value === 0) output = fsentry;
 			else {
-				const overlayId = fileToOverlayId.get(singleSelect.value);
+				const overlayId = fileToOverlayId.get(singleSelect.value - 2);
 				if (overlayId !== undefined) output = fs.overlay(overlayId, true);
 				else output = fsentry;
 			}
