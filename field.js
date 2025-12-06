@@ -1207,7 +1207,7 @@ window.initField = () => {
 								const jx = j % w;
 								const jy = Math.floor(j / w);
 								const newTile = u16[4 + layer * w * h + j];
-								if (newTile !== 0x3ff) mapLayouts[layer][(y + jy) * layerWidth + x + jx] = newTile;
+								if ((newTile & 0x3ff) !== 0x3ff) mapLayouts[layer][(y + jy) * layerWidth + x + jx] = newTile;
 							}
 						}
 					}
