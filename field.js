@@ -199,6 +199,8 @@ window.initField = () => {
 		sideProperties.appendChild((side.collisionDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.depthDropdown = dropdown([''], 0, () => {})));
 		sideProperties.appendChild((side.depthDisplay = document.createElement('div')));
+		sideProperties.appendChild((side.blendingList = document.createElement('div')));
+		sideProperties.appendChild((side.blendingDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.toggleList = document.createElement('div')));
 		sideProperties.appendChild((side.toggleDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.tileAnimList = document.createElement('div')));
@@ -313,6 +315,7 @@ window.initField = () => {
 		})();
 
 		field.room = undefined;
+		field.state = undefined;
 
 		const paletteImages = [0, 1, 2].map(() => new ImageData(16, 16));
 		const tilesetImages = [0, 1, 2].map(() => new ImageData(256, 256));
@@ -338,6 +341,7 @@ window.initField = () => {
 				palettes: [room.props[3], room.props[4], room.props[5]].map((buf) => rgb15To32(bufToU16(buf))),
 				map: room.props[6],
 				loadingZones: room.props[7],
+				blending: room.props[8],
 				toggles: room.props[9],
 				tileAnimations: room.props[10],
 				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map((buf) =>
@@ -347,6 +351,10 @@ window.initField = () => {
 				depth: room.props[15],
 			});
 			room.enabledTileAnimations = new Set();
+
+			field.state = {
+				blendingSelected: undefined,
+			};
 
 			const mapWidth = room.map.getUint16(0, true);
 			const mapHeight = room.map.getUint16(2, true);
@@ -688,6 +696,48 @@ window.initField = () => {
 			}
 			side.depthDisplay.innerHTML = '';
 
+			// side properties blending
+			side.blendingDisplay.style.cssText =
+				'border-left: 1px solid var(--checkbox-fg); margin-left: 1px; padding: 2px 0 2px 8px;';
+			side.blendingDisplay.style.display = 'none';
+			side.blendingDisplay.innerHTML = '';
+			side.blendingList.innerHTML = 'Blending: ';
+
+			const blending = unpackSegmented(room.blending);
+			const blendingChecks = [];
+			for (let i = 0; i < blending.length; ++i) {
+				const check = checkbox(`<code>${i}</code>`, false, () => {
+					updateMaps = true;
+					if (check.checked) {
+						for (const otherCheck of blendingChecks) {
+							if (otherCheck !== check) otherCheck.set(false, true);
+						}
+						field.state.blendingSelected = blending[i];
+
+						const layersA = (blending[i].getUint16(2, true) >> 1) & 0x1f;
+						const aIncludesUI = blending[i].getUint16(2, true) & 0x80;
+						const layersB = (blending[i].getUint16(2, true) >> 8) & 0x1f;
+						const alphaA = blending[i].getUint16(4, true) & 0x1f;
+						const alphaB = (blending[i].getUint16(4, true) >> 5) & 0x1f;
+						
+						const layersAList = ['(?)', 'BG1', 'BG2', 'BG3', 'Obj'].filter((_, i) => layersA & (1 << i));
+						const layersBList = ['BG2', 'BG3', 'Obj', '(?)', 'BG1'].filter((_, i) => layersB & (1 << i));
+						side.blendingDisplay.innerHTML = `
+							A (${alphaA}/16): ${layersAList.join(', ')} ${aIncludesUI ? '(with UI)' : ''}<br>
+							B (${alphaB}/16): ${layersBList.join(', ')}
+						`;
+						side.blendingDisplay.style.display = '';
+					} else {
+						// turning off blending
+						field.state.blendingSelected = undefined;
+						side.blendingDisplay.innerHTML = '';
+						side.blendingDisplay.style.display = 'none';
+					}
+				});
+				side.blendingList.appendChild(check);
+				blendingChecks.push(check);
+			}
+
 			// side properties toggles
 			side.toggleDisplay.style.cssText =
 				'border-left: 1px solid var(--checkbox-fg); margin-left: 1px; padding: 2px 0 2px 8px;';
@@ -862,12 +912,40 @@ window.initField = () => {
 				</code></div>`,
 			);
 
-			const blendingItems = [];
-			const blending = unpackSegmented(room.props[8]);
-			for (let i = 0; i < blending.length; ++i) {
-				blendingItems.push(`<code>${bytes(0, blending[i].byteLength, blending[i])}</code>`);
+			// [8] blending
+			{
+				const segments = unpackSegmented(room.props[8]);
+				const container = document.createElement('div');
+				container.innerHTML = '<code>[8]</code> blending: ';
+				bottomProperties.appendChild(container);
+
+				const list = document.createElement('ul');
+				container.appendChild(list);
+
+				for (let i = 0; i < segments.length; ++i) {
+					const blend = bufToU16(segments[i]);
+					const groupA = (blend[1] >> 1) & 0x1f;
+					const groupB = (blend[1] >> 8) & 0x1f;
+					const alphaA = blend[2] & 0x1f;
+					const alphaB = (blend[2] >> 5) & 0x1f;
+
+					const stringsA = [];
+					const stringsB = [];
+					['(?)', 'BG1', 'BG2', 'BG3', 'Obj'].forEach((name, i) => {
+						if (groupA & (1 << i)) stringsA.push(name);
+					});
+					// I have no idea why the order is different, or if this even is the correct orde
+					['BG2', 'BG3', 'Obj', '(?)', 'BG1'].forEach((name, i) => {
+						if (groupB & (1 << i)) stringsB.push(name);
+					});
+					addHTML(list, `<li><code>[${i}] (${bytes(0, 8, blend)})</code>
+						group A (alpha ${alphaA}/16): ${stringsA.join(', ')}${(blend[1] & 0x80) ? ' (with UI)' : ''};
+						group B (alpha ${alphaB}/16): ${stringsB.join(', ')}
+					</li>`);
+				}
 			}
 
+			// [9] toggles
 			if (room.toggles.byteLength) {
 				const segments = unpackSegmented(room.toggles);
 				const container = document.createElement('div');
@@ -998,8 +1076,6 @@ window.initField = () => {
 			const lines = [
 				`[6] map: <code>${bytes(0, room.map.byteLength, room.map)}</code>`,
 				`[7] loadingZones: ${room.loadingZones.byteLength} bytes`,
-				`[8] blending: <ul>${blendingItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
-				/*`[9] layerAnimations: <ul>${layerAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,*/
 				`[10] tileAnimations: <ul>${tileAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
 				`[11] paletteAnimations BG1: <ul>${fpaf
 					.stringify(room.paletteAnimations[0])
@@ -1067,25 +1143,23 @@ window.initField = () => {
 				updatePalettes = updateTiles = updateMaps = true;
 			}
 			if (updatePalettes) {
-				for (let i = 0; i < 3; ++i) {
-					const ctx = paletteCanvases[i].getContext('2d');
-					if (!room.palettes[i]?.byteLength) {
-						palettes[i] = room.palettes[i];
+				for (let layer = 0; layer < 3; ++layer) {
+					palettes[layer] = room.palettes[layer];
+					const ctx = paletteCanvases[layer].getContext('2d');
+					if (!room.palettes[layer]?.byteLength) {
 						ctx.clearRect(0, 0, 16, 16);
 						continue;
 					}
 
-					if (options.animations.checked && room.paletteAnimations[i].length) {
+					if (options.animations.checked && room.paletteAnimations[layer].length) {
 						const palette = new Uint32Array(256);
-						palette.set(room.palettes[i], 0);
-						palettes[i] = palette;
-						fpaf.apply(palette, room.paletteAnimations[i], tick);
-					} else {
-						palettes[i] = room.palettes[i];
+						palette.set(room.palettes[layer], 0);
+						palettes[layer] = palette;
+						fpaf.apply(palette, room.paletteAnimations[layer], tick);
 					}
 
-					paletteImages[i].data.set(bufToU8(palettes[i]));
-					ctx.putImageData(paletteImages[i], 0, 0);
+					paletteImages[layer].data.set(bufToU8(palettes[layer]));
+					ctx.putImageData(paletteImages[layer], 0, 0);
 				}
 			}
 
@@ -1098,11 +1172,11 @@ window.initField = () => {
 
 			if (updateTiles || updateMaps) {
 				const layouts = [new Array(1024), new Array(1024), new Array(1024)];
-				for (let i = 0; i < 3; ++i) {
-					if (!room.tilesets[i]) continue;
-					const tileSize = layerFlags[5] & (1 << i) ? 64 : 32;
-					for (let j = 0; j < 1024; ++j) {
-						layouts[i][j] = room.tilesets[i].slice(j * tileSize, (j + 1) * tileSize);
+				for (let layer = 0; layer < 3; ++layer) {
+					if (!room.tilesets[layer]) continue;
+					const tileSize = layerFlags[5] & (1 << layer) ? 64 : 32;
+					for (let i = 0; i < 1024; ++i) {
+						layouts[layer][i] = room.tilesets[layer].slice(i * tileSize, (i + 1) * tileSize);
 					}
 				}
 
@@ -1134,49 +1208,47 @@ window.initField = () => {
 					const replacementLength = (field >> 14) & 0x3ff;
 					const tileSize = layerFlags[5] & (1 << layer) ? 64 : 32;
 					for (let i = 0; i < replacementLength; ++i) {
-						layouts[layer][replacementStart + i] = tileset.slice(
-							(replacementLength * animationFrame + i) * tileSize,
-							(replacementLength * animationFrame + i + 1) * tileSize,
-						);
+						const o = (replacementLength * animationFrame + i) * tileSize;
+						layouts[layer][replacementStart + i] = tileset.slice(o, o + tileSize);
 					}
 				}
 
 				if (updateTiles) {
-					for (let i = 0; i < 3; ++i) {
-						const ctx = tilesetCanvases[i].getContext('2d');
-						if (!room.tilesets[i] || !palettes[i]) {
+					for (let layer = 0; layer < 3; ++layer) {
+						const ctx = tilesetCanvases[layer].getContext('2d');
+						if (!room.tilesets[layer] || !palettes[layer]) {
 							ctx.clearRect(0, 0, 256, 256);
 							continue;
 						}
 
-						const bitmap = bufToU32(tilesetImages[i].data);
-						const tileByteSize = layerFlags[5] & (1 << i) ? 64 : 32; // 256-color or 16-color
-						const numTiles = Math.ceil(room.tilesets[i].length / tileByteSize);
+						const bitmap = bufToU32(tilesetImages[layer].data);
+						const tileByteSize = layerFlags[5] & (1 << layer) ? 64 : 32; // 256-color or 16-color
+						const numTiles = Math.ceil(room.tilesets[layer].length / tileByteSize);
 
 						bitmap.fill(0, 0, 256 * 256);
 
-						for (let j = 0; j < numTiles; ++j) {
-							const basePos = ((j >> 5) << 11) | ((j & 0x1f) << 3); // y << 8 | x
+						for (let i = 0; i < numTiles; ++i) {
+							const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y << 8 | x
 
-							const tile = layouts[i][j];
-							if (layerFlags[5] & (1 << i)) {
+							const tile = layouts[layer][i];
+							if (layerFlags[5] & (1 << layer)) {
 								// 256-color
-								for (let k = 0; k < 64; ++k) {
-									const pos = basePos | ((k >> 3) << 8) | (k & 7);
-									bitmap[pos] = palettes[i][tile[k] || 0];
+								for (let j = 0; j < 64; ++j) {
+									const pos = basePos | ((j >> 3) << 8) | (j & 7);
+									bitmap[pos] = palettes[layer][tile[j] || 0];
 								}
 							} else {
 								// 16-color
-								for (let k = 0, o = 0; k < 64; k += 2, ++o) {
-									const pos = basePos | ((k >> 3) << 8) | (k & 7);
+								for (let j = 0, o = 0; j < 64; j += 2, ++o) {
+									const pos = basePos | ((j >> 3) << 8) | (j & 7);
 									const composite = tile[o] || 0;
-									bitmap[pos] = palettes[i][composite & 0xf];
-									bitmap[pos ^ 1] = palettes[i][composite >> 4];
+									bitmap[pos] = palettes[layer][composite & 0xf];
+									bitmap[pos ^ 1] = palettes[layer][composite >> 4];
 								}
 							}
 						}
 
-						ctx.putImageData(tilesetImages[i], 0, 0);
+						ctx.putImageData(tilesetImages[layer], 0, 0);
 					}
 				}
 
@@ -1189,11 +1261,7 @@ window.initField = () => {
 						new Uint16Array(layerWidth * roomHeight),
 						new Uint16Array(layerWidth * roomHeight),
 					];
-					for (let i = 0; i < 3; ++i) {
-						for (let j = 0; j < layerWidth * roomHeight; ++j) {
-							mapLayouts[i][j] = room.tilemaps[i][j];
-						}
-					}
+					for (let layer = 0; layer < 3; ++layer) mapLayouts[layer].set(room.tilemaps[layer], 0);
 
 					// perform toggles
 					for (const { tilemap } of room.togglesEnabled) {
@@ -1203,61 +1271,94 @@ window.initField = () => {
 						const w = u16[2];
 						const h = u16[3];
 						for (let layer = 0; layer < 3; ++layer) {
-							for (let j = 0; j < w * h; ++j) {
-								const jx = j % w;
-								const jy = Math.floor(j / w);
-								const newTile = u16[4 + layer * w * h + j];
-								if ((newTile & 0x3ff) !== 0x3ff) mapLayouts[layer][(y + jy) * layerWidth + x + jx] = newTile;
+							for (let i = 0; i < w * h; ++i) {
+								const ix = i % w;
+								const iy = Math.floor(i / w);
+								const newTile = u16[4 + layer * w * h + i];
+								if ((newTile & 0x3ff) !== 0x3ff) mapLayouts[layer][(y + iy) * layerWidth + x + ix] = newTile;
 							}
 						}
 					}
 
 					// then draw
-					for (let i = 2; i >= 0; --i) {
+					for (let layer = 2; layer >= 0; --layer) {
 						if (
-							!room.tilemaps[i] ||
-							!room.tilesets[i] ||
-							!palettes[i] ||
-							![options.bg1, options.bg2, options.bg3][i].checked
-						)
-							continue;
-						const layout = mapLayouts[i];
+							!room.tilemaps[layer] ||
+							!room.tilesets[layer] ||
+							!palettes[layer] ||
+							![options.bg1, options.bg2, options.bg3][layer].checked
+						) continue;
+						const layout = mapLayouts[layer];
 
-						for (let j = 0; j < layout.length; ++j) {
-							const tileX = j % layerWidth;
-							const tileY = Math.floor(j / layerWidth);
+						const blendingLayersA = ((field.state.blendingSelected?.getUint16(2, true) ?? 0) >> 1) & 0x1f;
+						const blendingLayersB = ((field.state.blendingSelected?.getUint16(2, true) ?? 0) >> 8) & 0x1f;
+						const blendingAlphaA = ((field.state.blendingSelected?.getUint16(4, true) ?? 0) & 0x1f) / 16;
+						const blendingAlphaB = (((field.state.blendingSelected?.getUint16(4, true) ?? 0) >> 5) & 0x1f) / 16;
+
+						/*
+						const layersAList = ['(?)', 'BG1', 'BG2', 'BG3', 'Obj'].filter((_, i) => layersA & (1 << i));
+						const layersBList = ['BG2', 'BG3', 'Obj', '(?)', 'BG1'].filter((_, i) => layersB & (1 << i));
+						*/
+						const isA = [2, 4, 8][layer] & blendingLayersA; // [BG1, BG2, BG3]
+						const isB = [16, 1, 2][layer] & blendingLayersB;
+
+						if (field.state.blendingSelected) console.log(bytes(0, 8, field.state.blendingSelected));
+
+						const pixel = (pos, color) => {
+							if (!isA || (mapBitmap[pos] & 0xff000000) !== ~~0xf0000000) {
+								// regular write
+								mapBitmap[pos] = color & (isB ? 0xf0ffffff : 0xffffffff);
+							} else {
+								// isA && (mapBitmap[pos] & 0xff000000) === 0xf0000000) (has B under it)
+								const ar = (color >>> 3) & 0x1f;
+								const ag = (color >>> (8 + 3)) & 0x1f;
+								const ab = (color >>> (16 + 3)) & 0x1f;
+								const br = (mapBitmap[pos] >>> 3) & 0x1f;
+								const bg = (mapBitmap[pos] >>> (8 + 3)) & 0x1f;
+								const bb = (mapBitmap[pos] >>> (16 + 3)) & 0x1f;
+								const r = Math.min(ar * blendingAlphaA + br * blendingAlphaB, 0x1f);
+								const g = Math.min(ag * blendingAlphaA + bg * blendingAlphaB, 0x1f);
+								const b = Math.min(ab * blendingAlphaA + bb * blendingAlphaB, 0x1f);
+								mapBitmap[pos] = (isB ? 0xf0000000 : 0xff000000) | ((b << 3 | b >> 2) << 16)
+									| ((g << 3 | g >> 2) << 8) | (r << 3 | r >> 2);
+							}
+						};
+
+						for (let i = 0; i < layout.length; ++i) {
+							const tileX = i % layerWidth;
+							const tileY = Math.floor(i / layerWidth);
 							const basePos = tileY * 64 * layerWidth + tileX * 8;
+							const baseTile = layout[i] & 0x3ff;
+							const horizontalFlip = layout[i] & 0x400 ? 7 : 0;
+							const verticalFlip = layout[i] & 0x800 ? 7 : 0;
+							const tile = layouts[layer][baseTile];
 
-							const baseTile = layout[j] & 0x3ff;
-							const tile = layouts[i][baseTile];
-
-							const horizontalFlip = layout[j] & 0x400 ? 7 : 0;
-							const verticalFlip = layout[j] & 0x800 ? 7 : 0;
-							if (layerFlags[5] & (1 << i)) {
+							if (layerFlags[5] & (1 << layer)) {
 								// 256-color
 								for (let o = 0; o < 64; ++o) {
 									const pos =
 										basePos +
 										((o >> 3) ^ verticalFlip) * 8 * layerWidth +
 										((o & 7) ^ horizontalFlip);
-									if (tile[o]) mapBitmap[pos] = palettes[i][tile[o]];
+									if (tile[o]) pixel(pos, palettes[layer][tile[o]]);
 								}
 							} else {
 								// 16-color
-								const paletteShift = (layout[j] >> 12) << 4;
+								const paletteShift = (layout[i] >> 12) << 4;
 								for (let k = 0, o = 0; k < 64; k += 2, ++o) {
 									const pos =
 										basePos +
 										((k >> 3) ^ verticalFlip) * 8 * layerWidth +
 										((k & 7) ^ horizontalFlip);
 									const composite = tile[o] || 0;
-									if (composite & 0xf) mapBitmap[pos] = palettes[i][paletteShift | (composite & 0xf)];
-									if (composite >> 4)
-										mapBitmap[pos ^ 1] = palettes[i][paletteShift | (composite >> 4)];
+									if (composite & 0xf) pixel(pos, palettes[layer][paletteShift | (composite & 0xf)]);
+									if (composite >> 4) pixel(pos ^ 1, palettes[layer][paletteShift | (composite >> 4)]);
 								}
 							}
 						}
 					}
+
+					for (let i = 0; i < mapBitmap.length; ++i) mapBitmap[i] |= 0xff000000; // reset blending flags
 
 					const imageData = new ImageData(
 						bufToU8Clamped(mapBitmap, 0, layerWidth * roomHeight * 64 * 4),
@@ -1566,6 +1667,8 @@ window.initField = () => {
 
 				if (vertexFloatsUsed) gl.drawArrays(gl.TRIANGLES, 0, vertexFloatsUsed);
 			}
+
+			if (updatePalettes || updateTiles || updateMaps || updateOverlay2d || updateOverlay3d || updateOverlay3dTriangles) console.log('render time:', performance.now() - now);
 
 			updatePalettes = updateTiles = updateMaps = updateOverlay2d = false;
 			updateOverlay3d = updateOverlay3dTriangles = false;
