@@ -1302,8 +1302,6 @@ window.initField = () => {
 						const isA = [2, 4, 8][layer] & blendingLayersA; // [BG1, BG2, BG3]
 						const isB = [16, 1, 2][layer] & blendingLayersB;
 
-						if (field.state.blendingSelected) console.log(bytes(0, 8, field.state.blendingSelected));
-
 						const pixel = (pos, color) => {
 							if (!isA || (mapBitmap[pos] & 0xff000000) !== ~~0xf0000000) {
 								// regular write
@@ -1667,8 +1665,6 @@ window.initField = () => {
 
 				if (vertexFloatsUsed) gl.drawArrays(gl.TRIANGLES, 0, vertexFloatsUsed);
 			}
-
-			if (updatePalettes || updateTiles || updateMaps || updateOverlay2d || updateOverlay3d || updateOverlay3dTriangles) console.log('render time:', performance.now() - now);
 
 			updatePalettes = updateTiles = updateMaps = updateOverlay2d = false;
 			updateOverlay3d = updateOverlay3dTriangles = false;
