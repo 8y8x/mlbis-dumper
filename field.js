@@ -190,6 +190,7 @@ window.initField = () => {
 		// side properties
 		const side = {};
 		sideProperties.appendChild((side.layerDisplay = document.createElement('div')));
+		sideProperties.appendChild((side.metadataDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.treasureDropdown = dropdown(['0 treasures'], 0, () => {})));
 		sideProperties.appendChild((side.treasureDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.loadingZoneDropdown = dropdown(['0 loading zones'], 0, () => {})));
@@ -371,10 +372,11 @@ window.initField = () => {
 
 			// side properties layer info
 			const bgAttributes = [[], [], []];
-			if (mapFlags[5] & 0x08) bgAttributes[1].push('above obj'); // BG2 above obj
-			if (mapFlags[5] & 0x10) bgAttributes[0].push('above obj'); // BG1 above obj
-			if (mapFlags[8] & 0x01) bgAttributes[2].push('above BG2'); // BG3 above BG2
-			if (mapFlags[8] & 0x02) bgAttributes[2].push('above BG1'); // BG3 above BG1
+			// TODO: needs more research
+			// if (mapFlags[5] & 0x08) bgAttributes[1].push('above obj'); // BG2 above obj
+			// if (mapFlags[5] & 0x10) bgAttributes[0].push('above obj'); // BG1 above obj
+			// if (mapFlags[8] & 0x01) bgAttributes[2].push('above BG2'); // BG3 above BG2
+			// if (mapFlags[8] & 0x02) bgAttributes[2].push('above BG1'); // BG3 above BG1
 			if (mapFlags[8] & 0x20) bgAttributes[0].push('autoscrolls'); // BG1 autoscrolls
 			if (mapFlags[8] & 0x40) bgAttributes[1].push('autoscrolls'); // BG2 autoscrolls
 			if (mapFlags[8] & 0x80) bgAttributes[2].push('autoscrolls'); // BG3 autoscrolls
@@ -397,14 +399,21 @@ window.initField = () => {
 			}
 
 			side.layerDisplay.innerHTML = `
-				<div><code>${mapWidth}x${mapHeight} tiles
-					${room.actualHeight === mapHeight ? '' : `(${mapWidth}x${room.actualHeight} actual)`}
+				<div>${mapWidth}x${mapHeight} tiles
+					${room.actualHeight === mapHeight ? '' : `<span style="color: #f99;">(${mapWidth}x${room.actualHeight} actual)</span>`}
 					(${mapWidth * 8}x${mapHeight * 8}px)
-				</code></div>
+				</div>
 				<div>${bgAttributes[0].length ? 'BG1: ' + bgAttributes[0].join(', ') : ''}</div>
 				<div>${bgAttributes[1].length ? 'BG2: ' + bgAttributes[1].join(', ') : ''}</div>
 				<div>${bgAttributes[2].length ? 'BG3: ' + bgAttributes[2].join(', ') : ''}</div>
 			`;
+
+			// side properties map metadata
+			if (fsext.fmapmetadata) {
+				const metadata = bufToU32(fsext.fmapmetadata[options.roomDropdown.value]);
+				side.metadataDisplay.innerHTML = `<div>Map room 0x${((metadata[0] >> 2) & 0x3ff).toString(16)},
+					music ${metadata[2] >> 12}</div>`;
+			}
 
 			// side properties treasure
 			const treasureSegments = field.treasure[indices.treasure] || [];
@@ -912,6 +921,72 @@ window.initField = () => {
 				</code></div>`,
 			);
 
+			// [0] tilemap BG1, [1] tilemap BG2, [2] tilemap BG3
+			for (let i = 0; i < 3; ++i) {
+				const tilemap = room.tilemaps[i];
+				const container = document.createElement('div');
+				container.innerHTML = `<code>[${i}]</code> tilemaps[${i}] (BG${i + 1}): `;
+				bottomProperties.appendChild(container);
+
+				if (tilemap.byteLength) {
+					const tilemapContainer = document.createElement('div');
+					tilemapContainer.style.cssText = 'border: 1px solid #666; padding: 5px; display: none; overflow-x: scroll;';
+					container.appendChild(checkbox('Tilemap', false, checked => {
+						if (checked) {
+							const lines = [];
+							for (let y = 0, o = 0; y < room.actualHeight; ++y) {
+								const line = [];
+								for (let x = 0; x < mapWidth; ++x, ++o) {
+									line.push(str16(tilemap[o]));
+								}
+								lines.push(line.join(' '));
+							}
+							tilemapContainer.style.display = '';
+							tilemapContainer.innerHTML = `<code style="white-space: pre;">${lines.join('\n')}</code>`;
+						} else {
+							tilemapContainer.style.display = 'none';
+							tilemapContainer.innerHTML = '';
+						}
+					}));
+					container.appendChild(tilemapContainer);
+				}
+			}
+
+			// [3] palette BG1, [4] palette BG2, [5] palette BG3
+			addHTML(bottomProperties,
+				`<div><code>[3]</code> palettes[0] (BG1): ${room.palettes[0].byteLength ? 'exists' : ''}</div>`);
+			addHTML(bottomProperties,
+				`<div><code>[4]</code> palettes[1] (BG2): ${room.palettes[1].byteLength ? 'exists' : ''}</div>`);
+			addHTML(bottomProperties,
+				`<div><code>[5]</code> palettes[2] (BG3): ${room.palettes[2].byteLength ? 'exists' : ''}</div>`);
+
+			// [6] map properties
+			{
+				const width = room.map.getUint16(0, true);
+				const height = room.map.getUint16(2, true);
+				const u8 = bufToU8(room.map);
+				addHTML(bottomProperties, `<div><code>[6]</code> map: ${width}x${height} tiles -
+					${u8[5] & 1 ? '256' : '16'}/${u8[5] & 2 ? '256' : '16'}/${u8[5] & 4 ? '256' : '16'}-color tileset (BG1/BG2/BG3) <ul>
+						<li><code>(${bytes(0, 12, room.map)})</code></li>
+					</ul>
+				</div>`);
+			}
+
+			// [7] loading zones
+			if (room.loadingZones.byteLength) {
+				const parts = [];
+				for (let o = 0; o < room.loadingZones.byteLength; o += 24) {
+					const flags = room.loadingZones.getUint16(o, true);
+					const toRoom = room.loadingZones.getUint16(o + 2, true);
+					const direction = '↑→↓←'[(flags >> 2) & 3];
+					parts.push(`${direction} 0x${toRoom.toString(16)}`);
+				}
+
+				addHTML(bottomProperties, `<div><code>[7]</code> loadingZones: ${parts.join(', ')}</div>`);
+			} else {
+				addHTML(bottomProperties, `<div><code>[7]</code> loadingZones:</div>`);
+			}
+
 			// [8] blending
 			{
 				const segments = unpackSegmented(room.props[8]);
@@ -938,8 +1013,8 @@ window.initField = () => {
 					['BG2', 'BG3', 'Obj', '(?)', 'BG1'].forEach((name, i) => {
 						if (groupB & (1 << i)) stringsB.push(name);
 					});
-					addHTML(list, `<li><code>[${i}] (${bytes(0, 8, blend)})</code>
-						group A (alpha ${alphaA}/16): ${stringsA.join(', ')}${(blend[1] & 0x80) ? ' (with UI)' : ''};
+					addHTML(list, `<li><code>[${i}] (${bytes(0, 8, blend)})</code> -
+						group A (alpha ${alphaA}/16): ${stringsA.join(', ')}${(blend[1] & 0x80) ? ' (with UI)' : ''} -
 						group B (alpha ${alphaB}/16): ${stringsB.join(', ')}
 					</li>`);
 				}
@@ -964,9 +1039,9 @@ window.initField = () => {
 					const falseVariable = attributes >>> 19;
 					const trueVariable = (attributes >>> 6) & 0x1fff;
 					if (falseVariable !== 0x1fff)
-						parts1.push(`var <code>0x${falseVariable.toString(16).padStart(3, '0')}</code> is false`);
+						parts1.push(`var 0x${falseVariable.toString(16).padStart(3, '0')} is false`);
 					if (trueVariable !== 0x1fff)
-						parts1.push(`var <code>0x${trueVariable.toString(16).padStart(3, '0')}</code> is true`);
+						parts1.push(`var 0x${trueVariable.toString(16).padStart(3, '0')} is true`);
 
 					const parts2 = [];
 					const tilemap = segments[i * 3 + 1];
@@ -1048,53 +1123,66 @@ window.initField = () => {
 				addHTML(bottomProperties, `<div><code>[9]</code> toggles:</div>`);
 			}
 
-			const tileAnimationItems = [];
-			for (let i = 0; i < tileAnimations.length; ++i) {
-				const segment = tileAnimations[i];
-				const flags = segment.getUint32(0, true);
-				const animeId = segment.getUint16(4, true);
-				const keyframes = segment.getUint16(6, true);
+			// [10] tile animations
+			{
+				const container = document.createElement('div');
+				container.innerHTML = '<code>[10]</code> tileAnimations: ';
+				bottomProperties.appendChild(container);
 
-				const parts = [];
-				parts.push(`<code>${i}:</code>`);
-				parts.push(`BG${(flags & 3) + 1},`);
-				parts.push(flags & 8 ? 'scripted' : 'immediately');
-				parts.push(flags & 4 ? 'one-shot,' : 'looping,');
-				parts.push(`anime <code>0x${animeId.toString(16)}</code>,`);
-				parts.push(`${(flags >> 14) & 0x3ff} tiles at <code>0x${((flags >> 4) & 0x3ff).toString(16)}</code>,`);
-				parts.push(`${keyframes} keyframes (frame, ticks):`);
+				const list = document.createElement('ul');
+				container.appendChild(list);
 
-				for (let j = 0; j < keyframes; ++j) {
-					const frame = segment.getUint16(8 + j * 4, true);
-					const ticks = segment.getUint16(8 + j * 4 + 2, true);
-					parts.push(`<code style="color: ${j % 2 ? '#999' : '#666'}">(${frame},${ticks})</code>`);
+				for (let i = 0; i < tileAnimations.length; ++i) {
+					const segment = tileAnimations[i];
+					const flags = segment.getUint32(0, true);
+					const animeId = segment.getUint16(4, true);
+					const keyframes = segment.getUint16(6, true);
+
+					const keyframeParts = [];
+					for (let j = 0; j < keyframes; ++j) {
+						keyframeParts.push(`<span style="color: ${j % 2 ? '#999' : '#666'}">
+							(${segment.getUint16(6 + j * 4, true)},${segment.getUint16(8 + j * 4, true)})
+						</span>`);
+					}
+
+					addHTML(list, `<li>
+						<code>[${i}]</code> BG${(flags & 3) + 1} -
+						${(flags & 8) ? 'scripted' : 'immediately'} ${(flags & 4) ? 'one-shot' : 'looping'} -
+						anime 0x${animeId.toString(16)} - start tile 0x${((flags >> 4) & 0x3ff).toString(16)},
+						len 0x${((flags >> 14) & 0x3ff).toString(16)} <ul>
+							<li>${keyframes} keyframes (frame, ticks): <code>${keyframeParts.join(' ')}</code></li>
+						</ul>
+					</li>`);
 				}
-
-				tileAnimationItems.push(parts.join(' '));
 			}
 
-			const lines = [
-				`[6] map: <code>${bytes(0, room.map.byteLength, room.map)}</code>`,
-				`[7] loadingZones: ${room.loadingZones.byteLength} bytes`,
-				`[10] tileAnimations: <ul>${tileAnimationItems.map((x) => '<li>' + x + '</li>').join('')}</ul>`,
-				`[11] paletteAnimations BG1: <ul>${fpaf
-					.stringify(room.paletteAnimations[0])
-					.map((x) => '<li><code>' + x + '</code></li>')
-					.join('')}</ul>`,
-				`[12] paletteAnimations BG2: <ul>${fpaf
-					.stringify(room.paletteAnimations[1])
-					.map((x) => '<li><code>' + x + '</code></li>')
-					.join('')}</ul>`,
-				`[13] paletteAnimations BG3: <ul>${fpaf
-					.stringify(room.paletteAnimations[2])
-					.map((x) => '<li><code>' + x + '</code></li>')
-					.join('')}</ul>`,
-				`[14] collision:`,
-				`[15] depth:`,
-				`[16] unused: <code>${bytes(0, Math.min(1024, room.props[16].byteLength), room.props[16])}</code>`,
-				`[17] unused: <code>${bytes(0, Math.min(1024, room.props[17].byteLength), room.props[17])}</code>`,
-			];
-			for (const line of lines) addHTML(bottomProperties, '<div>' + line + '</div>');
+			// [11] paletteAnimations BG1, [12] paletteAnimations BG2, [13] paletteAnimations BG3
+			addHTML(bottomProperties, `<div><code>[11]</code> paletteAnimations[0] (BG1): <ul>
+				${fpaf.stringify(room.paletteAnimations[0]).map((x) => `<li><code>${x}</code></li>`).join('')}
+			</ul>`);
+			addHTML(bottomProperties, `<div><code>[12]</code> paletteAnimations[1] (BG2): <ul>
+				${fpaf.stringify(room.paletteAnimations[1]).map((x) => `<li><code>${x}</code></li>`).join('')}
+			</ul>`);
+			addHTML(bottomProperties, `<div><code>[13]</code> paletteAnimations[2] (BG3): <ul>
+				${fpaf.stringify(room.paletteAnimations[2]).map((x) => `<li><code>${x}</code></li>`).join('')}
+			</ul>`);
+
+			// [14] collision
+			if (room.collision.byteLength) {
+				const numPrisms = room.collision.getUint32(0, true);
+				const numSpecials = room.collision.getUint32(4, true);
+				addHTML(bottomProperties, `<div><code>[14]</code> collision: ${numPrisms} prisms, ${numSpecials} specials</div>`);
+			} else {
+				addHTML(bottomProperties, `<div><code>[15]</code> collision:</div>`);
+			}
+
+			// [15] depth
+			if (room.depth.byteLength) {
+				const numFaces = room.depth.getUint32(0, true);
+				addHTML(bottomProperties, `<div><code>[15]</code> depth: ${numFaces} faces</div>`);
+			} else {
+				addHTML(bottomProperties, `<div><code>[15]</code> depth:</div>`);
+			}
 
 			// bottom properties map metadata (clean this up later)
 			if (fsext.fmapmetadata) {

@@ -188,7 +188,7 @@
 			checkbox.checked = checked;
 			if (checked) checkbox.classList.add('checked');
 			else checkbox.classList.remove('checked');
-			if (!silent) onchange();
+			if (!silent) onchange(checked);
 		};
 
 		checkbox.set(checked, true);
