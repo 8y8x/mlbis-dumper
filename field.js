@@ -937,7 +937,7 @@ window.initField = () => {
 							for (let y = 0, o = 0; y < room.actualHeight; ++y) {
 								const line = [];
 								for (let x = 0; x < mapWidth; ++x, ++o) {
-									line.push(str16(tilemap[o]));
+									line.push(tilemap[o] ? str16(tilemap[o]) : '----');
 								}
 								lines.push(line.join(' '));
 							}
