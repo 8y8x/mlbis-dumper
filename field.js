@@ -205,6 +205,7 @@ window.initField = () => {
 		sideProperties.appendChild((side.toggleList = document.createElement('div')));
 		sideProperties.appendChild((side.toggleDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.tileAnimList = document.createElement('div')));
+		sideProperties.appendChild((side.palAnimList = document.createElement('div')));
 
 		// setup basic 3d overlay
 		const map3d = (() => {
@@ -355,6 +356,7 @@ window.initField = () => {
 
 			field.state = {
 				blendingSelected: undefined,
+				paletteAnimations: [false, false, false],
 			};
 
 			const mapWidth = room.map.getUint16(0, true);
@@ -883,13 +885,14 @@ window.initField = () => {
 					if (options.animations.checked) room.enabledTileAnimations.add(container);
 				}
 				const check = checkbox('', options.animations.checked && !(flags & 0xc), () => {
+					const anyPaletteAnimations = field.state.paletteAnimations.some((x) => x);
 					if (check.checked) {
 						container.startTick = Math.floor((performance.now() / 1000) * 60);
 						room.enabledTileAnimations.add(container);
-						if (room.enabledTileAnimations.size === 1) options.animations.set(true, true);
+						if (room.enabledTileAnimations.size === 1 && !anyPaletteAnimations) options.animations.set(true, true);
 					} else {
 						room.enabledTileAnimations.delete(container);
-						if (room.enabledTileAnimations.size === 0) options.animations.set(false, true);
+						if (room.enabledTileAnimations.size === 0 && !anyPaletteAnimations) options.animations.set(false, true);
 					}
 					updateTiles = updateMaps = true;
 				});
@@ -897,14 +900,38 @@ window.initField = () => {
 				side.tileAnimList.appendChild(check);
 			}
 
+			// side properties palette animations
+			side.palAnimList.innerHTML = 'Palette Animations: ';
+			const paletteAnimationChecks = [undefined, undefined, undefined];
+			for (let i = 0; i < 3; ++i) {
+				if (!room.paletteAnimations[i].length) continue;
+
+				// palette animations are always enabled by default (if stored in map properties)
+				const check = checkbox(`BG${i + 1}`, options.animations.checked, checked => {
+					field.state.paletteAnimations[i] = checked;
+					updatePalettes = updateTiles = updateMaps = true;
+					if (checked && room.enabledTileAnimations.size === 0) options.animations.set(true, true);
+					else if (!checked && room.enabledTileAnimations.size === 0) options.animations.set(false, true);
+				});
+				paletteAnimationChecks[i] = check;
+				side.palAnimList.appendChild(check);
+			}
+
 			animationsToggledCallback = () => {
 				for (const { check } of room.enabledTileAnimations) check.set(false, true);
 				room.enabledTileAnimations.clear();
 				updatePalettes = updateTiles = updateMaps = true;
-				if (!options.animations.checked) return;
-				for (const container of tileAnimationsDefault) {
-					room.enabledTileAnimations.add(container);
-					container.check.set(true, true);
+
+				if (options.animations.checked) {
+					for (const container of tileAnimationsDefault) {
+						room.enabledTileAnimations.add(container);
+						container.check.set(true, true);
+					}
+					field.state.paletteAnimations = [true, true, true];
+					for (let i = 0; i < 3; ++i) paletteAnimationChecks[i]?.set(true, true);
+				} else {
+					field.state.paletteAnimations = [false, false, false];
+					for (let i = 0; i < 3; ++i) paletteAnimationChecks[i]?.set(false, true);
 				}
 			};
 
@@ -1227,7 +1254,7 @@ window.initField = () => {
 			const canvasWidth = options.margins.checked ? layerWidth * 8 : layerWidth * 8 - 32;
 			const canvasHeight = options.margins.checked ? roomHeight * 8 : roomHeight * 8 - 32;
 
-			if (options.animations.checked && room.paletteAnimations.some((x) => x.length)) {
+			if (field.state.paletteAnimations.some((x) => x)) {
 				updatePalettes = updateTiles = updateMaps = true;
 			}
 			if (updatePalettes) {
@@ -1239,7 +1266,7 @@ window.initField = () => {
 						continue;
 					}
 
-					if (options.animations.checked && room.paletteAnimations[layer].length) {
+					if (field.state.paletteAnimations[layer] && room.paletteAnimations[layer].length) {
 						const palette = new Uint32Array(256);
 						palette.set(room.palettes[layer], 0);
 						palettes[layer] = palette;
