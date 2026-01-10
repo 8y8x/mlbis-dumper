@@ -8,8 +8,8 @@ window.initDisassembler = () => {
 
 		const options = [
 			'Select an overlay',
-			`arm9 entry (len ${headers.arm9size})`,
-			`arm7 entry (len ${headers.arm7size})`,
+			`arm9 entry (len ${fs.arm9.byteLength})`,
+			`arm7 entry (len ${fs.arm7.byteLength})`,
 		];
 		for (const entry of fs.overlayEntries.values()) {
 			const file = fs.get(entry.fileId);
@@ -1951,13 +1951,9 @@ window.initDisassembler = () => {
 			display.innerHTML = '';
 			if (select.value === 0) return;
 			let binary;
-			if (select.value === 1) {
-				binary = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
-			} else if (select.value === 2) {
-				binary = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
-			} else {
-				binary = fs.overlay(select.value - 3);
-			}
+			if (select.value === 1) binary = fs.arm9;
+			else if (select.value === 2) binary = fs.arm7;
+			else binary = fs.overlay(select.value - 3);
 
 			const instSize = setSelect.value === 2 || setSelect.value === 3 ? 2 : 4;
 

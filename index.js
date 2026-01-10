@@ -483,6 +483,13 @@
 		fs.arm9 = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
 		fs.arm7 = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
 
+		// NA, EU, and KO versions compress initial arm9/arm7; no idea what in the header controls that
+		let armInitCompressed = headers.gamecode === 'CLJE' || headers.gamecode === 'CLJP' || headers.gamecode === 'CLJK';
+		if (armInitCompressed) {
+			fs.arm9 = blz(fs.arm9);
+			fs.arm7 = blz(fs.arm7);
+		}
+
 		const names = new Map();
 		names.set(0xf000, ''); // so every fie path starts with '/'
 		const parents = new Map();
@@ -559,8 +566,8 @@
 		section.appendChild(singleExport);
 
 		const singleSelectEntries = [
-			`ARM9 (len 0x${headers.arm9size.toString(16)})`,
-			`ARM7 (len 0x${headers.arm7size.toString(16)})`,
+			`ARM9 (len 0x${headers.arm9size.toString(16)}${armInitCompressed ? ', compressed' : ''})`,
+			`ARM7 (len 0x${headers.arm7size.toString(16)}${armInitCompressed ? ', compressed' : ''})`,
 		];
 		for (let i = 0; i * 8 < headers.fatLength; ++i) {
 			const { start, end, path } = fs.get(i);
@@ -581,11 +588,15 @@
 		const singleDump = button('Dump', () => {
 			if (singleSelect.value === 0) {
 				singleOutput.textContent = '';
-				download('arm9.bin', fs.arm9);
+				if (singleDecompression.value === 0) {
+					download('arm9.bin', sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size));
+				} else download('arm9.bin', fs.arm9);
 				return;
 			} else if (singleSelect.value === 1) {
 				singleOutput.textContent = '';
-				download('arm7.bin', fs.arm7);
+				if (singleDecompression.value === 0) {
+					download('arm7.bin', sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size));
+				} else download('arm7.bin', fs.arm7);
 				return;
 			}
 			const fsentry = fs.get(singleSelect.value - 2);
@@ -741,13 +752,13 @@
 		};
 		overlayEntry(
 			headers.arm9ram,
-			headers.arm9size,
-			`<code>ARM9. 0x${str32(headers.arm9ram)} - 0x${str32(headers.arm9ram + headers.arm9size)}</code>`,
+			fs.arm9.byteLength,
+			`<code>ARM9. 0x${str32(headers.arm9ram)} - 0x${str32(headers.arm9ram + fs.arm9.byteLength)}</code>`,
 		);
 		overlayEntry(
 			headers.arm7ram,
-			headers.arm7size,
-			`<code>ARM7. 0x${str32(headers.arm7ram)} - 0x${str32(headers.arm7ram + headers.arm7size)}</code>`,
+			fs.arm7.byteLength,
+			`<code>ARM7. 0x${str32(headers.arm7ram)} - 0x${str32(headers.arm7ram + fs.arm7.byteLength)}</code>`,
 		);
 		const ovtEntry = (o) => {
 			const id = file.getUint32(o, true);
@@ -2236,6 +2247,104 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Fonts                                                                                                |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const font = (window.font = createSection('Fonts', (section) => {
+		const font = {};
+
+		const fontFile = fs.get('/Font/StatFontSet.dat');
+		const fontSegments = unpackSegmented(fontFile);
+		const options = [];
+		for (let i = 0; i < fontSegments.length; ++i) {
+			if (fontSegments[i].byteLength) options.push(i);
+		}
+
+		const select = dropdown(
+			options.map((x) => `StatFontSet ${x} (len ${fontSegments[x].byteLength})`),
+			0,
+			() => update(),
+		);
+		section.appendChild(select);
+
+		const display = document.createElement('div');
+		section.appendChild(display);
+
+		const update = () => {
+			const segment = window.OVERRIDE || fontSegments[options[select.value]];
+			display.innerHTML = '';
+
+			const charMapSize = segment.getUint32(0, true);
+			const charMapOffset = segment.getUint32(4, true);
+			const charMap = sliceDataView(segment, charMapOffset, charMapOffset + charMapSize);
+			const glyphTableOffset = segment.getUint32(8, true);
+			const glyphTable = sliceDataView(segment, glyphTableOffset, charMapOffset);
+
+			if (!glyphTable.byteLength) return;
+			const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
+			const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
+
+			const x = glyphTable.getUint16(1, true);
+			console.log(x);
+
+			const charWidthBytes = glyphTable.getUint8(3) * 4;
+			const glyphBitmapOffset = 4 + charWidthBytes;
+			const numGlyphs = charWidthBytes * 2;
+
+			const glyphRows = 32;
+
+			console.log(glyphTable, glyphBitmapOffset, glyphWidth, glyphHeight, glyphRows);
+
+			const canvas = document.createElement('canvas');
+			canvas.width = glyphWidth * 16;
+			canvas.height = glyphHeight * glyphRows;
+			canvas.style.width = `${glyphWidth * 16 * 4}px`;
+			canvas.style.height = `${glyphHeight * glyphRows * 4}px`;
+			display.appendChild(canvas);
+
+			const ctx = canvas.getContext('2d');
+			const bitmap = new Uint32Array(glyphWidth * 16 * glyphHeight * glyphRows);
+			const shade = (i, alpha, color) => {
+				return [0xffffffff, 0xffeeeeff, 0xff000000, 0xffcccccc, 0xffeeeeee, 0xffddddee, 0xff000000, 0xffaaaaaa][
+					(((i & 1) + ((i >> 4) & 1)) % 2) * 4 + alpha * 2 + color
+				];
+			};
+			const p = (x, y) => y * glyphWidth * 16 + x;
+			for (let i = 0, o = glyphBitmapOffset; o + (glyphWidth * glyphHeight) / 4 <= glyphTable.byteLength; ++i) {
+				const xStart = (i & 0xf) * glyphWidth;
+				const yStart = (i >> 4) * glyphHeight;
+				for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
+					const width = Math.min(4, (glyphWidth - xBase) / 2);
+					for (let y = 0; y < glyphHeight; y += 4) {
+						const alphaOffset = o;
+						o += width;
+						const colorOffset = o;
+						o += width;
+						for (let z = 0; z < width * 8; ++z) {
+							const alpha = (glyphTable.getUint8(alphaOffset + (z >> 3)) >> z % 8) & 1;
+							const color = (glyphTable.getUint8(colorOffset + (z >> 3)) >> z % 8) & 1;
+							bitmap[p(xStart + xBase + (z >> 2), yStart + y + (z % 4))] = shade(i, alpha, color);
+						}
+					}
+				}
+			}
+			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), glyphWidth * 16, glyphHeight * glyphRows), 0, 0);
+
+			addHTML(
+				display,
+				`<div>charMap (${charMapOffset} len ${charMapSize}): <code>${bytes(charMapOffset, charMapSize, segment)}</code></div>`,
+			);
+			addHTML(
+				display,
+				`<div>glyphTable (${glyphTableOffset}): <code>${bytes(glyphTableOffset, charMapOffset - glyphTableOffset, segment)}</code></div>`,
+			);
+		};
+		update();
+
+		return font;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: MFSet                                                                                                |
 	// +---------------------------------------------------------------------------------------------------------------+
 
@@ -2542,104 +2651,6 @@
 		}
 
 		return sound;
-	}));
-
-	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: Fonts                                                                                                |
-	// +---------------------------------------------------------------------------------------------------------------+
-
-	const font = (window.font = createSection('Fonts', (section) => {
-		const font = {};
-
-		const fontFile = fs.get('/Font/StatFontSet.dat');
-		const fontSegments = unpackSegmented(fontFile);
-		const options = [];
-		for (let i = 0; i < fontSegments.length; ++i) {
-			if (fontSegments[i].byteLength) options.push(i);
-		}
-
-		const select = dropdown(
-			options.map((x) => `StatFontSet ${x} (len ${fontSegments[x].byteLength})`),
-			0,
-			() => update(),
-		);
-		section.appendChild(select);
-
-		const display = document.createElement('div');
-		section.appendChild(display);
-
-		const update = () => {
-			const segment = window.OVERRIDE || fontSegments[options[select.value]];
-			display.innerHTML = '';
-
-			const charMapSize = segment.getUint32(0, true);
-			const charMapOffset = segment.getUint32(4, true);
-			const charMap = sliceDataView(segment, charMapOffset, charMapOffset + charMapSize);
-			const glyphTableOffset = segment.getUint32(8, true);
-			const glyphTable = sliceDataView(segment, glyphTableOffset, charMapOffset);
-
-			if (!glyphTable.byteLength) return;
-			const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
-			const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
-
-			const x = glyphTable.getUint16(1, true);
-			console.log(x);
-
-			const charWidthBytes = glyphTable.getUint8(3) * 4;
-			const glyphBitmapOffset = 4 + charWidthBytes;
-			const numGlyphs = charWidthBytes * 2;
-
-			const glyphRows = 32;
-
-			console.log(glyphTable, glyphBitmapOffset, glyphWidth, glyphHeight, glyphRows);
-
-			const canvas = document.createElement('canvas');
-			canvas.width = glyphWidth * 16;
-			canvas.height = glyphHeight * glyphRows;
-			canvas.style.width = `${glyphWidth * 16 * 4}px`;
-			canvas.style.height = `${glyphHeight * glyphRows * 4}px`;
-			display.appendChild(canvas);
-
-			const ctx = canvas.getContext('2d');
-			const bitmap = new Uint32Array(glyphWidth * 16 * glyphHeight * glyphRows);
-			const shade = (i, alpha, color) => {
-				return [0xffffffff, 0xffeeeeff, 0xff000000, 0xffcccccc, 0xffeeeeee, 0xffddddee, 0xff000000, 0xffaaaaaa][
-					(((i & 1) + ((i >> 4) & 1)) % 2) * 4 + alpha * 2 + color
-				];
-			};
-			const p = (x, y) => y * glyphWidth * 16 + x;
-			for (let i = 0, o = glyphBitmapOffset; o + (glyphWidth * glyphHeight) / 4 <= glyphTable.byteLength; ++i) {
-				const xStart = (i & 0xf) * glyphWidth;
-				const yStart = (i >> 4) * glyphHeight;
-				for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
-					const width = Math.min(4, (glyphWidth - xBase) / 2);
-					for (let y = 0; y < glyphHeight; y += 4) {
-						const alphaOffset = o;
-						o += width;
-						const colorOffset = o;
-						o += width;
-						for (let z = 0; z < width * 8; ++z) {
-							const alpha = (glyphTable.getUint8(alphaOffset + (z >> 3)) >> z % 8) & 1;
-							const color = (glyphTable.getUint8(colorOffset + (z >> 3)) >> z % 8) & 1;
-							bitmap[p(xStart + xBase + (z >> 2), yStart + y + (z % 4))] = shade(i, alpha, color);
-						}
-					}
-				}
-			}
-			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), glyphWidth * 16, glyphHeight * glyphRows), 0, 0);
-
-			addHTML(
-				display,
-				`<div>charMap (${charMapOffset} len ${charMapSize}): <code>${bytes(charMapOffset, charMapSize, segment)}</code></div>`,
-			);
-			addHTML(
-				display,
-				`<div>glyphTable (${glyphTableOffset}): <code>${bytes(glyphTableOffset, charMapOffset - glyphTableOffset, segment)}</code></div>`,
-			);
-		};
-		update();
-
-		return font;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
