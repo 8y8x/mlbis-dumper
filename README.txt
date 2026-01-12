@@ -9,8 +9,8 @@ possible. This tool isn't made for modding, but most useful functions (like
 compression and saving to a file) are available globally in the browser
 console.
 
-- Near-complete field map support, including animation, collision, depth,
-    layering, loading zone, toggles, and treasure info
+- Near-complete field map support, including blending, tile and palette
+    animations, collision, depth, loading zone, toggles, treasure, and map info
 - Complete battle map support, including tile and palette animations
 - Basic giant battle map support
 - Basic menu map support

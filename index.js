@@ -327,6 +327,29 @@
 		return segments;
 	});
 
+	const unpackSegmentedUnsorted = (window.unpackSegmentedUnsorted = (dat, o = 0) => {
+		let min = Infinity;
+		const offsets = [];
+		for (; o < dat.byteLength && o < min; o += 4) {
+			const offset = dat.getUint32(o, true);
+			offsets.push({ offset });
+			if (offset < min) min = offset;
+		}
+
+		const offsetsSorted = [...offsets];
+		offsetsSorted.sort(({ offset: a }, { offset: b }) => a - b);
+		for (let i = 0; i < offsetsSorted.length; ++i) {
+			offsetsSorted[i].until = offsetsSorted[i + 1]?.offset ?? dat.byteLength;
+		}
+
+		const segments = [];
+		for (const { offset, until } of offsets) {
+			segments.push(sliceDataView(dat, offset, until));
+		}
+
+		return segments;
+	});
+
 	const sliceDataView = (dat, start, end) => new DataView(dat.buffer, dat.byteOffset + start, end - start);
 	const bufToU8 = (buf, off = buf.byteOffset, len = buf.byteLength) => new Uint8Array(buf.buffer, off, len);
 	const bufToU8Clamped = (buf, off = buf.byteOffset, len = buf.byteLength) =>
@@ -358,7 +381,7 @@
 				if (next === 0) s.push('\n');
 				else if (ignoreSpecials) s.push(' ');
 				else s.push(`<${str8(next)}>`);
-			} else if (byte <= 0x1f) {
+			} else if (byte <= 0x1f || byte >= 0xfa || byte === 0x7f) {
 				// special symbol
 				if (ignoreSpecials) s.push(' ');
 				else s.push(`(${str8(byte)})`);
@@ -854,6 +877,8 @@
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fobjPalettes = fixedSegments(0x150c8, 0x15854, 4, fs.overlay(3));
+
+			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
@@ -865,6 +890,8 @@
 			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
+
+			fsext.font = sliceDataView(fs.arm9, 0x43d90, 0x462d8);
 		} else if (headers.gamecode === 'CLJJ') {
 			// JP
 			fsext.fevent = varLengthSegments(0xcb18, fs.overlay(3));
@@ -887,6 +914,8 @@
 			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
+
+			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'Y6PP') {
 			// EU Demo
 			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
@@ -898,6 +927,8 @@
 			fsext.fmapmetadata = fixedSegments(0x92bc, 0x92bc + 12 * 0x21, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0xe220, 0xe318, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0xe498, 0xe72c, fs.overlay(3));
+
+			fsext.font = sliceDataView(fs.arm9, 0x406d0, 0x42e60);
 		} else if (headers.gamecode === 'Y6PE') {
 			// NA Demo
 			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
@@ -909,6 +940,8 @@
 			fsext.fmapmetadata = fixedSegments(0x92bc, 0x92bc + 12 * 0x21, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0xe164, 0xe25c, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0xe3dc, 0xe670, fs.overlay(3));
+
+			fsext.font = sliceDataView(fs.arm9, 0x4071c, 0x42cc8);
 		} else {
 			addHTML(section, `<b style="color: #f99">Unknown gamecode ${headers.gamecode}</b>`);
 		}
@@ -2250,7 +2283,284 @@
 	// | Section: Fonts                                                                                                |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const font = (window.font = createSection('Fonts', (section) => {
+	const fonts = (window.fonts = createSection('Fonts', (section) => {
+		const fonts = {};
+
+		const optionSegments = [];
+		const optionNames = [];
+		if (fsext.font) { // not available in PIT
+			optionSegments.push(fsext.font);
+			optionNames.push('Default Font');
+		}
+
+		const statSegments = unpackSegmented(fs.get('/Font/StatFontSet.dat'));
+		for (let i = 0; i < statSegments.length; ++i) {
+			if (!statSegments[i].byteLength) continue;
+			optionSegments.push(statSegments[i]);
+			optionNames.push(`StatFontSet[${i}]`);
+		}
+
+		const select = dropdown(optionNames, 0, () => update());
+		section.appendChild(select);
+
+		const canvas = document.createElement('canvas');
+		section.appendChild(canvas);
+
+		fonts.chars = (font) => {
+			const charMapSize = font.getUint32(0, true);
+			const segments = unpackSegmentedUnsorted(font, 4);
+			const charMap = segments.shift();
+
+			const glyphs = [];
+			for (let i = 0; i < segments.length; ++i) {
+				const glyph = segments[i];
+				if (!glyph.byteLength) continue;
+				const glyphU8 = bufToU8(glyph);
+
+				const glyphWidth = (glyph.getUint8(0) >> 4) * 4;
+				const glyphHeight = (glyph.getUint8(0) & 0xf) * 4;
+				const numGlyphs = glyph.getUint8(3) * 8;
+				let glyphOffset = 4 + (numGlyphs >> 1);
+
+				for (let j = 0; j < numGlyphs; ++j) {
+					const actualWidth = (j % 2 ? (glyphU8[4 + (j >> 1)] >> 4) : (glyphU8[4 + (j >> 1)] & 0xf)) + 1;
+					const bitmap = new Uint8Array(glyphWidth * glyphHeight);
+
+					for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
+						const width = Math.min(8, glyphWidth - xBase);
+						for (let yBase = 0; yBase < glyphHeight; yBase += 4) {
+							const existsOffset = glyphOffset;
+							const alphaOffset = glyphOffset + (width >> 1);
+							glyphOffset += width;
+							for (let x = 0, bitOffset = 0; x < width; ++x) {
+								for (let y = 0; y < 4; ++y, ++bitOffset) {
+									const exists = (glyphU8[existsOffset + (bitOffset >> 3)] >> (bitOffset & 7)) & 1;
+									const alpha = (glyphU8[alphaOffset + (bitOffset >> 3)] >> (bitOffset & 7)) & 1;
+									bitmap[(yBase + y) * glyphWidth + xBase + x] = (exists << 1) | alpha;
+								}
+							}
+						}
+					}
+
+					glyphs.push({ actualWidth, bitmap, height: glyphHeight, width: glyphWidth });
+				}
+			}
+
+			const chars = new Map();
+			for (let i = 0; i * 2 < charMap.byteLength; ++i) {
+				const index = charMap.getInt16(i * 2, false); // big-endian!!!
+				if (!glyphs[index]) continue;
+				chars.set(i, glyphs[index]);
+			}
+
+			return chars;
+		};
+
+		fonts.preview = font => {
+			const charMapSize = font.getUint32(0, true);
+			const segments = unpackSegmentedUnsorted(font, 4);
+			const charMap = segments.shift();
+
+			const previews = [];
+
+			for (let i = 0; i < segments.length; ++i) {
+				const glyph = segments[i];
+				if (!glyph.byteLength) continue;
+
+				const glyphWidth = (glyph.getUint8(0) >> 4) * 4;
+				const glyphHeight = (glyph.getUint8(0) & 0xf) * 4;
+				console.log(glyph.getUint8(1), glyph.getUint8(2));
+				const numGlyphs = glyph.getUint8(3) * 8;
+				let glyphOffset = 4 + (numGlyphs >> 1);
+
+				const numRows = Math.ceil(numGlyphs / 32);
+				const bitmapWidth = glyphWidth * 32;
+				const bitmapHeight = glyphHeight * numRows;
+				const bitmap = new Uint8ClampedArray(bitmapWidth * bitmapHeight * 4);
+				const bitmap32 = bufToU32(bitmap);
+
+				const glyphU8 = bufToU8(glyph);
+
+				for (let i = 0; i < numGlyphs; ++i) {
+					const actualWidth = (i % 2 ? (glyphU8[4 + (i >> 1)] >> 4) : (glyphU8[4 + (i >> 1)] & 0xf)) + 1;
+					const bitmapX = (i % 32) * glyphWidth;
+					const bitmapY = (i >> 5) * glyphHeight;
+					const oddTile = ((i % 32) ^ (i >> 5)) & 1;
+
+					for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
+						const width = Math.min(8, glyphWidth - xBase);
+						for (let yBase = 0; yBase < glyphHeight; yBase += 4) {
+							const alphaOffset = glyphOffset;
+							const colorOffset = glyphOffset + (width >> 1);
+							glyphOffset += width;
+							for (let x = 0, bitOffset = 0; x < width; ++x) {
+								for (let y = 0; y < 4; ++y, ++bitOffset) {
+									const alpha = glyphU8[alphaOffset + (bitOffset >> 3)] & (1 << (bitOffset & 7));
+									const color = glyphU8[colorOffset + (bitOffset >> 3)] & (1 << (bitOffset & 7));
+									const output = alpha 
+										? (color ? 0xffdee6ef : 0xff314263) : (oddTile ? 0xffd6f7ff : 0xffa5cee6);
+									bitmap32[(bitmapY + yBase + y) * bitmapWidth + bitmapX + xBase + x] = output;
+								}
+							}
+						}
+					}
+
+					for (let x = 0; x < actualWidth; ++x) {
+						bitmap32[(bitmapY + glyphHeight - 1) * bitmapWidth + bitmapX + x] = 0xff0099ff;
+					}
+				}
+
+				previews.push({ bitmap, width: bitmapWidth, height: bitmapHeight });
+			}
+
+			return previews;
+		};
+
+		fonts.textbox = (chars, alternateChars, bitmap, message, width, height) => {
+			bitmap.fill(0xffd6f7ff, 0, bitmap.length);
+			const u8 = bufToU8(message);
+			let x = 0;
+			let y = 0;
+			let lineHeight = 0;
+
+			let spacesAfterCharacters = true;
+
+			let o = 0;
+			const maxWidth = width * 8 + 10;
+
+			const resize = () => {
+				const maxY = bitmap.length / maxWidth;
+				if (y + 37 > maxY) {
+					const newBitmap = new Uint32Array(bitmap.length * 2);
+					newBitmap.set(bitmap, 0);
+					newBitmap.fill(0xffd6f7ff, bitmap.length, newBitmap.length);
+					bitmap = newBitmap;
+				}
+			};
+
+			// ? (color ? 0xffdee6ef : 0xff314263) : (oddTile ? 0xffd6f7ff : 0xffa5cee6);
+
+			let color = 0xff314263;
+			let colorAlpha = 0xffdee6ef;
+			for (; o < u8.length;) {
+				let char = u8[o++];
+				if (char === 0xff) {
+					// special character
+					const code = u8[o++];
+					if (code === 0x00) {
+						// newline
+						x = 0;
+						y += lineHeight + 1;
+						lineHeight = 0;
+						resize();
+					} else if (code === 0x0a) {
+						// destroy textbox
+						++o; // ignore next byte
+					} else if (code === 0x01 || code === 0x0b) {
+						// (0x01) restart textbox, (0x0b) next page
+						if (lineHeight) {
+							x = 0;
+							y += lineHeight + 1;
+							for (let i = 0; i < maxWidth; ++i) {
+								bitmap[(y + 5) * maxWidth + i] = ((i >> 3) & 1) ? 0xff0084f7 : 0xffd6f7ff;
+							}
+							y += 3;
+							lineHeight = 0;
+							resize();
+						}
+						++o; // ignore next byte
+					} else if (code === 0x0b) {
+						// ???
+						++o; // ignore next byte
+					} else if (code === 0x0c) {
+						// delay
+						++o; // next byte is the delay
+					} else if (code === 0x11) {
+						// button prompt
+						++o; // ignore next byte
+					} else if (code === 0x20) [color, colorAlpha] = [0xff314263, 0xffdee6ef]; // color: default
+					else if (code === 0x2b) [color, colorAlpha] = [0xffff0000, 0xffffdddd]; // color: blue
+					else if (code === 0xe8) spacesAfterCharacters = false;
+					else if (code === 0xef) spacesAfterCharacters = true;
+					continue;
+				}
+
+				if (char === 0x20) {
+					// space
+					x += 8;
+					continue;
+				}
+
+				const primaryCharset = char >= 0xfa ? alternateChars : chars;
+				if (char >= 0xfa) { [color, colorAlpha] = [0xff0000ff, 0xffddddff]; }
+				else { [color, colorAlpha] = [0xff314263, 0xffdee6ef] };
+				if (char === 0xfe) char = 0x000 + u8[o++];
+				else if (char === 0xfd) char = 0x100 + u8[o++];
+				else if (char === 0xfc) char = 0x200 + u8[o++];
+				else if (char === 0xfb) char = 0x300 + u8[o++];
+				else if (char === 0xfa) char = 0x400 + u8[o++];
+
+				const glyph = primaryCharset.get(char) ?? chars.get(char) ?? alternateChars.get(char);
+				if (!glyph) {
+					console.warn(`missing glyph ${char}`);
+					continue;
+				}
+
+				const { actualWidth, bitmap: glyphBitmap, width, height } = glyph;
+				if (x + width >= maxWidth) {
+					x = 0;
+					y += lineHeight + 1;
+					lineHeight = 0;
+					resize();
+				}
+
+				for (let iy = 0, io = 0; iy < height; ++iy) {
+					for (let ix = 0; ix < width; ++ix) {
+						const pos = (y + iy + 5) * maxWidth + x + ix + 5;
+						const pixel = glyphBitmap[io++];
+						if (pixel & 2) bitmap[pos] = (pixel & 1) ? colorAlpha : color;
+					}
+				}
+
+				if (height > lineHeight) lineHeight = height;
+				x += actualWidth + (spacesAfterCharacters ? 1 : 0);
+			}
+
+			return { bitmap, width: maxWidth, height: Math.max(height, y + lineHeight + 10) };
+		};
+
+		const update = () => {
+			const previews = fonts.preview(optionSegments[select.value]);
+
+			let maxWidth = 0;
+			let maxHeight = 0;
+			for (const preview of previews) {
+				if (preview.width > maxWidth) maxWidth = preview.width;
+				maxHeight += preview.height + 5;
+			}
+			maxHeight -= 5;
+
+			canvas.width = maxWidth || 1;
+			canvas.height = maxHeight <= 0 ? 1 : maxHeight;
+			canvas.style.cssText = `display: block; width: ${maxWidth * 2}px; height: ${maxHeight * 2}px;`;
+
+			const ctx = canvas.getContext('2d');
+			if (maxWidth && maxHeight) {
+				let y = 0;
+				for (const preview of previews) {
+					ctx.putImageData(new ImageData(preview.bitmap, preview.width, preview.height), 0, y);
+					y += preview.height + 5;
+				}
+			}
+		};
+		update();
+
+		fonts.default = fsext.font ?? statSegments.find(x => x.byteLength > 200);
+
+		return fonts;
+	}));
+
+	/*const font = (window.font = createSection('Fonts', (section) => {
 		const font = {};
 
 		const fontFile = fs.get('/Font/StatFontSet.dat');
@@ -2342,7 +2652,7 @@
 		update();
 
 		return font;
-	}));
+	}));*/
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: MFSet                                                                                                |
@@ -2361,6 +2671,9 @@
 
 		const ignoreSpecials = checkbox('Ignore Special Characters', false, () => update());
 		section.appendChild(ignoreSpecials);
+
+		const useGameFont = checkbox('Use Game Font', false, () => update());
+		section.appendChild(useGameFont);
 
 		const metaDisplay = document.createElement('div');
 		section.appendChild(metaDisplay);
@@ -2419,8 +2732,9 @@
 			mfset.selected = { segments, rows };
 
 			metaDisplay.innerHTML = '';
-			if (invalidColumns.length)
+			if (invalidColumns.length) {
 				addHTML(metaDisplay, `<div>Invalid columns (fonts?): ${invalidColumns.join(', ')}</div>`);
+			}
 			if (zeroedColumns.length) addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
 
 			const numColumns = rows[0].length;
@@ -2461,11 +2775,27 @@
 		let scriptSelect = dropdown([''], 0, () => {});
 		section.appendChild(scriptSelect);
 
-		const ignoreSpecials = checkbox('Ignore Special Characters', false, () => update());
+		const ignoreSpecials = checkbox('Ignore Special Characters', false, () => updateTable());
 		section.appendChild(ignoreSpecials);
+
+		const useGameFont = checkbox('Use Game Font', false, () => updateTable());
+		section.appendChild(useGameFont);
+
+		const gameFontScale = dropdown([
+			'Game Font Scale 1x',
+			'Game Font Scale 1.5x',
+			'Game Font Scale 2x',
+		], 2, () => updateTable());
+		section.appendChild(gameFontScale);
 
 		const metaDisplay = document.createElement('div');
 		section.appendChild(metaDisplay);
+
+		const fontTable = document.createElement('table');
+		fontTable.className = 'bordered';
+		section.appendChild(fontTable);
+
+		addHTML(section, '<br>');
 
 		const tableContainer = document.createElement('div');
 		tableContainer.style.cssText = 'width: 100%; height: fit-content; overflow-x: auto;';
@@ -2475,6 +2805,9 @@
 		table.className = 'bordered';
 		tableContainer.appendChild(table);
 
+		let bitmap = new Uint32Array(256 * 192); // pre-allocated, resized as necessary
+
+		let updateTable;
 		const update = () => {
 			const file = fs.get(paths[fileSelect.value]);
 			const tables = unpackSegmented(file);
@@ -2490,12 +2823,139 @@
 				)),
 			);
 
-			const updateTable = () => {
+			updateTable = () => {
+				metaDisplay.innerHTML = '';
+				fontTable.innerHTML = '';
 				table.innerHTML = '';
+
+				const canvasScale = [1, 1.5, 2][gameFontScale.value];
 
 				const columns = unpackSegmented(tables[filteredTableIds[scriptSelect.value]]);
 				mes.columns = columns;
-				const invalidColumns = [];
+
+				// determine rows, fonts, and zeroed columns
+				const fontColumns = [];
+				const zeroedColumns = []; // some columns are zeroed out
+				const textColumns = [];
+				for (let i = 0; i < columns.length; ++i) {
+					if (!columns[i].byteLength) continue;
+
+					// detect zeroed column
+					const u8 = bufToU8(columns[i]);
+					let o = 0;
+					for (; o < u8.length; ++o) {
+						if (u8[o]) break;
+					}
+					if (o >= u8.length) {
+						zeroedColumns.push(i);
+						continue;
+					}
+
+					// detect font column
+					if (columns[i].byteLength >= 8) {
+						const hypoCharMapSize = columns[i].getUint32(0, true);
+						const hypoCharMapOffset = columns[i].getUint32(4, true);
+						const roundedCharMapEnd = Math.ceil((hypoCharMapOffset + hypoCharMapSize) / 4) * 4;
+						if (roundedCharMapEnd === columns[i].byteLength && columns[i].getInt16(hypoCharMapOffset, true) === -1) {
+							// definitely a font
+							fontColumns.push(i);
+							continue;
+						}
+					}
+
+					textColumns.push(i);
+				}
+
+				addHTML(metaDisplay, `<div>zeroedColumns: ${zeroedColumns.join(', ')}</div>`);
+
+				// decorate font table
+				for (const columnId of fontColumns) {
+					const tr = document.createElement('tr');
+					tr.innerHTML = `<th>Column ${columnId}</th>`;
+
+					const td = document.createElement('td');
+					tr.appendChild(td);
+
+					const previews = fonts.preview(columns[columnId]);
+					for (let i = 0; i < previews.length; ++i) {
+						const { bitmap, width, height } = previews[i];
+						const canvas = document.createElement('canvas');
+						canvas.width = width;
+						canvas.height = height;
+						canvas.style.cssText = `width: ${width * canvasScale}px; height: ${height * canvasScale}px;` + (i + 1 < previews.length ? 'margin-bottom: 5px;' : '');
+						td.appendChild(canvas);
+
+						const ctx = canvas.getContext('2d');
+						ctx.putImageData(new ImageData(bitmap, width, height), 0, 0);
+					}
+
+					fontTable.appendChild(tr);
+				}
+
+				// decorate textbox table
+				const headerTr = document.createElement('tr');
+				headerTr.innerHTML = '<th></th>';
+				for (const columnId of textColumns) {
+					headerTr.innerHTML += `<th>Column ${columnId}</th>`;
+				}
+				table.appendChild(headerTr);
+
+				const chars = fonts.chars(fonts.default);
+				const fallbackChars = new Map();
+				for (const columnId of fontColumns) {
+					for (const [key, val] of fonts.chars(columns[columnId])) {
+						if (fallbackChars.has(key)) console.warn('OVERLAP:', key);
+						fallbackChars.set(key, val);
+					}
+				}
+				console.log('fallback:', fallbackChars);
+
+				const columnTextboxes = textColumns.map(id => unpackSegmented(columns[id]));
+				const tableLength = Math.max(...columnTextboxes.map(list => list.length));
+				for (let i = 0; i < tableLength; ++i) {
+					const tr = document.createElement('tr');
+					tr.innerHTML = `<th>${i}</th>`;
+					for (const textboxes of columnTextboxes) {
+						const textbox = textboxes[i];
+						if (!textbox) {
+							addHTML(tr, '<td></td>');
+							continue;
+						}
+
+						if (useGameFont.checked) {
+							const td = document.createElement('td');
+
+							const width = textbox.getUint8(0);
+							const height = textbox.getUint8(1);
+							const result = fonts.textbox(chars, fallbackChars, bitmap, sliceDataView(textbox, 2, textbox.byteLength), width, height);
+							bitmap = result.bitmap;
+
+							const canvas = document.createElement('canvas');
+							canvas.width = result.width;
+							canvas.height = result.height;
+							canvas.style.cssText = `width: ${canvas.width * canvasScale}px; height: ${canvas.height * canvasScale}px;`;
+							td.appendChild(canvas);
+
+							const ctx = canvas.getContext('2d');
+							const bitmapSlice = bufToU8Clamped(bitmap).slice(0, result.width * result.height * 4);
+							console.log('HI:', bitmapSlice, result.width, result.height);
+							const imgData = new ImageData(bitmapSlice, result.width, result.height);
+							ctx.putImageData(imgData, 0, 0);
+							tr.appendChild(td);
+							console.log('OK');
+						} else {
+							addHTML(tr, `<td>${sanitize(readMessage(0, textbox, ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`);
+						}
+					}
+
+					table.appendChild(tr);
+				}
+
+				if (textColumns.length === 0) {
+					addHTML(metaDisplay, '(no text)');
+				}
+
+				/*const invalidColumns = [];
 				const zeroedColumns = [];
 				const rows = [['<td></td>']];
 				for (let i = 0; i < columns.length; ++i) {
@@ -2532,8 +2992,24 @@
 				}
 
 				metaDisplay.innerHTML = '';
-				if (invalidColumns.length)
+				if (invalidColumns.length) {
 					addHTML(metaDisplay, `<div>Invalid columns (fonts?): ${invalidColumns.join(', ')}</div>`);
+					for (const column of invalidColumns) {
+						const segment = columns[column];
+						const previews = fonts.preview(segment);
+
+						for (const { bitmap, width, height } of previews) {
+							const canvas = document.createElement('canvas');
+							canvas.width = width;
+							canvas.height = height;
+							canvas.style.cssText = `width: ${width * 2}px; height: ${height * 2}px; margin-bottom: 5px;`;
+							metaDisplay.appendChild(canvas);
+
+							const ctx = canvas.getContext('2d');
+							ctx.putImageData(new ImageData(bitmap, width, height), 0, 0);
+						}
+					}
+				}
 				if (zeroedColumns.length)
 					addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
 
@@ -2546,7 +3022,7 @@
 					table.innerHTML = '(no data)';
 				} else {
 					table.innerHTML = rows.map((row, i) => '<tr>' + row.join('') + '</tr>').join('');
-				}
+				}*/
 			};
 			updateTable();
 		};
