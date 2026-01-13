@@ -30,6 +30,8 @@
 		input.addEventListener('input', (e) => resolve(input.files[0]));
 	});
 
+	const fileLoadingStart = performance.now();
+
 	const file = (window.file = new DataView(
 		await new Promise((resolve) => {
 			const reader = new FileReader();
@@ -37,6 +39,8 @@
 			reader.readAsArrayBuffer(fileBlob);
 		}),
 	));
+
+	const sectionLoadingStart = performance.now();
 
 	document.querySelector('#file-input').remove();
 	document.querySelector('#title').remove();
@@ -3196,6 +3200,9 @@
 	addHTML(document.body, '<div style="height: 100vh;"></div>');
 
 	// devtools console help
+	const loadingEnd = performance.now();
+	console.log(`File read in ${sectionLoadingStart - fileLoadingStart} ms; loaded in ${loadingEnd - sectionLoadingStart} ms`);
+
 	console.log(
 		`Dumping functions: \
 	\n%clatin1(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \

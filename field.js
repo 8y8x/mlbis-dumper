@@ -261,15 +261,19 @@ window.initField = () => {
 				`.trim(),
 			);
 			gl.compileShader(fs);
-			if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS))
-				throw `map3d fragment compilation fail:\n${gl.getShaderInfoLog(fs)}`;
+			setTimeout(() => {
+				if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS))
+					throw `map3d fragment compilation fail:\n${gl.getShaderInfoLog(fs)}`;
+			});
 
 			const program = gl.createProgram();
 			gl.attachShader(program, vs);
 			gl.attachShader(program, fs);
 			gl.linkProgram(program);
-			if (!gl.getProgramParameter(program, gl.LINK_STATUS))
-				throw `map3d program link fail:\n${gl.getProgramInfoLog(program)}`;
+			setTimeout(() => {
+				if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+					throw `map3d program link fail:\n${gl.getProgramInfoLog(program)}`;
+			});
 
 			gl.useProgram(program);
 
