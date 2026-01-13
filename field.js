@@ -688,7 +688,7 @@ window.initField = () => {
 				const numSwitches = room.collision.getUint32(4, true);
 				const options = [`${numSwitches} switches`];
 				for (let i = 0; i < numSwitches; ++i) {
-					options.push(`Switch ${i}`);
+					options.push(`${i}. Switch`);
 				}
 				side.switchDropdown.replaceWith((side.switchDropdown = dropdown(options, 0, () => {
 					updateOverlay2d = true;
@@ -721,33 +721,33 @@ window.initField = () => {
 			}
 
 			// side properties depth
+			side.depthDisplay.style.cssText = '';
+			side.depthDisplay.innerHTML = '';
 			if (room.depth.byteLength) {
 				const numFaces = room.depth.getUint32(0, true);
 				const options = [`${numFaces} faces`];
 				for (let i = 0; i < numFaces; ++i) options.push(`${i}. Face`);
-				side.depthDropdown.replaceWith(
-					(side.depthDropdown = dropdown(
-						options,
-						0,
-						() => {
-							updateOverlay2d = true;
-							if (side.depthDropdown.value === 0) {
-								side.depthDisplay.innerHTML = '';
-								return;
-							}
+				side.depthDropdown.replaceWith((side.depthDropdown = dropdown(options, 0, () => {
+					updateOverlay2d = true;
+					if (side.depthDropdown.value === 0) {
+						side.depthDisplay.style.cssText = '';
+						side.depthDisplay.innerHTML = '';
+						return;
+					}
 
-							const index = side.depthDropdown.value - 1;
-							side.depthDisplay.innerHTML = `<div style="border-left: 1px solid #76f; margin-left: 1px; padding-left: 8px;"><code>${bytes(4 + index * 12, 12, room.depth)}</code></div>`;
-						},
-						() => {
-							updateOverlay2d = true;
-						},
-					)),
-				);
+					const index = side.depthDropdown.value - 1;
+					const o = 4 + index * 12;
+					const u16 = bufToU16(sliceDataView(room.depth, o, o + 12));
+					const layers = ['BG1', 'BG2', 'BG3'].filter((_, i) => u16[1] & (1 << i));
+					side.depthDisplay.style.cssText = 'border-left: 1px solid #76f; margin-left: 1px; \
+						padding-left: 8px;';
+					side.depthDisplay.innerHTML = `${u16[0] & 0x8000 ? 'front/back' : 'top/bottom'} face -
+						${layers.join(', ') || '<span style="color: #f99;">(no layers)</span>'}<br>
+						<code>(${u16[2]}..${u16[3]}, ${u16[4]}..${u16[5]}, ${u16[0] & 0x7fff})</code>`;
+				}, () => (updateOverlay2d = true))));
 			} else {
 				side.depthDropdown.replaceWith((side.depthDropdown = dropdown(['0 faces'], 0, () => {})));
 			}
-			side.depthDisplay.innerHTML = '';
 
 			// side properties blending
 			side.blendingDisplay.style.cssText =
@@ -1606,24 +1606,26 @@ window.initField = () => {
 					const enabledLayers = options.bg1.checked | (options.bg2.checked << 1) | (options.bg3.checked << 2);
 					const selectedIndex = (side.depthDropdown.hovered ?? side.depthDropdown.value) - 1;
 					for (let i = 0; i < depths.length; ++i) {
-						const [data, flags, x1, x2, y1, y2] = bufToU16(depths[i]);
+						const [z, flags, x1, x2, y1, y2] = bufToU16(depths[i]);
 						if (!(flags & enabledLayers)) continue; // don't show if its layers are disabled
 
 						const drawX = x1 - (options.margins.checked ? 0 : 16);
 						const drawY = y1 - (options.margins.checked ? 0 : 16);
 
-						ctx.fillStyle =
-							'#' + [0, 1, 2].map((i) => (flags & enabledLayers & (1 << i) ? 'f' : '6')).join('') + '8';
+						// front/back faces are blue, top/bottom faces are white
+						ctx.fillStyle = z & 0x8000 ? '#8ff8' : '#fff8';
 						ctx.strokeStyle = selectedIndex === i ? '#fff' : '#000';
 						ctx.lineWidth = 1;
 						ctx.fillRect(drawX, drawY, x2 - x1, y2 - y1);
 						ctx.strokeRect(drawX + 0.5, drawY + 0.5, x2 - x1 - 1, y2 - y1 - 1);
 
-						ctx.fillStyle =
-							'#' + [0, 1, 2].map((i) => (flags & enabledLayers & (1 << i) ? 'f' : '6')).join('');
+						const label = `${z & 0x8000 ? '↕︎' : '↔'}z=${z & 0x7fff}`;
+						ctx.fillStyle = z & 0x8000
+							? selectedIndex === i ? '#088' : '#cff'
+							: selectedIndex === i ? '#000' : '#fff';
 						ctx.lineWidth = 5;
-						ctx.strokeText(str16(data), drawX + 5, drawY + 15);
-						ctx.fillText(str16(data), drawX + 5, drawY + 15);
+						ctx.strokeText(label, drawX + 5, drawY + 15);
+						ctx.fillText(label, drawX + 5, drawY + 15);
 					}
 				}
 
