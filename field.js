@@ -997,8 +997,11 @@ window.initField = () => {
 			// [0] tilemap BG1, [1] tilemap BG2, [2] tilemap BG3
 			for (let i = 0; i < 3; ++i) {
 				const tilemap = room.tilemaps[i];
+				const tileset = room.tilesets[i];
 				const container = document.createElement('div');
-				container.innerHTML = `<code>[${i}]</code> tilemaps[${i}] (BG${i + 1}): `;
+				const is256Color = mapFlags & (1 << i);
+				const numTiles = Math.ceil((tileset?.byteLength ?? 0) / (is256Color ? 64 : 32));
+				container.innerHTML = `<code>[${i}]</code> tilemaps[${i}] (BG${i + 1}): 0x${numTiles.toString(16)} tiles in tileset `;
 				bottomProperties.appendChild(container);
 
 				if (tilemap.byteLength) {

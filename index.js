@@ -1606,34 +1606,22 @@
 
 			// metadata below
 			metaPreview.innerHTML = '';
+			if (room.tileset) addHTML(metaPreview, `<div><code>[0]</code> tileset: 0x${Math.ceil(room.tileset.length / 32).toString(16)} tiles</div>`);
+			else addHTML(metaPreview, '<div><code>[0]</code> tileset: none</div>');
 
-			const lines = [];
-			if (room.tileset) lines.push(`[0] tileset: 0x${Math.ceil(room.tileset.length / 32).toString(16)} tiles`);
-			else lines.push('[0] tileset: none');
-
-			lines.push(`[1] palette: ${room.palette ? 'exists' : ''}`);
-			lines.push(`[2] BG1: ${room.tilemaps[0] ? room.tilemaps[0].byteLength + ' bytes' : ''}`);
-			lines.push(`[3] BG2: ${room.tilemaps[1] ? room.tilemaps[1].byteLength + ' bytes' : ''}`);
-			lines.push(`[4] BG3: ${room.tilemaps[2] ? room.tilemaps[2].byteLength + ' bytes' : ''}`);
+			addHTML(metaPreview, `<div><code>[1]</code> palette: ${room.palette ? 'exists' : ''}</div>`);
+			addHTML(metaPreview, `<div><code>[2]</code> tilemaps[0] (BG1): ${room.tilemaps[0] ? 'exists' : ''}</div>`);
+			addHTML(metaPreview, `<div><code>[3]</code> tilemaps[1] (BG2): ${room.tilemaps[1] ? 'exists' : ''}</div>`);
+			addHTML(metaPreview, `<div><code>[4]</code> tilemaps[2] (BG3): ${room.tilemaps[2] ? 'exists' : ''}</div>`);
 
 			const palAnimLines = fpaf.stringify(room.paletteAnimations);
-			lines.push(
-				`[5] paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul>`,
-			);
+			addHTML(metaPreview, `<div><code>[5]</code> paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul></div>`);
 
-			lines.push(
-				`[6] tileAnimations: <ul>${room.tileAnimations
-					.map((x) => {
-						return (
-							'<li><code>' +
-							x.parts
-								.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`)
-								.join(' ') +
-							'</code></li>'
-						);
-					})
-					.join('')}</ul>`,
-			);
+			addHTML(metaPreview, `<div><code>[6]</code> tileAnimations: <ul>${room.tileAnimations.map((x) => {
+				return ('<li><code>' +
+					x.parts.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`).join(' ') +
+					'</code></li>');
+			}).join('')}</ul></div>`);
 
 			if (room.tilesetAnimated) {
 				let tilesEnd = 0;
@@ -1642,19 +1630,17 @@
 						anim.tilesetAnimatedStart + anim.replacementLength * (Math.max(...anim.keyframeIndices) + 1);
 					if (tilesEnd < end) tilesEnd = end;
 				}
-				let html = `[7] tilesetAnimated: 0x${tilesEnd} tiles`;
+				let html = `<code>[7]</code> tilesetAnimated: 0x${tilesEnd} tiles`;
 				if (tilesEnd * 32 < room.tilesetAnimated.byteLength) {
 					html += `, debug info or unused tiles: <ul>
 						<li style="overflow-wrap: anywhere;"><code>${latin1(tilesEnd * 32, Infinity, room.tilesetAnimated)}</code></li>
 						<li><code>${bytes(tilesEnd * 32, Infinity, room.tilesetAnimated)}</code></li>
 					</ul>`;
 				}
-				lines.push(html);
+				addHTML(metaPreview, `<div>${html}</div>`);
 			} else {
-				lines.push('[7] tilesetAnimated:');
+				addHTML(metaPreview, '<div><code>[7]</code> tilesetAnimated:</div>');
 			}
-
-			for (const line of lines) addHTML(metaPreview, '<div>' + line + '</div>');
 
 			updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
 		};
