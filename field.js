@@ -91,6 +91,7 @@ window.initField = () => {
 		// options about overlays of extra data, put on top of the map
 		optionRows[1].appendChild((options.treasure = checkbox('Treasure', false, () => (updateOverlay2d = true))));
 		optionRows[1].appendChild((options.depth = checkbox('Depth', false, () => (updateOverlay2d = true))));
+		optionRows[1].appendChild((options.switches = checkbox('Switches', false, () => (updateOverlay2d = true))));
 		optionRows[1].appendChild(
 			(options.collision = checkbox(
 				'Collision',
@@ -198,6 +199,8 @@ window.initField = () => {
 		sideProperties.appendChild((side.collisionSort = dropdown([''], 0, () => {})));
 		sideProperties.appendChild((side.collisionDropdown = dropdown([''], 0, () => {})));
 		sideProperties.appendChild((side.collisionDisplay = document.createElement('div')));
+		sideProperties.appendChild((side.switchDropdown = dropdown([''], 0, () => {})));
+		sideProperties.appendChild((side.switchDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.depthDropdown = dropdown([''], 0, () => {})));
 		sideProperties.appendChild((side.depthDisplay = document.createElement('div')));
 		sideProperties.appendChild((side.blendingList = document.createElement('div')));
@@ -511,9 +514,7 @@ window.initField = () => {
 					)),
 				);
 
-				const numBoxes = room.collision.getUint32(0, true);
-				const numSpecials = room.collision.getUint32(4, true);
-
+				const numPrisms = room.collision.getUint32(0, true);
 				updateCollisionDisplay = () => {
 					updateOverlay3d = updateOverlay3dTriangles = true;
 					if (side.collisionDropdown.value === 0) {
@@ -524,7 +525,7 @@ window.initField = () => {
 					let index = side.collisionDropdown.value - 1;
 					if (side.collisionSort.value === 1) {
 						// by id
-						for (let i = 0; i < numBoxes; ++i) {
+						for (let i = 0; i < numPrisms; ++i) {
 							const id = room.collision.getUint16(8 + i * 40 + 2, true) >> 6;
 							if (id === side.collisionDropdown.value - 1) {
 								index = i;
@@ -532,9 +533,9 @@ window.initField = () => {
 							}
 						}
 					}
-					let o = 8 + index * 40;
 
-					// prism
+					const o = 8 + index * 40;
+
 					let config = room.collision.getUint16(o, true);
 					let id = room.collision.getUint16(o + 2, true) >> 6;
 					let solidActions = room.collision.getUint16(o + 4, true);
@@ -633,8 +634,9 @@ window.initField = () => {
 				};
 
 				const updateCollisionDropdown = () => {
-					let options = [[-Infinity, `${numBoxes} prisms`]];
-					for (let i = 0, o = 8; i < numBoxes; ++i, o += 40) {
+					let options = [[-Infinity, `${numPrisms} prisms`]];
+					let o = 8;
+					for (let i = 0; i < numPrisms; ++i, o += 40) {
 						const id = room.collision.getUint16(o + 2, true) >> 6;
 						const solidActions = room.collision.getUint16(o + 4, true);
 						const attributes = room.collision.getUint16(o + 6, true);
@@ -677,6 +679,46 @@ window.initField = () => {
 				side.collisionDropdown.replaceWith((side.collisionDropdown = dropdown(['0 prisms'], 0, () => {})));
 			}
 			side.collisionDisplay.innerHTML = '';
+
+			// side properties switches
+			side.switchDisplay.style.cssText = '';
+			side.switchDisplay.innerHTML = '';
+			if (room.collision.byteLength) {
+				const numPrisms = room.collision.getUint32(0, true);
+				const numSwitches = room.collision.getUint32(4, true);
+				const options = [`${numSwitches} switches`];
+				for (let i = 0; i < numSwitches; ++i) {
+					options.push(`Switch ${i}`);
+				}
+				side.switchDropdown.replaceWith((side.switchDropdown = dropdown(options, 0, () => {
+					updateOverlay2d = true;
+					if (side.switchDropdown.value === 0) {
+						side.switchDisplay.style.cssText = '';
+						side.switchDisplay.innerHTML = '';
+						return;
+					}
+
+					const index = side.switchDropdown.value - 1;
+					const o = 8 + numPrisms * 40 + index * 24;
+					const u16 = bufToU16(sliceDataView(room.collision, o, o + 24));
+					const type = [
+						'(unknown mode 0)',
+						'<b>Obj</b> &gt; BG1 &gt; BG2 &gt; BG3',
+						'BG1 &gt; <b>Obj</b> &gt; BG2 &gt; BG3',
+						'BG1 &gt; BG2 &gt; <b>Obj</b> &gt; BG3',
+					][u16[1] & 3];
+					side.switchDisplay.style.cssText = 'border-left: 1px solid #76f; margin-left: 1px; \
+						padding-left: 8px;';
+					side.switchDisplay.innerHTML = `ID ${u16[0] >> 1}${u16[0] & 1 ? ', last' : ''}<br>
+						${type}<br>
+						<code>(${u16[2]}..${u16[3]}, ${u16[4]}..${u16[5]}, ${u16[6]})</code><br>
+						${u16[7] || u16[8] || u16[9] || u16[10] || u16[11]
+							? `Unknown: <code>${u16[7]}, ${u16[8]}, ${u16[9]}, ${u16[10]}, ${u16[11]}</code>`
+							: ''}`;
+				}, () => (updateOverlay2d = true))));
+			} else {
+				side.switchDropdown.replaceWith((side.switchDropdown = dropdown(['0 switches'], 0, () => {})));
+			}
 
 			// side properties depth
 			if (room.depth.byteLength) {
@@ -1197,8 +1239,8 @@ window.initField = () => {
 			// [14] collision
 			if (room.collision.byteLength) {
 				const numPrisms = room.collision.getUint32(0, true);
-				const numSpecials = room.collision.getUint32(4, true);
-				addHTML(bottomProperties, `<div><code>[14]</code> collision: ${numPrisms} prisms, ${numSpecials} specials</div>`);
+				const numSwitches = room.collision.getUint32(4, true);
+				addHTML(bottomProperties, `<div><code>[14]</code> collision: ${numPrisms} prisms, ${numSwitches} switches</div>`);
 			} else {
 				addHTML(bottomProperties, `<div><code>[15]</code> collision:</div>`);
 			}
@@ -1524,6 +1566,29 @@ window.initField = () => {
 					}
 				}
 
+				if (options.switches.checked && room.collision.byteLength) {
+					const numPrisms = room.collision.getUint32(0, true);
+					const numSwitches = room.collision.getUint32(4, true);
+					const selectedIndex = (side.switchDropdown.hovered ?? side.switchDropdown.value) - 1;
+					for (let i = 0, o = 8 + numPrisms * 40; i < numSwitches; ++i, o += 24) {
+						const segment = sliceDataView(room.collision, o, o + 24);
+						const [unk1, unk2, x1, x2, y1, y2, z, unk8, unk9, unk10, unk11, unk12] = bufToU16(segment);
+						const drawX = x1 + (options.margins.checked ? 16 : 0);
+						const drawY = y1 - z + (options.margins.checked ? 16 : 0);
+
+						ctx.fillStyle = '#80f8';
+						ctx.strokeStyle = selectedIndex === i ? '#fff' : '#000';
+						ctx.lineWidth = 1;
+						ctx.fillRect(drawX, drawY, x2 - x1, y2 - y1);
+						ctx.strokeRect(drawX + 0.5, drawY + 0.5, x2 - x1 - 1, y2 - y1 - 1);
+
+						ctx.fillStyle = '#c8f';
+						ctx.lineWidth = 5;
+						ctx.strokeText(`z=${z}`, drawX + 5, drawY + (y2 - y1) - 5);
+						ctx.fillText(`z=${z}`, drawX + 5, drawY + (y2 - y1) - 5);
+					}
+				}
+
 				if (options.depth.checked && room.depth.byteLength >= 4) {
 					const numDepths = room.depth.getUint32(0, true);
 					const depths = [];
@@ -1682,8 +1747,9 @@ window.initField = () => {
 						// actual collision
 						if (room.collision.byteLength > 0) {
 							const numPrisms = room.collision.getUint32(0, true);
-							const numSpecials = room.collision.getUint32(4, true);
+							const numSwitches = room.collision.getUint32(4, true);
 							const selectedPrism = (side.collisionDropdown.hovered ?? side.collisionDropdown.value) - 1;
+							const selectedSwitch = selectedPrism - numPrisms;
 
 							let o = 8;
 							for (let i = 0; i < numPrisms; ++i, o += 40) {
@@ -1750,6 +1816,24 @@ window.initField = () => {
 								} else {
 									prism(...bottom, ...top, lowColor, midColor, midColor, midColor, color);
 								}
+							}
+
+							for (let i = 0; i < numSwitches; ++i, o += 24) {
+								const [a, b, x1, x2, y1, y2, z] = bufToU16(sliceDataView(room.collision, o, o + 24));
+								const color = [0.5, 0, 1];
+								const midColor = color.map((x) => x * 0.8);
+								const lowColor = color.map((x) => x * 0.6);
+								cube(
+									[x1, y2, z],
+									[x2, y2, z],
+									[x2, y2 - 8, z],
+									[x1, y2 - 8, z],
+									[x1, y2, z + (y2 - y1)],
+									[x2, y2, z + (y2 - y1)],
+									[x2, y2 - 8, z + (y2 - y1)],
+									[x1, y2 - 8, z + (y2 - y1)],
+									lowColor, midColor, midColor, midColor, midColor, color,
+								);
 							}
 						}
 					}
