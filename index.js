@@ -1610,9 +1610,36 @@
 			else addHTML(metaPreview, '<div><code>[0]</code> tileset: none</div>');
 
 			addHTML(metaPreview, `<div><code>[1]</code> palette: ${room.palette ? 'exists' : ''}</div>`);
-			addHTML(metaPreview, `<div><code>[2]</code> tilemaps[0] (BG1): ${room.tilemaps[0] ? 'exists' : ''}</div>`);
-			addHTML(metaPreview, `<div><code>[3]</code> tilemaps[1] (BG2): ${room.tilemaps[1] ? 'exists' : ''}</div>`);
-			addHTML(metaPreview, `<div><code>[4]</code> tilemaps[2] (BG3): ${room.tilemaps[2] ? 'exists' : ''}</div>`);
+
+			for (let layer = 0; layer < 3; ++layer) {
+				const container = document.createElement('div');
+				container.innerHTML = `<code>[${2 + layer}]</code> tilemaps[${layer}] (BG${layer + 1}): `;
+
+				const tilemap = room.tilemaps[layer];
+				if (tilemap?.byteLength) {
+					const tilemapContainer = document.createElement('div');
+					tilemapContainer.style.cssText = 'border: 1px solid #666; padding: 5px; display: none; overflow-x: scroll;';
+					container.appendChild(checkbox('Tilemap', false, checked => {
+						if (checked) {
+							const lines = [];
+							for (let y = 0, o = 0; y < 32; ++y) {
+								const line = [];
+								for (let x = 0; x < 64; ++x, ++o) {
+									line.push(tilemap[o] ? str16(tilemap[o]) : '----');
+								}
+								lines.push(line.join(' '));
+							}
+							tilemapContainer.style.display = '';
+							tilemapContainer.innerHTML = `<code style="white-space: pre;">${lines.join('\n')}</code>`;
+						} else {
+							tilemapContainer.style.display = 'none';
+							tilemapContainer.innerHTML = '';
+						}
+					}));
+					container.appendChild(tilemapContainer);
+				}
+				metaPreview.appendChild(container);
+			}
 
 			const palAnimLines = fpaf.stringify(room.paletteAnimations);
 			addHTML(metaPreview, `<div><code>[5]</code> paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul></div>`);
