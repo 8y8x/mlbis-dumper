@@ -2190,12 +2190,6 @@
 			optionNames.push(`StatFontSet[${i}]`);
 		}
 
-		const select = dropdown(optionNames, 0, () => update());
-		section.appendChild(select);
-
-		const canvas = document.createElement('canvas');
-		section.appendChild(canvas);
-
 		fonts.chars = (font) => {
 			const charMapSize = font.getUint32(0, true);
 			const segments = unpackSegmentedUnsorted(font, 4);
@@ -2246,7 +2240,7 @@
 			return chars;
 		};
 
-		fonts.preview = font => {
+		fonts.preview = (font, showGlyphWidth) => {
 			const charMapSize = font.getUint32(0, true);
 			const segments = unpackSegmentedUnsorted(font, 4);
 			const charMap = segments.shift();
@@ -2259,7 +2253,6 @@
 
 				const glyphWidth = (glyph.getUint8(0) >> 4) * 4;
 				const glyphHeight = (glyph.getUint8(0) & 0xf) * 4;
-				console.log(glyph.getUint8(1), glyph.getUint8(2));
 				const numGlyphs = glyph.getUint8(3) * 8;
 				let glyphOffset = 4 + (numGlyphs >> 1);
 
@@ -2295,8 +2288,10 @@
 						}
 					}
 
-					for (let x = 0; x < actualWidth; ++x) {
-						bitmap32[(bitmapY + glyphHeight - 1) * bitmapWidth + bitmapX + x] = 0xff0099ff;
+					if (showGlyphWidth) {
+						for (let x = 0; x < actualWidth; ++x) {
+							bitmap32[(bitmapY + glyphHeight - 1) * bitmapWidth + bitmapX + x] = 0xff0099ff;
+						}
 					}
 				}
 
@@ -2416,28 +2411,31 @@
 			return { bitmap, width: maxWidth, height: Math.max(height, y + lineHeight + 10) };
 		};
 
+		const select = dropdown(optionNames, 0, () => update());
+		section.appendChild(select);
+
+		const showGlyphWidthCheckbox = checkbox('Show Glyph Width', true, () => update());
+		section.appendChild(showGlyphWidthCheckbox);
+
+		const list = document.createElement('div');
+		list.style.cssText = 'display: grid; grid-columns: 512px 200px';
+		section.appendChild(list);
+
 		const update = () => {
-			const previews = fonts.preview(optionSegments[select.value]);
+			const previews = fonts.preview(optionSegments[select.value], showGlyphWidthCheckbox.checked);
 
-			let maxWidth = 0;
-			let maxHeight = 0;
+			list.innerHTML = '';
+
 			for (const preview of previews) {
-				if (preview.width > maxWidth) maxWidth = preview.width;
-				maxHeight += preview.height + 5;
-			}
-			maxHeight -= 5;
+				const canvas = document.createElement('canvas');
+				canvas.width = preview.width;
+				canvas.height = preview.height;
+				canvas.style.cssText = `display: block; width: ${preview.width * 2}px; height: ${preview.height * 2}px;`;
 
-			canvas.width = maxWidth || 1;
-			canvas.height = maxHeight <= 0 ? 1 : maxHeight;
-			canvas.style.cssText = `display: block; width: ${maxWidth * 2}px; height: ${maxHeight * 2}px;`;
+				const ctx = canvas.getContext('2d');
+				ctx.putImageData(new ImageData(preview.bitmap, preview.width, preview.height), 0, 0);
 
-			const ctx = canvas.getContext('2d');
-			if (maxWidth && maxHeight) {
-				let y = 0;
-				for (const preview of previews) {
-					ctx.putImageData(new ImageData(preview.bitmap, preview.width, preview.height), 0, y);
-					y += preview.height + 5;
-				}
+				list.appendChild(canvas);
 			}
 		};
 		update();
@@ -2651,7 +2649,8 @@
 						const hypoCharMapSize = columns[i].getUint32(0, true);
 						const hypoCharMapOffset = columns[i].getUint32(4, true);
 						const roundedCharMapEnd = Math.ceil((hypoCharMapOffset + hypoCharMapSize) / 4) * 4;
-						if (roundedCharMapEnd === columns[i].byteLength && columns[i].getInt16(hypoCharMapOffset, true) === -1) {
+						console.log(i, { hypoCharMapOffset, hypoCharMapSize, byteLength: columns[i].byteLength });
+						if (roundedCharMapEnd === columns[i].byteLength) {
 							// definitely a font
 							fontColumns.push(i);
 							continue;
