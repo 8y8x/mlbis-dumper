@@ -439,7 +439,7 @@ window.initDisassembler = () => {
 					const Rd = (inst >>> 12) & 0xf;
 					const shifter = shifterOperand(inst);
 					if (shifter) {
-						if (ASM) lines.push(`and${cond}${S ? 's' : ''} ${r[Rd]} ${r[Rn]}, ${shifter}`);
+						if (ASM) lines.push(`and${cond}${S ? 's' : ''} ${r[Rd]}, ${r[Rn]}, ${shifter}`);
 						continue;
 					}
 				}
@@ -459,7 +459,7 @@ window.initDisassembler = () => {
 					const Rd = (inst >>> 12) & 0xf;
 					const shifter = shifterOperand(inst);
 					if (shifter) {
-						if (ASM) lines.push(`bic${cond}${S ? 's' : ''} ${r[Rd]} ${r[Rn]}, ${shifter}`);
+						if (ASM) lines.push(`bic${cond}${S ? 's' : ''} ${r[Rd]}, ${r[Rn]}, ${shifter}`);
 						continue;
 					}
 				}
