@@ -2170,133 +2170,6 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: Fx                                                                                                   |
-	// +---------------------------------------------------------------------------------------------------------------+
-
-	const fx = (window.fx = createSection('Fx', (section) => {
-		const options = [];
-		for (let i = 0; i < fsext.bdfxtex.segments.length; ++i) {
-			options.push({
-				name: `BDfx 0x${i.toString(16)}`,
-				tex: fsext.bdfxtex.segments[i],
-				pal: fsext.bdfxpal.segments[i],
-			});
-		}
-		for (let i = 0; i < fsext.bofxtex.segments.length; ++i) {
-			options.push({
-				name: `BOfx 0x${i.toString(16)}`,
-				tex: fsext.bofxtex.segments[i],
-				pal: fsext.bofxpal.segments[i],
-			});
-		}
-		/*for (let i = 0; i < fsext.fdfxtex.segments.length; ++i) {
-		options.push({ name: `FDfx 0x${i.toString(16)}`, tex: fsext.fdfxtex.segments[i], pal: fsext.fdfxpal.segments[i] });
-	}
-	for (let i = 0; i < fsext.fofxtex.segments.length; ++i) {
-		options.push({ name: `FOfx 0x${i.toString(16)}`, tex: fsext.fofxtex.segments[i], pal: fsext.fofxpal.segments[i] });
-	}
-	for (let i = 0; i < fsext.mdfxtex.segments.length; ++i) {
-		options.push({ name: `MDfx 0x${i.toString(16)}`, tex: fsext.mdfxtex.segments[i], pal: fsext.mdfxpal.segments[i] });
-	}
-	for (let i = 0; i < fsext.mofxtex.segments.length; ++i) {
-		options.push({ name: `MOfx 0x${i.toString(16)}`, tex: fsext.mofxtex.segments[i], pal: fsext.mofxpal.segments[i] });
-	}*/
-
-		const select = dropdown(
-			options.map((x) => x.name),
-			0,
-			() => render(),
-		);
-		section.appendChild(select);
-
-		const paletteShift = dropdown(
-			[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf].map((x) => `Palette Row 0x${x.toString(16)}`),
-			0,
-			() => render(),
-		);
-		section.appendChild(paletteShift);
-
-		const componentPreview = document.createElement('div');
-		componentPreview.style.cssText = 'height: 256px; position: relative;';
-		section.appendChild(componentPreview);
-
-		const tileset256Canvas = document.createElement('canvas');
-		tileset256Canvas.width = tileset256Canvas.height = 256;
-		tileset256Canvas.style.cssText = 'width: 256px; height: 256px; position: absolute; top: 0; left: 0;';
-		componentPreview.appendChild(tileset256Canvas);
-
-		const tileset16Canvas = document.createElement('canvas');
-		tileset16Canvas.width = tileset16Canvas.height = 256;
-		tileset16Canvas.style.cssText = 'width: 256px; height: 256px; position: absolute; top: 0; left: 256px;';
-		componentPreview.appendChild(tileset16Canvas);
-
-		const paletteCanvas = document.createElement('canvas');
-		paletteCanvas.width = paletteCanvas.height = 16;
-		paletteCanvas.style.cssText = 'width: 128px; height: 128px; position: absolute; top: 0; left: 512px;';
-		componentPreview.appendChild(paletteCanvas);
-
-		const render = () => {
-			const option = options[select.value];
-
-			const paletteCtx = paletteCanvas.getContext('2d');
-			if (option.pal.byteLength >= 516) {
-				const paletteBitmap = new Uint8ClampedArray(256 * 4);
-				for (let i = 0; i < 256; ++i) {
-					writeRgb16(paletteBitmap, i, option.pal.getUint16(4 + i * 2, true));
-				}
-				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
-			} else {
-				paletteCtx.clearRect(0, 0, 16, 16);
-			}
-
-			const tileset256Ctx = tileset256Canvas.getContext('2d');
-			const tileset16Ctx = tileset16Canvas.getContext('2d');
-			if (option.pal.byteLength >= 516) {
-				const tileset = lzBis(option.tex);
-				const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
-				const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
-
-				const paletteRow = paletteShift.value << 4;
-
-				let o256 = 0;
-				let o16 = 0;
-				for (let i = 0; o256 < tileset.byteLength || o16 < tileset.byteLength; ++i) {
-					const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
-					// 256-color
-					for (let j = 0; j < 64 && o256 < tileset.byteLength; ++j) {
-						const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
-						const paletteIndex = tileset.getUint8(o256++);
-						writeRgb16(tileset256Bitmap, pos, option.pal.getUint16(4 + paletteIndex * 2, true));
-					}
-
-					// 16-color
-					for (let j = 0; j < 64 && o16 < tileset.byteLength; j += 2) {
-						const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
-						const composite = tileset.getUint8(o16++);
-						writeRgb16(
-							tileset16Bitmap,
-							pos,
-							option.pal.getUint16(4 + (paletteRow | (composite & 0xf)) * 2, true),
-						);
-						writeRgb16(
-							tileset16Bitmap,
-							pos ^ 1,
-							option.pal.getUint16(4 + (paletteRow | (composite >> 4)) * 2, true),
-						);
-					}
-				}
-
-				tileset256Ctx.putImageData(new ImageData(tileset256Bitmap, 256, 256), 0, 0);
-				tileset16Ctx.putImageData(new ImageData(tileset16Bitmap, 256, 256), 0, 0);
-			} else {
-				tileset256Ctx.clearRect(0, 0, 256, 256);
-				tileset16Ctx.clearRect(0, 0, 256, 256);
-			}
-		};
-		render();
-	}));
-
-	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Fonts                                                                                                |
 	// +---------------------------------------------------------------------------------------------------------------+
 
@@ -2436,14 +2309,15 @@
 		fonts.textbox = (chars, alternateChars, bitmap, message, width, height) => {
 			bitmap.fill(0xffd6f7ff, 0, bitmap.length);
 			const u8 = bufToU8(message);
+			let o = 0;
+			const maxWidth = width * 8 + 10;
 			let x = 0;
 			let y = 0;
 			let lineHeight = 0;
 
+			let color = 0xff314263;
+			let colorAlpha = 0xffdee6ef;
 			let spacesAfterCharacters = true;
-
-			let o = 0;
-			const maxWidth = width * 8 + 10;
 
 			const resize = () => {
 				const maxY = bitmap.length / maxWidth;
@@ -2455,10 +2329,6 @@
 				}
 			};
 
-			// ? (color ? 0xffdee6ef : 0xff314263) : (oddTile ? 0xffd6f7ff : 0xffa5cee6);
-
-			let color = 0xff314263;
-			let colorAlpha = 0xffdee6ef;
 			for (; o < u8.length;) {
 				let char = u8[o++];
 				if (char === 0xff) {
@@ -2577,99 +2447,7 @@
 		return fonts;
 	}));
 
-	/*const font = (window.font = createSection('Fonts', (section) => {
-		const font = {};
 
-		const fontFile = fs.get('/Font/StatFontSet.dat');
-		const fontSegments = unpackSegmented(fontFile);
-		const options = [];
-		for (let i = 0; i < fontSegments.length; ++i) {
-			if (fontSegments[i].byteLength) options.push(i);
-		}
-
-		const select = dropdown(
-			options.map((x) => `StatFontSet ${x} (len ${fontSegments[x].byteLength})`),
-			0,
-			() => update(),
-		);
-		section.appendChild(select);
-
-		const display = document.createElement('div');
-		section.appendChild(display);
-
-		const update = () => {
-			const segment = window.OVERRIDE || fontSegments[options[select.value]];
-			display.innerHTML = '';
-
-			const charMapSize = segment.getUint32(0, true);
-			const charMapOffset = segment.getUint32(4, true);
-			const charMap = sliceDataView(segment, charMapOffset, charMapOffset + charMapSize);
-			const glyphTableOffset = segment.getUint32(8, true);
-			const glyphTable = sliceDataView(segment, glyphTableOffset, charMapOffset);
-
-			if (!glyphTable.byteLength) return;
-			const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
-			const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
-
-			const x = glyphTable.getUint16(1, true);
-			console.log(x);
-
-			const charWidthBytes = glyphTable.getUint8(3) * 4;
-			const glyphBitmapOffset = 4 + charWidthBytes;
-			const numGlyphs = charWidthBytes * 2;
-
-			const glyphRows = 32;
-
-			console.log(glyphTable, glyphBitmapOffset, glyphWidth, glyphHeight, glyphRows);
-
-			const canvas = document.createElement('canvas');
-			canvas.width = glyphWidth * 16;
-			canvas.height = glyphHeight * glyphRows;
-			canvas.style.width = `${glyphWidth * 16 * 4}px`;
-			canvas.style.height = `${glyphHeight * glyphRows * 4}px`;
-			display.appendChild(canvas);
-
-			const ctx = canvas.getContext('2d');
-			const bitmap = new Uint32Array(glyphWidth * 16 * glyphHeight * glyphRows);
-			const shade = (i, alpha, color) => {
-				return [0xffffffff, 0xffeeeeff, 0xff000000, 0xffcccccc, 0xffeeeeee, 0xffddddee, 0xff000000, 0xffaaaaaa][
-					(((i & 1) + ((i >> 4) & 1)) % 2) * 4 + alpha * 2 + color
-				];
-			};
-			const p = (x, y) => y * glyphWidth * 16 + x;
-			for (let i = 0, o = glyphBitmapOffset; o + (glyphWidth * glyphHeight) / 4 <= glyphTable.byteLength; ++i) {
-				const xStart = (i & 0xf) * glyphWidth;
-				const yStart = (i >> 4) * glyphHeight;
-				for (let xBase = 0; xBase < glyphWidth; xBase += 8) {
-					const width = Math.min(4, (glyphWidth - xBase) / 2);
-					for (let y = 0; y < glyphHeight; y += 4) {
-						const alphaOffset = o;
-						o += width;
-						const colorOffset = o;
-						o += width;
-						for (let z = 0; z < width * 8; ++z) {
-							const alpha = (glyphTable.getUint8(alphaOffset + (z >> 3)) >> z % 8) & 1;
-							const color = (glyphTable.getUint8(colorOffset + (z >> 3)) >> z % 8) & 1;
-							bitmap[p(xStart + xBase + (z >> 2), yStart + y + (z % 4))] = shade(i, alpha, color);
-						}
-					}
-				}
-			}
-			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), glyphWidth * 16, glyphHeight * glyphRows), 0, 0);
-
-			addHTML(
-				display,
-				`<div>charMap (${charMapOffset} len ${charMapSize}): <code>${bytes(charMapOffset, charMapSize, segment)}</code></div>`,
-			);
-			addHTML(
-				display,
-				`<div>glyphTable (${glyphTableOffset}): <code>${bytes(glyphTableOffset, charMapOffset - glyphTableOffset, segment)}</code></div>`,
-			);
-		};
-		update();
-
-		return font;
-	}));*/
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: MFSet                                                                                                |
@@ -2968,78 +2746,7 @@
 					table.appendChild(tr);
 				}
 
-				if (textColumns.length === 0) {
-					addHTML(metaDisplay, '(no text)');
-				}
-
-				/*const invalidColumns = [];
-				const zeroedColumns = [];
-				const rows = [['<td></td>']];
-				for (let i = 0; i < columns.length; ++i) {
-					if (!columns[i].byteLength) continue;
-
-					// some columns are zeroed out
-					const u8 = bufToU8(columns[i]);
-					let j = 0;
-					for (; j < u8.length; ++j) {
-						if (u8[j]) break;
-					}
-					if (j >= u8.length) {
-						zeroedColumns.push(i);
-						continue;
-					}
-
-					// some columns don't have a complete segmented thing
-					let entries;
-					try {
-						entries = unpackSegmented(columns[i]);
-					} catch (_) {
-						invalidColumns.push(i);
-						continue;
-					}
-
-					const tableColumn = rows[0].length;
-					rows[0].push(`<th>Column ${i}</th>`);
-
-					for (let j = 0; j < entries.length; ++j) {
-						rows[j + 1] ??= [`<td>${j}</td>`];
-						rows[j + 1][tableColumn] =
-							`<td>${sanitize(readMessage(0, entries[j], ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`;
-					}
-				}
-
-				metaDisplay.innerHTML = '';
-				if (invalidColumns.length) {
-					addHTML(metaDisplay, `<div>Invalid columns (fonts?): ${invalidColumns.join(', ')}</div>`);
-					for (const column of invalidColumns) {
-						const segment = columns[column];
-						const previews = fonts.preview(segment);
-
-						for (const { bitmap, width, height } of previews) {
-							const canvas = document.createElement('canvas');
-							canvas.width = width;
-							canvas.height = height;
-							canvas.style.cssText = `width: ${width * 2}px; height: ${height * 2}px; margin-bottom: 5px;`;
-							metaDisplay.appendChild(canvas);
-
-							const ctx = canvas.getContext('2d');
-							ctx.putImageData(new ImageData(bitmap, width, height), 0, 0);
-						}
-					}
-				}
-				if (zeroedColumns.length)
-					addHTML(metaDisplay, `<div>Zeroed columns: ${zeroedColumns.join(', ')}</div>`);
-
-				const numFilteredColumns = rows[0].length;
-				for (let i = 1; i < rows.length; ++i) {
-					for (let j = 0; j < numFilteredColumns; ++j) rows[i][j] ??= '<td></td>'; // ensure there are no holes in the array
-				}
-
-				if (rows[0].length === 1) {
-					table.innerHTML = '(no data)';
-				} else {
-					table.innerHTML = rows.map((row, i) => '<tr>' + row.join('') + '</tr>').join('');
-				}*/
+				if (textColumns.length === 0) addHTML(metaDisplay, '(no text)');
 			};
 			updateTable();
 		};
@@ -3056,13 +2763,11 @@
 	window.initDisassembler();
 
 	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: Sound Data                                                                                           |
+	// | Section: Sound Data (very unfinished)                                                                         |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const sound = (window.sound = createSection('Sound', (section) => {
+	const sound = (window.sound = createSection('Sound (very unfinished)', (section) => {
 		const sound = {};
-
-		addHTML(section, '<div>very unfinished section</div>');
 
 		const soundFile = fs.get('/Sound/sound_data.sdat');
 
@@ -3147,10 +2852,10 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: Object Palette Animations                                                                            |
+	// | Section: Object Palette Animations (very unfinished)                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const objpalanim = (window.objpalanim = createSection('Object Palette Animations', (section) => {
+	const objpalanim = (window.objpalanim = createSection('Object Palette Animations (very unfinished)', (section) => {
 		const objpalanim = {};
 
 		const fileSelect = dropdown(['FObj'], 0, () => updateFile());
@@ -3207,6 +2912,133 @@
 		updateFile();
 
 		return objpalanim;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Fx (very unfinished)                                                                                 |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const fx = (window.fx = createSection('Fx (very unfinished)', (section) => {
+		const options = [];
+		for (let i = 0; i < fsext.bdfxtex.segments.length; ++i) {
+			options.push({
+				name: `BDfx 0x${i.toString(16)}`,
+				tex: fsext.bdfxtex.segments[i],
+				pal: fsext.bdfxpal.segments[i],
+			});
+		}
+		for (let i = 0; i < fsext.bofxtex.segments.length; ++i) {
+			options.push({
+				name: `BOfx 0x${i.toString(16)}`,
+				tex: fsext.bofxtex.segments[i],
+				pal: fsext.bofxpal.segments[i],
+			});
+		}
+		/*for (let i = 0; i < fsext.fdfxtex.segments.length; ++i) {
+		options.push({ name: `FDfx 0x${i.toString(16)}`, tex: fsext.fdfxtex.segments[i], pal: fsext.fdfxpal.segments[i] });
+	}
+	for (let i = 0; i < fsext.fofxtex.segments.length; ++i) {
+		options.push({ name: `FOfx 0x${i.toString(16)}`, tex: fsext.fofxtex.segments[i], pal: fsext.fofxpal.segments[i] });
+	}
+	for (let i = 0; i < fsext.mdfxtex.segments.length; ++i) {
+		options.push({ name: `MDfx 0x${i.toString(16)}`, tex: fsext.mdfxtex.segments[i], pal: fsext.mdfxpal.segments[i] });
+	}
+	for (let i = 0; i < fsext.mofxtex.segments.length; ++i) {
+		options.push({ name: `MOfx 0x${i.toString(16)}`, tex: fsext.mofxtex.segments[i], pal: fsext.mofxpal.segments[i] });
+	}*/
+
+		const select = dropdown(
+			options.map((x) => x.name),
+			0,
+			() => render(),
+		);
+		section.appendChild(select);
+
+		const paletteShift = dropdown(
+			[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf].map((x) => `Palette Row 0x${x.toString(16)}`),
+			0,
+			() => render(),
+		);
+		section.appendChild(paletteShift);
+
+		const componentPreview = document.createElement('div');
+		componentPreview.style.cssText = 'height: 256px; position: relative;';
+		section.appendChild(componentPreview);
+
+		const tileset256Canvas = document.createElement('canvas');
+		tileset256Canvas.width = tileset256Canvas.height = 256;
+		tileset256Canvas.style.cssText = 'width: 256px; height: 256px; position: absolute; top: 0; left: 0;';
+		componentPreview.appendChild(tileset256Canvas);
+
+		const tileset16Canvas = document.createElement('canvas');
+		tileset16Canvas.width = tileset16Canvas.height = 256;
+		tileset16Canvas.style.cssText = 'width: 256px; height: 256px; position: absolute; top: 0; left: 256px;';
+		componentPreview.appendChild(tileset16Canvas);
+
+		const paletteCanvas = document.createElement('canvas');
+		paletteCanvas.width = paletteCanvas.height = 16;
+		paletteCanvas.style.cssText = 'width: 128px; height: 128px; position: absolute; top: 0; left: 512px;';
+		componentPreview.appendChild(paletteCanvas);
+
+		const render = () => {
+			const option = options[select.value];
+
+			const paletteCtx = paletteCanvas.getContext('2d');
+			if (option.pal.byteLength >= 516) {
+				const paletteBitmap = new Uint8ClampedArray(256 * 4);
+				for (let i = 0; i < 256; ++i) {
+					writeRgb16(paletteBitmap, i, option.pal.getUint16(4 + i * 2, true));
+				}
+				paletteCtx.putImageData(new ImageData(paletteBitmap, 16, 16), 0, 0);
+			} else {
+				paletteCtx.clearRect(0, 0, 16, 16);
+			}
+
+			const tileset256Ctx = tileset256Canvas.getContext('2d');
+			const tileset16Ctx = tileset16Canvas.getContext('2d');
+			if (option.pal.byteLength >= 516) {
+				const tileset = lzBis(option.tex);
+				const tileset256Bitmap = new Uint8ClampedArray(256 * 256 * 4);
+				const tileset16Bitmap = new Uint8ClampedArray(256 * 256 * 4);
+
+				const paletteRow = paletteShift.value << 4;
+
+				let o256 = 0;
+				let o16 = 0;
+				for (let i = 0; o256 < tileset.byteLength || o16 < tileset.byteLength; ++i) {
+					const basePos = ((i >> 5) << 11) | ((i & 0x1f) << 3); // y = i >> 5, x = i & 0x1f
+					// 256-color
+					for (let j = 0; j < 64 && o256 < tileset.byteLength; ++j) {
+						const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
+						const paletteIndex = tileset.getUint8(o256++);
+						writeRgb16(tileset256Bitmap, pos, option.pal.getUint16(4 + paletteIndex * 2, true));
+					}
+
+					// 16-color
+					for (let j = 0; j < 64 && o16 < tileset.byteLength; j += 2) {
+						const pos = basePos | ((j >> 3) << 8) | (j & 0x7);
+						const composite = tileset.getUint8(o16++);
+						writeRgb16(
+							tileset16Bitmap,
+							pos,
+							option.pal.getUint16(4 + (paletteRow | (composite & 0xf)) * 2, true),
+						);
+						writeRgb16(
+							tileset16Bitmap,
+							pos ^ 1,
+							option.pal.getUint16(4 + (paletteRow | (composite >> 4)) * 2, true),
+						);
+					}
+				}
+
+				tileset256Ctx.putImageData(new ImageData(tileset256Bitmap, 256, 256), 0, 0);
+				tileset16Ctx.putImageData(new ImageData(tileset16Bitmap, 256, 256), 0, 0);
+			} else {
+				tileset256Ctx.clearRect(0, 0, 256, 256);
+				tileset16Ctx.clearRect(0, 0, 256, 256);
+			}
+		};
+		render();
 	}));
 
 	// add spacing to the bottom of the page, for better scrolling
