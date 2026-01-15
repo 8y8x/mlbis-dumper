@@ -2183,11 +2183,16 @@
 			optionNames.push('Default Font');
 		}
 
-		const statSegments = unpackSegmented(fs.get('/Font/StatFontSet.dat'));
-		for (let i = 0; i < statSegments.length; ++i) {
-			if (!statSegments[i].byteLength) continue;
-			optionSegments.push(statSegments[i]);
-			optionNames.push(`StatFontSet[${i}]`);
+		for (const path of ['/Font/StatFontSet.dat', '/Font/11x11.bin', '/Font/12x12.bin', '/Font/20x20.bin']) {
+			const fontFile = fs.get(path);
+			if (!fontFile) continue;
+
+			const segments = unpackSegmented(fs.get(path));
+			for (let i = 0; i < segments.length; ++i) {
+				if (!segments[i].byteLength) continue;
+				optionSegments.push(segments[i]);
+				optionNames.push(`${path} [${i}]`);
+			}
 		}
 
 		fonts.chars = (font) => {
@@ -2440,9 +2445,100 @@
 		};
 		update();
 
-		fonts.default = fsext.font ?? statSegments.find(x => x.byteLength > 200);
-
 		return fonts;
+	}));
+
+
+	const fontTest = (window.fontTest = createSection('Font Test', (section) => {
+		const fontTest = {};
+
+		const select = dropdown(['11x11.bin', '12x12.bin', '20x20.bin'], 0, () => update());
+		section.appendChild(select);
+
+		const canvas = document.createElement('canvas');
+		section.appendChild(canvas);
+
+		const update = () => {
+			let bitmap;
+			if (select.value === 0) {
+				const charWidth = [11, 12, 20][select.value];
+				const paddedCharWidth = charWidth + 5;
+				const byteSkip = [Math.ceil(11 * 11 / 8), Math.ceil(12 * 12 / 8), Math.ceil(20 * 20 / 8)][select.value];
+				const fontFile = fs.get(['/Font/11x11.bin', '/Font/12x12.bin', '/Font/20x20.bin'][select.value]);
+				const numRows = Math.ceil(fontFile.byteLength / byteSkip / 32);
+				console.log('numRows:', numRows);
+				canvas.width = paddedCharWidth * 32;
+				canvas.height = paddedCharWidth * numRows;
+				canvas.style.cssText = `width: ${canvas.width * 2}px; height: ${canvas.height * 2}px;`;
+
+				bitmap = new Uint32Array(canvas.width * canvas.height);
+				bitmap.fill(0xffffffff, 0, bitmap.length);
+
+				for (let i = 0, o = 0; o < fontFile.byteLength; ++i, o += byteSkip) {
+					const baseX = i % 32 * paddedCharWidth;
+					const baseY = (i >> 5) * paddedCharWidth;
+					for (let j = 0; j < charWidth * charWidth; ++j) {
+						const byte = j >> 3;
+						const bit = 0x80 >> (j & 7);
+						const x = j % charWidth;
+						const y = Math.floor(j / charWidth);
+						const field = fontFile.getUint8(o + byte);
+						bitmap[(baseY + y) * (paddedCharWidth * 32) + baseX + x] = field & bit ? 0xff000000 : 0xffeeeeee;
+					}
+				}
+			} else {
+				const charWidth = [11, 12, 20][select.value];
+				const paddedCharWidth = charWidth + 5;
+				const byteSkip = [16, 36, 100][select.value];
+				const fontFile = fs.get(['/Font/11x11.bin', '/Font/12x12.bin', '/Font/20x20.bin'][select.value]);
+				const numRows = Math.ceil(fontFile.byteLength / byteSkip / 32);
+				console.log('numRows:', numRows);
+				canvas.width = paddedCharWidth * 32;
+				canvas.height = paddedCharWidth * numRows;
+				canvas.style.cssText = `width: ${canvas.width * 2}px; height: ${canvas.height * 2}px;`;
+
+				bitmap = new Uint32Array(canvas.width * canvas.height);
+				bitmap.fill(0xffffffff, 0, bitmap.length);
+
+				for (let i = 0, o = 0; o < fontFile.byteLength; ++i, o += byteSkip) {
+					const bitmapX = i % 32 * paddedCharWidth;
+					const bitmapY = (i >> 5) * paddedCharWidth;
+					/*for (let j = 0; j < charWidth * charWidth; ++j) {
+						const x = (j >> 2) % charWidth;
+						const y = (j & 3) | Math.floor(j / charWidth / 4) << 2;
+						const byte = o + (j >> 2);
+						const bit = [0xc0, 0x30, 0xc, 0x3][j & 3];
+						const ok = (fontFile.getUint8(o + byte) >> [0,2,4,6][j & 3]) & 3;
+						bitmap[(baseY + y) * (paddedCharWidth * 32) + baseX + x] = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000][ok];
+					}*/
+					const glyphU8 = bufToU8(fontFile);
+					let glyphOffset = o;
+					for (let xBase = 0; xBase < charWidth; xBase += 8) {
+						const width = Math.min(8, charWidth - xBase);
+						for (let yBase = 0; yBase < charWidth; yBase += 4) {
+							const alphaOffset = glyphOffset;
+							const colorOffset = glyphOffset + (width >> 1);
+							glyphOffset += width;
+							for (let x = 0, bitOffset = 0; x < width; ++x) {
+								for (let y = 0; y < 4; ++y, ++bitOffset) {
+									const alpha = glyphU8[alphaOffset + (bitOffset >> 3)] & (1 << (bitOffset & 7));
+									const color = glyphU8[colorOffset + (bitOffset >> 3)] & (1 << (bitOffset & 7));
+									const output = alpha 
+										? (color ? 0xffdee6ef : 0xff314263) : (true ? 0xffd6f7ff : 0xffa5cee6);
+									bitmap[(bitmapY + yBase + y) * (paddedCharWidth * 32) + bitmapX + xBase + x] = output;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			const ctx = canvas.getContext('2d');
+			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), canvas.width, canvas.height), 0, 0);
+		};
+		update();
+
+		return fontTest;
 	}));
 
 
@@ -2670,7 +2766,7 @@
 					const td = document.createElement('td');
 					tr.appendChild(td);
 
-					const previews = fonts.preview(columns[columnId]);
+					const previews = fonts.preview(columns[columnId], true);
 					for (let i = 0; i < previews.length; ++i) {
 						const { bitmap, width, height } = previews[i];
 						const canvas = document.createElement('canvas');
@@ -2694,15 +2790,15 @@
 				}
 				table.appendChild(headerTr);
 
-				const chars = fonts.chars(fonts.default);
-				const fallbackChars = new Map();
+				// const chars = fonts.chars(fonts.default);
+				/*const fallbackChars = new Map();
 				for (const columnId of fontColumns) {
 					for (const [key, val] of fonts.chars(columns[columnId])) {
 						if (fallbackChars.has(key)) console.warn('OVERLAP:', key);
 						fallbackChars.set(key, val);
 					}
 				}
-				console.log('fallback:', fallbackChars);
+				console.log('fallback:', fallbackChars);*/
 
 				const columnTextboxes = textColumns.map(id => unpackSegmented(columns[id]));
 				const tableLength = Math.max(...columnTextboxes.map(list => list.length));
@@ -2752,6 +2848,93 @@
 		update();
 
 		return mes;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: FEvent Messages Test                                                                                 |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const feventMessages = (window.feventMessages = createSection('FEvent Messages Test', (section) => {
+		const feventMessages = {};
+
+		const options = [];
+		for (let i = 0; i * 3 + 2 < fsext.fevent.segments.length; ++i) {
+			options.push(`Room 0x${i.toString(16)}`);
+		}
+		const select = dropdown(options, 0, () => update());
+		section.appendChild(select);
+
+		const textTable = document.createElement('table');
+		textTable.className = 'bordered';
+		section.appendChild(textTable);
+
+		const update = () => {
+			textTable.innerHTML = '';
+			const columns = unpackSegmented(fsext.fevent.segments[select.value * 3 + 2]);
+
+			// determine rows, fonts, and zeroed columns
+			const fontColumns = [];
+			const zeroedColumns = []; // some columns are zeroed out
+			const textColumns = [];
+			for (let i = 0; i < columns.length; ++i) {
+				if (!columns[i].byteLength) continue;
+
+				// detect zeroed column
+				const u8 = bufToU8(columns[i]);
+				let o = 0;
+				for (; o < u8.length; ++o) {
+					if (u8[o]) break;
+				}
+				if (o >= u8.length) {
+					zeroedColumns.push(i);
+					continue;
+				}
+
+				// detect font column
+				if (columns[i].byteLength >= 8) {
+					const hypoCharMapSize = columns[i].getUint32(0, true);
+					const hypoCharMapOffset = columns[i].getUint32(4, true);
+					const roundedCharMapEnd = Math.ceil((hypoCharMapOffset + hypoCharMapSize) / 4) * 4;
+					console.log(i, { hypoCharMapOffset, hypoCharMapSize, byteLength: columns[i].byteLength });
+					if (roundedCharMapEnd === columns[i].byteLength) {
+						// definitely a font
+						fontColumns.push(i);
+						continue;
+					}
+				}
+
+				textColumns.push(i);
+			}
+
+			// decorate textbox table
+			const headerTr = document.createElement('tr');
+			headerTr.innerHTML = '<th></th>';
+			for (const columnId of textColumns) {
+				headerTr.innerHTML += `<th>Column ${columnId}</th>`;
+			}
+			textTable.appendChild(headerTr);
+
+			const columnTextboxes = textColumns.map(id => unpackSegmented(columns[id]));
+			const tableLength = Math.max(...columnTextboxes.map(list => list.length));
+
+			for (let i = 0; i < tableLength; ++i) {
+				const tr = document.createElement('tr');
+				tr.innerHTML = `<th>${i}</th>`;
+				for (const textboxes of columnTextboxes) {
+					const textbox = textboxes[i];
+					if (!textbox) {
+						addHTML(tr, '<td></td>');
+						continue;
+					}
+
+					addHTML(tr, `<td>${sanitize(readMessage(0, textbox, false)).replaceAll('\n', '<br>')}</td>`);
+				}
+				textTable.appendChild(tr);
+			}
+		};
+		update();
+
+		return feventMessages;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
