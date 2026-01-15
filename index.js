@@ -885,7 +885,7 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
-			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
+			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
@@ -897,8 +897,8 @@
 
 			fsext.font = sliceDataView(fs.arm9, 0x43d90, 0x462d8);
 		} else if (headers.gamecode === 'CLJJ') {
-			// JP
-			fsext.fevent = varLengthSegments(0xcb18, fs.overlay(3));
+			// JP/ROC
+			fsext.fevent = varLengthSegments(0xcb18, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11544, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xeb0c, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0xbca8, fs.overlay(3));
@@ -909,7 +909,7 @@
 			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, fs.overlay(3));
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
-			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3));
+			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
@@ -922,7 +922,7 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'Y6PP') {
 			// EU Demo
-			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
+			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
@@ -935,7 +935,7 @@
 			fsext.font = sliceDataView(fs.arm9, 0x406d0, 0x42e60);
 		} else if (headers.gamecode === 'Y6PE') {
 			// NA Demo
-			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3));
+			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
 			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
@@ -2176,26 +2176,7 @@
 	const fonts = (window.fonts = createSection('Fonts', (section) => {
 		const fonts = {};
 
-		const optionSegments = [];
-		const optionNames = [];
-		if (fsext.font) { // not available in PIT
-			optionSegments.push(fsext.font);
-			optionNames.push('Default Font');
-		}
-
-		for (const path of ['/Font/StatFontSet.dat', '/Font/11x11.bin', '/Font/12x12.bin', '/Font/20x20.bin']) {
-			const fontFile = fs.get(path);
-			if (!fontFile) continue;
-
-			const segments = unpackSegmented(fs.get(path));
-			for (let i = 0; i < segments.length; ++i) {
-				if (!segments[i].byteLength) continue;
-				optionSegments.push(segments[i]);
-				optionNames.push(`${path} [${i}]`);
-			}
-		}
-
-		fonts.chars = (font) => {
+		/*fonts.chars = (font) => {
 			const charMapSize = font.getUint32(0, true);
 			const segments = unpackSegmentedUnsorted(font, 4);
 			const charMap = segments.shift();
@@ -2304,6 +2285,156 @@
 			}
 
 			return previews;
+		};*/
+
+		fonts.glyphs1Bit = (dat, width, height) => {
+			const u8 = bufToU8(dat);
+			const glyphs = [];
+
+			const byteSkip = Math.ceil(width * height / 8);
+			for (let o = 0; o < u8.length; o += byteSkip) {
+				const bitmap = new Uint8Array(width * height);
+				for (let y = 0, bitOffset = 0; y < height; ++y) {
+					for (let x = 0; x < width; ++x, ++bitOffset) {
+						bitmap[y * width + x] = u8[o + (bitOffset >> 3)] & (0x80 >> (bitOffset & 7)) ? 2 : 0;
+					}
+				}
+				glyphs.push(bitmap);
+			}
+
+			return glyphs;
+		};
+
+		fonts.glyphs2Bit = (dat, width, height) => {
+			const u8 = bufToU8(dat);
+			const glyphs = [];
+
+			for (let o = 0; o < u8.length;) {
+				const bitmap = new Uint8Array(width * height);
+				for (let baseX = 0; baseX < width; baseX += 8) {
+					const columnWidth = Math.min(8, width - baseX);
+					for (let baseY = 0; baseY < height; baseY += 4) {
+						const alphaO = o;
+						const shadeO = o + (columnWidth >> 1);
+						o += columnWidth;
+						for (let x = 0, bitOffset = 0; x < columnWidth; ++x) {
+							for (let y = 0; y < 4; ++y, ++bitOffset) {
+								const alpha = u8[alphaO + (bitOffset >> 3)] & (1 << (bitOffset & 7));
+								const shade = u8[shadeO + (bitOffset >> 3)] & (1 << (bitOffset & 7));
+								bitmap[(baseY + y) * width + baseX + x] = alpha ? shade ? 1 : 2 : 0;
+							}
+						}
+					}
+				}
+				glyphs.push(bitmap);
+			}
+
+			return glyphs;
+		};
+
+		fonts.standard = (dat) => {
+			const chars = new Map();
+			const charMapSize = dat.getUint32(0, true);
+			const segments = unpackSegmentedUnsorted(dat, 4);
+			const charMap = segments.shift();
+
+			const byGlyph = new Map();
+			for (let i = 0; i < segments.length; ++i) {
+				const glyphTable = segments[i];
+				const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
+				const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
+				const numGlyphs = glyphTable.getUint8(3) * 8;
+
+				const actualWidths = [];
+				let o = 4;
+				if (glyphWidth <= 16) {
+					for (let j = 0; j < numGlyphs; j += 2) {
+						const composite = glyphTable.getUint8(o++);
+						actualWidths.push(composite >> 4, composite & 0xf);
+					}
+				} else {
+					for (let j = 0; j < numGlyphs; ++j) {
+						actualWidths.push(glyphTable.getUint8(o++));
+					}
+				}
+
+				const glyphs = fonts.glyphs2Bit(sliceDataView(glyphTable, o, glyphTable.byteLength), glyphWidth, glyphHeight);
+				for (let j = 0; j < glyphs.length; ++j) {
+					byGlyph.set(i << 8 | j, {
+						actualWidth: actualWidths[j],
+						bitmap: glyphs[j],
+						height: glyphHeight,
+						width: glyphWidth,
+					});
+				}
+			}
+
+			const byCode = new Map();
+			for (let i = 0, o = 0; o < charMapSize; ++i, o += 2) {
+				const glyphId = charMap.getInt16(o, false); // big endian!!
+				if (glyphId === -1) continue;
+				byCode.set(i, byGlyph.get(glyphId));
+			}
+
+			return { byCode, byGlyph };
+		};
+
+		fonts.fixed = (dat, width, height, is2Bit) => {
+			const byGlyph = new Map();
+			const glyphs = is2Bit ? fonts.glyphs2Bit(dat, width, height) : fonts.glyphs1Bit(dat, width, height);
+			for (let i = 0; i < glyphs.length; ++i) {
+				byGlyph.set(i, { actualWidth: width, bitmap: glyphs[i], height, width });
+			}
+
+			return { byCode: byGlyph, byGlyph };
+		};
+
+		fonts.preview = (table, glyphsPerRow, showActualWidth, maxGlyphHeight = 0, maxGlyphWidth = 0) => {
+			let maxKey = 0;
+			for (const [key, char] of table) {
+				if (key > maxKey) maxKey = key;
+				if (char.width > maxGlyphWidth) maxGlyphWidth = char.width;
+				if (char.height > maxGlyphHeight) maxGlyphHeight = char.height;
+			}
+
+			const bitmapWidth = maxGlyphWidth * glyphsPerRow;
+			const bitmapHeight = maxGlyphHeight * Math.ceil(maxKey / glyphsPerRow);
+			const bitmap = new Uint32Array(bitmapWidth * bitmapHeight);
+			for (let i = 0; i < maxKey; ++i) {
+				const cellX = i % glyphsPerRow;
+				const baseX = cellX * maxGlyphWidth;
+				const cellY = Math.floor(i / glyphsPerRow);
+				const baseY = cellY * maxGlyphHeight;
+				const oddTile = (cellX & 1) ^ (cellY & 1);
+
+				const glyph = table.get(i);
+				if (!glyph) continue;
+
+				for (let y = 0; y < maxGlyphHeight; ++y) {
+					bitmap.fill(
+						oddTile ? 0xffd6f7ff : 0xffa5cee6,
+						(baseY + y) * bitmapWidth + baseX,
+						(baseY + y) * bitmapWidth + baseX + maxGlyphWidth,
+					);
+				}
+
+				const { actualWidth, width, height, bitmap: glyphBitmap } = glyph;
+
+				for (let y = 0; y < height; ++y) {
+					for (let x = 0; x < width; ++x) {
+						const color = glyphBitmap[y * width + x];
+						if (color) bitmap[(baseY + y) * bitmapWidth + baseX + x] = color === 1 ? 0xffdee6ef : 0xff314263;
+					}
+				}
+
+				if (showActualWidth) {
+					for (let x = 0; x < actualWidth; ++x) {
+						bitmap[(baseY + maxGlyphHeight - 1) * bitmapWidth + baseX + x] = 0xff0099ff;
+					}
+				}
+			}
+
+			return { bitmap, bitmapWidth, bitmapHeight };
 		};
 
 		fonts.textbox = (chars, alternateChars, bitmap, message, width, height) => {
@@ -2416,32 +2547,76 @@
 			return { bitmap, width: maxWidth, height: Math.max(height, y + lineHeight + 10) };
 		};
 
+		const optionFonts = [];
+		const optionNames = [];
+		if (fsext.font) { // not available in JP/ROC
+			optionFonts.push(fonts.standard(fsext.font));
+			optionNames.push('ARM9 Font');
+		}
+
+		const statSegments = unpackSegmented(fs.get('/Font/StatFontSet.dat'));
+		for (let i = 0; i < statSegments.length; ++i) {
+			const u8 = bufToU8(statSegments[i]);
+			for (let o = 0; o < u8.length; ++o) {
+				if (u8[o]) {
+					// only add segments that aren't zero'd out
+					optionNames.push(`StatFontSet [${i}]`);
+					optionFonts.push(fonts.standard(statSegments[i]));
+					break;
+				}
+			}
+		}
+
+		if (fs.has('/Font/11x11.bin')) { // ROC only
+			optionNames.push('11x11', '12x12', '20x20');
+			optionFonts.push(
+				fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, false),
+				fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, true),
+				fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, true),
+			);
+		}
+
 		const select = dropdown(optionNames, 0, () => update());
 		section.appendChild(select);
 
-		const showGlyphWidthCheckbox = checkbox('Show Glyph Width', true, () => update());
-		section.appendChild(showGlyphWidthCheckbox);
+		const showGlyphWidth = checkbox('Show Glyph Width', true, () => update());
+		section.appendChild(showGlyphWidth);
+
+		const alignCharCode = checkbox('Align To Character Codes', false, () => update());
+		section.appendChild(alignCharCode);
+
+		const paddingWarning = document.createElement('span');
+		paddingWarning.textContent = '(Padding added for legibility)';
+		paddingWarning.style.cssText = 'display: none; color: #f99;';
+		section.appendChild(paddingWarning);
 
 		const list = document.createElement('div');
 		list.style.cssText = 'display: grid; grid-columns: 512px 200px';
 		section.appendChild(list);
 
 		const update = () => {
-			const previews = fonts.preview(optionSegments[select.value], showGlyphWidthCheckbox.checked);
+			const font = optionFonts[select.value];
+			let bitmap, bitmapWidth, bitmapHeight;
+			if (optionNames[select.value] === '11x11') {
+				// special case for ROC 11x11 font; literally looks like noise without padding
+				paddingWarning.style.display = '';
+				({ bitmap, bitmapWidth, bitmapHeight } = fonts.preview(alignCharCode.checked ? font.byCode : font.byGlyph, 32, showGlyphWidth.checked, 13, 13));
+			} else {
+				paddingWarning.style.display = 'none';
+				({ bitmap, bitmapWidth, bitmapHeight } = fonts.preview(alignCharCode.checked ? font.byCode : font.byGlyph, 32, showGlyphWidth.checked));
+			}
 
 			list.innerHTML = '';
 
-			for (const preview of previews) {
-				const canvas = document.createElement('canvas');
-				canvas.width = preview.width;
-				canvas.height = preview.height;
-				canvas.style.cssText = `display: block; width: ${preview.width * 2}px; height: ${preview.height * 2}px;`;
+			const canvas = document.createElement('canvas');
+			canvas.width = bitmapWidth;
+			canvas.height = bitmapHeight;
+			canvas.style.cssText = `display: block; width: ${bitmapWidth * 2}px; height: ${bitmapHeight * 2}px;`;
 
-				const ctx = canvas.getContext('2d');
-				ctx.putImageData(new ImageData(preview.bitmap, preview.width, preview.height), 0, 0);
+			const ctx = canvas.getContext('2d');
+			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), bitmapWidth, bitmapHeight), 0, 0);
 
-				list.appendChild(canvas);
-			}
+			list.appendChild(canvas);
 		};
 		update();
 
@@ -2466,7 +2641,6 @@
 				const byteSkip = [Math.ceil(11 * 11 / 8), Math.ceil(12 * 12 / 8), Math.ceil(20 * 20 / 8)][select.value];
 				const fontFile = fs.get(['/Font/11x11.bin', '/Font/12x12.bin', '/Font/20x20.bin'][select.value]);
 				const numRows = Math.ceil(fontFile.byteLength / byteSkip / 32);
-				console.log('numRows:', numRows);
 				canvas.width = paddedCharWidth * 32;
 				canvas.height = paddedCharWidth * numRows;
 				canvas.style.cssText = `width: ${canvas.width * 2}px; height: ${canvas.height * 2}px;`;
@@ -2492,7 +2666,6 @@
 				const byteSkip = [16, 36, 100][select.value];
 				const fontFile = fs.get(['/Font/11x11.bin', '/Font/12x12.bin', '/Font/20x20.bin'][select.value]);
 				const numRows = Math.ceil(fontFile.byteLength / byteSkip / 32);
-				console.log('numRows:', numRows);
 				canvas.width = paddedCharWidth * 32;
 				canvas.height = paddedCharWidth * numRows;
 				canvas.style.cssText = `width: ${canvas.width * 2}px; height: ${canvas.height * 2}px;`;
@@ -2745,7 +2918,6 @@
 						const hypoCharMapSize = columns[i].getUint32(0, true);
 						const hypoCharMapOffset = columns[i].getUint32(4, true);
 						const roundedCharMapEnd = Math.ceil((hypoCharMapOffset + hypoCharMapSize) / 4) * 4;
-						console.log(i, { hypoCharMapOffset, hypoCharMapSize, byteLength: columns[i].byteLength });
 						if (roundedCharMapEnd === columns[i].byteLength) {
 							// definitely a font
 							fontColumns.push(i);
@@ -2766,18 +2938,16 @@
 					const td = document.createElement('td');
 					tr.appendChild(td);
 
-					const previews = fonts.preview(columns[columnId], true);
-					for (let i = 0; i < previews.length; ++i) {
-						const { bitmap, width, height } = previews[i];
-						const canvas = document.createElement('canvas');
-						canvas.width = width;
-						canvas.height = height;
-						canvas.style.cssText = `width: ${width * canvasScale}px; height: ${height * canvasScale}px;` + (i + 1 < previews.length ? 'margin-bottom: 5px;' : '');
-						td.appendChild(canvas);
+					const { bitmap, bitmapWidth, bitmapHeight } = fonts.preview(columns[columnId], true);
 
-						const ctx = canvas.getContext('2d');
-						ctx.putImageData(new ImageData(bitmap, width, height), 0, 0);
-					}
+					const canvas = document.createElement('canvas');
+					canvas.width = bitmapWidth;
+					canvas.height = bitmapHeight;
+					canvas.style.cssText = `width: ${bitmapWidth * canvasScale}px; height: ${bitmapWeight * canvasScale}px;` + (i + 1 < previews.length ? 'margin-bottom: 5px;' : '');
+					td.appendChild(canvas);
+
+					const ctx = canvas.getContext('2d');
+					ctx.putImageData(new ImageData(bitmap, bitmapWidth, bitmapHeight), 0, 0);
 
 					fontTable.appendChild(tr);
 				}
@@ -2828,11 +2998,9 @@
 
 							const ctx = canvas.getContext('2d');
 							const bitmapSlice = bufToU8Clamped(bitmap).slice(0, result.width * result.height * 4);
-							console.log('HI:', bitmapSlice, result.width, result.height);
 							const imgData = new ImageData(bitmapSlice, result.width, result.height);
 							ctx.putImageData(imgData, 0, 0);
 							tr.appendChild(td);
-							console.log('OK');
 						} else {
 							addHTML(tr, `<td>${sanitize(readMessage(0, textbox, ignoreSpecials.checked)).replaceAll('\n', '<br>')}</td>`);
 						}
@@ -2895,7 +3063,6 @@
 					const hypoCharMapSize = columns[i].getUint32(0, true);
 					const hypoCharMapOffset = columns[i].getUint32(4, true);
 					const roundedCharMapEnd = Math.ceil((hypoCharMapOffset + hypoCharMapSize) / 4) * 4;
-					console.log(i, { hypoCharMapOffset, hypoCharMapSize, byteLength: columns[i].byteLength });
 					if (roundedCharMapEnd === columns[i].byteLength) {
 						// definitely a font
 						fontColumns.push(i);
