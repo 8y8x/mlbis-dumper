@@ -2779,8 +2779,9 @@
 		const textSpacing = dropdown(['Spacing: 1 (Latin)', 'Spacing: 2 (CJK)'], headers.gamecode === 'CLJJ' || headers.gamecode === 'CLJK' ? 1 : 0, () => updateTable());
 		section.appendChild(textSpacing);
 
-		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], 0, () => updateTable());
-		if (fs.has('/Font/11x11.bin')) section.appendChild(rocFont);
+		const isRoc = fs.has('/Font/11x11.bin');
+		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], isRoc ? 1 : 0, () => updateTable());
+		if (isRoc) section.appendChild(rocFont);
 
 		const textboxScale = dropdown(['Scale: 1x', 'Scale: 1.5x', 'Scale: 2x'], 2, () => updateTable());
 		section.appendChild(textboxScale);
@@ -2815,6 +2816,17 @@
 				showTableOptions = true;
 				const segments = unpackSegmented(container);
 				for (let i = 0; i < segments.length; ++i) {
+					// check if nonzero
+					let nonzero = false;
+					const u8 = bufToU8(segments[i]);
+					for (let o = 0; o < u8.length; ++o) {
+						if (u8[o]) {
+							nonzero = true;
+							break;
+						}
+					}
+					if (!nonzero) continue;
+
 					tableOptions.push(`Table 0x${i.toString(16)}`);
 					tables.push(segments[i]);
 				}
