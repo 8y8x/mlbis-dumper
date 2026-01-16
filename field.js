@@ -999,7 +999,7 @@ window.initField = () => {
 				const tilemap = room.tilemaps[i];
 				const tileset = room.tilesets[i];
 				const container = document.createElement('div');
-				const is256Color = mapFlags & (1 << i);
+				const is256Color = mapFlags[5] & (1 << i);
 				const numTiles = Math.ceil((tileset?.byteLength ?? 0) / (is256Color ? 64 : 32));
 				container.innerHTML = `<code>[${i}]</code> tilemaps[${i}] (BG${i + 1}): 0x${numTiles.toString(16)} tiles in tileset `;
 				bottomProperties.appendChild(container);
