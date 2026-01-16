@@ -2232,7 +2232,6 @@
 				const glyphTable = segments[i];
 				const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
 				const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
-				console.log('MAGIC:', glyphTable.getUint8(1), glyphTable.getUint8(2));
 				const numGlyphs = glyphTable.getUint8(3) * 8;
 
 				const actualWidths = [];
@@ -2815,7 +2814,8 @@
 			if (type === 'fevent') {
 				showTableOptions = true;
 				for (let i = 0; i * 3 + 2 < fsext.fevent.segments.length; ++i) {
-					tableOptions.push(`Room 0x${i.toString(16)}`);
+					if (fsext.fevent.segments[i * 3 + 2].byteLength) tableOptions.push(`Room 0x${i.toString(16)}`);
+					else tableOptions.push(`<span style="opacity: 0.5;">Room 0x${i.toString(16)}</span>`);
 					tables.push(fsext.fevent.segments[i * 3 + 2]);
 				}
 			} else if (type === 'tables+textboxes+fonts') {
@@ -2849,7 +2849,6 @@
 
 				const isSimple = type === 'plain' || type === 'textboxes';
 
-				console.log(tables, tableSelect.value);
 				const columns = messages.columns = unpackSegmented(tables[tableSelect.value]);
 				const fontColumns = [];
 				const textColumns = [];
