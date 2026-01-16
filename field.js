@@ -1826,24 +1826,6 @@ window.initField = () => {
 									prism(...bottom, ...top, lowColor, midColor, midColor, midColor, color);
 								}
 							}
-
-							for (let i = 0; i < numSwitches; ++i, o += 24) {
-								const [a, b, x1, x2, y1, y2, z] = bufToU16(sliceDataView(room.collision, o, o + 24));
-								const color = [0.5, 0, 1];
-								const midColor = color.map((x) => x * 0.8);
-								const lowColor = color.map((x) => x * 0.6);
-								cube(
-									[x1, y2, z],
-									[x2, y2, z],
-									[x2, y2 - 8, z],
-									[x1, y2 - 8, z],
-									[x1, y2, z + (y2 - y1)],
-									[x2, y2, z + (y2 - y1)],
-									[x2, y2 - 8, z + (y2 - y1)],
-									[x1, y2 - 8, z + (y2 - y1)],
-									lowColor, midColor, midColor, midColor, midColor, color,
-								);
-							}
 						}
 					}
 
