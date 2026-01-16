@@ -947,7 +947,7 @@
 
 			fsext.font = sliceDataView(fs.arm9, 0x4071c, 0x42cc8);
 		} else {
-			addHTML(section, `<b style="color: #f99">Unknown gamecode ${headers.gamecode}</b>`);
+			addHTML(section, `<b style="color: var(--red);">Unknown gamecode ${headers.gamecode}</b>`);
 		}
 
 		return fsext;
@@ -1162,7 +1162,7 @@
 				}
 
 				strings.push(
-					parts.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`).join(' '),
+					parts.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`).join(' '),
 				);
 			}
 
@@ -1173,7 +1173,7 @@
 			const s = unpackSegmented16(fsext.fpaf.segments[i]);
 			addHTML(
 				table,
-				`<tr style="${i < fsext.fpaf.segments.length - 2 ? 'border-bottom: 1px solid #666;' : ''}">
+				`<tr style="${i < fsext.fpaf.segments.length - 2 ? 'border-bottom: 1px solid var(--line);' : ''}">
 			<td><code>${i}</code></td>
 			<td style="padding: 10px 0;"><ul>${fpaf
 				.stringify(s)
@@ -1618,7 +1618,7 @@
 				const tilemap = room.tilemaps[layer];
 				if (tilemap?.byteLength) {
 					const tilemapContainer = document.createElement('div');
-					tilemapContainer.style.cssText = 'border: 1px solid #666; padding: 5px; display: none; overflow-x: scroll;';
+					tilemapContainer.style.cssText = 'border: 1px solid var(--line); padding: 5px; display: none; overflow-x: scroll;';
 					container.appendChild(checkbox('Tilemap', false, checked => {
 						if (checked) {
 							const lines = [];
@@ -1646,7 +1646,7 @@
 
 			addHTML(metaPreview, `<div><code>[6]</code> tileAnimations: <ul>${room.tileAnimations.map((x) => {
 				return ('<li><code>' +
-					x.parts.map((s, i) => `<span style="color: ${i % 2 ? '#777' : '#999'};">${s}</span>`).join(' ') +
+					x.parts.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`).join(' ') +
 					'</code></li>');
 			}).join('')}</ul></div>`);
 
@@ -2762,7 +2762,7 @@
 		];
 
 		const optionsContainer = document.createElement('div');
-		optionsContainer.style.cssText = 'position: sticky; top: 0; z-index: 5; background: #11111b; margin-bottom: 1px;';
+		optionsContainer.style.cssText = 'position: sticky; top: 0; z-index: 5; background: var(--bg); margin-bottom: 1px;';
 		section.appendChild(optionsContainer);
 
 		const fileSelect = dropdown(options.map(([name]) => name), 0, () => updateFile());
@@ -3112,7 +3112,7 @@
 				try {
 					segments = unpackSegmented16(bigSeg);
 				} catch (err) {
-					addHTML(table, `<tr style="border-bottom: 1px solid #666;">
+					addHTML(table, `<tr style="border-bottom: 1px solid var(--line);">
 						<td><code>${i}</code></td>
 						<td style="padding: 10px 0;"><code>${bytes(0, bigSeg.byteLength, bigSeg)}</code></td>
 					</tr>`);
@@ -3130,7 +3130,7 @@
 
 				addHTML(
 					table,
-					`<tr style="border-bottom: 1px solid #666;">
+					`<tr style="border-bottom: 1px solid var(--line);">
 						<td><code>${i} (s${palAnimIndex})</code></td>
 						<td style="padding: 10px 0;"><ul>${items.join('')}</ul></td>
 					</tr>`,

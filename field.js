@@ -43,7 +43,7 @@ window.initField = () => {
 		const optionRows = [0, 1].map(() => document.createElement('div'));
 		for (const row of optionRows) section.appendChild(row);
 
-		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: #11111b; margin-bottom: 1px;';
+		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: var(--bg); margin-bottom: 1px;';
 
 		options.roomDropdown = dropdown(
 			field.rooms.map((_, i) => `Room 0x${i.toString(16)}`),
@@ -409,7 +409,7 @@ window.initField = () => {
 
 			side.layerDisplay.innerHTML = `
 				<div>${mapWidth}x${mapHeight} tiles
-					${room.actualHeight === mapHeight ? '' : `<span style="color: #f99;">(${mapWidth}x${room.actualHeight} actual)</span>`}
+					${room.actualHeight === mapHeight ? '' : `<span style="color: var(--red);">(${mapWidth}x${room.actualHeight} actual)</span>`}
 					(${mapWidth * 8}x${mapHeight * 8}px)
 				</div>
 				<div>${bgAttributes[0].length ? 'BG1: ' + bgAttributes[0].join(', ') : ''}</div>
@@ -577,7 +577,7 @@ window.initField = () => {
 							// very few prisms have a fourth vertex that isn't zeroed out
 							if (x || y || ztop || zbottom) {
 								html.push(
-									`<div style="color: #f99;">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
+									`<div style="color: var(--red);">v4 <code>(${x}, ${y}, [${zbottom}..${ztop}])</code></div>`,
 								);
 							}
 						} else {
@@ -746,7 +746,7 @@ window.initField = () => {
 					side.depthDisplay.style.cssText = 'border-left: 1px solid #76f; margin-left: 1px; \
 						padding-left: 8px;';
 					side.depthDisplay.innerHTML = `${u16[0] & 0x8000 ? 'front/back' : 'top/bottom'} face -
-						${layers.join(', ') || '<span style="color: #f99;">(no layers)</span>'}<br>
+						${layers.join(', ') || '<span style="color: var(--red);">(no layers)</span>'}<br>
 						<code>(${u16[2]}..${u16[3]}, ${u16[4]}..${u16[5]}, ${u16[0] & 0x7fff})</code>`;
 				}, () => (updateOverlay2d = true))));
 			} else {
@@ -1006,7 +1006,7 @@ window.initField = () => {
 
 				if (tilemap.byteLength) {
 					const tilemapContainer = document.createElement('div');
-					tilemapContainer.style.cssText = 'border: 1px solid #666; padding: 5px; display: none; overflow-x: scroll;';
+					tilemapContainer.style.cssText = 'border: 1px solid var(--line); padding: 5px; display: none; overflow-x: scroll;';
 					container.appendChild(checkbox('Tilemap', false, checked => {
 						if (checked) {
 							const lines = [];
@@ -1216,7 +1216,7 @@ window.initField = () => {
 
 					const keyframeParts = [];
 					for (let j = 0; j < keyframes; ++j) {
-						keyframeParts.push(`<span style="color: ${j % 2 ? '#999' : '#666'}">
+						keyframeParts.push(`<span style="color: ${j % 2 ? 'var(--fg)' : 'var(--fg-dim)'}">
 							(${segment.getUint16(6 + j * 4, true)},${segment.getUint16(8 + j * 4, true)})
 						</span>`);
 					}
