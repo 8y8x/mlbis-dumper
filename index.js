@@ -2762,29 +2762,35 @@
 			['/MData/mfset_ShopMes.dat', 'textboxes'],
 		];
 
+		const optionsContainer = document.createElement('div');
+		optionsContainer.style.cssText = 'position: sticky; top: 0; z-index: 5; background: #11111b; margin-bottom: 1px;';
+		section.appendChild(optionsContainer);
+
 		const fileSelect = dropdown(options.map(([name]) => name), 0, () => updateFile());
-		section.appendChild(fileSelect);
+		optionsContainer.appendChild(fileSelect);
 
 		let tableSelect = dropdown([''], 0, () => updateTable());
 		tableSelect.style.display = 'none';
-		section.appendChild(tableSelect);
+		optionsContainer.appendChild(tableSelect);
+
+		addHTML(optionsContainer, '<br>');
 
 		const gameFont = dropdown([
 			'Extended ASCII',
 			'Hex View',
 			...fonts.optionNames.map(x => `Font: ${x}`),
 		], 0, () => updateTable());
-		section.appendChild(gameFont);
+		optionsContainer.appendChild(gameFont);
 
 		const textSpacing = dropdown(['Spacing: 1 (Latin)', 'Spacing: 2 (CJK)'], headers.gamecode === 'CLJJ' || headers.gamecode === 'CLJK' ? 1 : 0, () => updateTable());
-		section.appendChild(textSpacing);
+		optionsContainer.appendChild(textSpacing);
 
 		const isRoc = fs.has('/Font/11x11.bin');
 		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], isRoc ? 1 : 0, () => updateTable());
-		if (isRoc) section.appendChild(rocFont);
+		if (isRoc) optionsContainer.appendChild(rocFont);
 
 		const textboxScale = dropdown(['Scale: 1x', 'Scale: 1.5x', 'Scale: 2x'], 2, () => updateTable());
-		section.appendChild(textboxScale);
+		optionsContainer.appendChild(textboxScale);
 
 		const fontTable = document.createElement('table');
 		fontTable.className = 'bordered';
