@@ -2232,6 +2232,7 @@
 				const glyphTable = segments[i];
 				const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
 				const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
+				console.log('MAGIC:', glyphTable.getUint8(1), glyphTable.getUint8(2));
 				const numGlyphs = glyphTable.getUint8(3) * 8;
 
 				const actualWidths = [];
@@ -2332,41 +2333,78 @@
 			return { bitmap, bitmapWidth, bitmapHeight };
 		};
 
-		const errorGlyphBitmap = new Uint32Array([
-			3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, //
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, //
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, //
-			3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, //
-			3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
-		]);
-		const errorGlyphChars = [
-			[0,3,0, 3,0,3, 3,0,3, 3,0,3, 0,3,0], // 0
-			[0,3,0, 3,3,0, 0,3,0, 0,3,0, 3,3,3], // 1
-			[0,3,0, 3,0,3, 0,0,3, 0,3,0, 3,3,3], // 2
-			[3,3,0, 0,0,3, 3,3,0, 0,0,3, 3,3,0], // 3
-			[3,0,3, 3,0,3, 3,3,3, 0,0,3, 0,0,3], // 4
-			[3,3,3, 3,0,0, 3,3,0, 0,0,3, 3,3,0], // 5
-			[0,3,3, 3,0,0, 3,3,3, 3,0,3, 0,3,0], // 6
-			[3,3,3, 0,0,3, 0,0,3, 0,3,0, 0,3,0], // 7
-			[0,3,0, 3,0,3, 0,3,0, 3,0,3, 0,3,0], // 8
-			[0,3,0, 3,0,3, 0,3,3, 0,0,3, 3,3,0], // 9
-			[0,3,0, 3,0,3, 3,3,3, 3,0,3, 3,0,3], // A
-			[3,3,0, 3,0,3, 3,3,0, 3,0,3, 3,3,0], // B
-			[0,3,3, 3,0,0, 3,0,0, 3,0,0, 0,3,3], // C
-			[3,3,0, 3,0,3, 3,0,3, 3,0,3, 3,3,0], // D
-			[3,3,3, 3,0,0, 3,3,3, 3,0,0, 3,3,3], // E
-			[3,3,3, 3,0,0, 3,3,3, 3,0,0, 3,0,0], // F
+		const errorGlyph = {
+			bitmap: new Uint32Array([
+				3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
+				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
+				3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+			]),
+			width: 16,
+			height: 11,
+			actualWidth: 16,
+		};
+		const variableGlyph = {
+			bitmap: new Uint32Array([
+				4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, //
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, // padding
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, // padding
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
+				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, // padding
+				4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+			]),
+			width: 16,
+			height: 16,
+			actualWidth: 16,
+		};
+		const customGlyphChars = [
+			[0,1,0, 1,0,1, 1,0,1, 1,0,1, 0,1,0], // 0
+			[0,1,0, 1,1,0, 0,1,0, 0,1,0, 1,1,1], // 1
+			[0,1,0, 1,0,1, 0,0,1, 0,1,0, 1,1,1], // 2
+			[1,1,0, 0,0,1, 1,1,0, 0,0,1, 1,1,0], // 3
+			[1,0,1, 1,0,1, 1,1,1, 0,0,1, 0,0,1], // 4
+			[1,1,1, 1,0,0, 1,1,0, 0,0,1, 1,1,0], // 5
+			[0,1,1, 1,0,0, 1,1,1, 1,0,1, 0,1,0], // 6
+			[1,1,1, 0,0,1, 0,0,1, 0,1,0, 0,1,0], // 7
+			[0,1,0, 1,0,1, 0,1,0, 1,0,1, 0,1,0], // 8
+			[0,1,0, 1,0,1, 0,1,1, 0,0,1, 1,1,0], // 9
+			[0,1,0, 1,0,1, 1,1,1, 1,0,1, 1,0,1], // A
+			[1,1,0, 1,0,1, 1,1,0, 1,0,1, 1,1,0], // B
+			[0,1,1, 1,0,0, 1,0,0, 1,0,0, 0,1,1], // C
+			[1,1,0, 1,0,1, 1,0,1, 1,0,1, 1,1,0], // D
+			[1,1,1, 1,0,0, 1,1,1, 1,0,0, 1,1,1], // E
+			[1,1,1, 1,0,0, 1,1,1, 1,0,0, 1,0,0], // F
 			[0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0], // (empty)
 		];
+		const drawCustomChar = (destGlyphBitmap, i, baseX, baseY, color) => {
+			const charBitmap = customGlyphChars[i];
+			for (let y = 0; y < 5; ++y) {
+				for (let x = 0; x < 3; ++x) {
+					destGlyphBitmap[(baseY + y) * 16 + baseX + x] = charBitmap[y * 3 + x] ? color : 0;
+				}
+			}
+		};
 
-		fonts.textbox = (message, font, altFonts, width, height, bitmap, rocFonts, defaultRocFont) => {
-			const bitmapWidth = 256 + 8;
+		fonts.textbox = (message, font, altFonts, width, height, bitmap, rocFonts, defaultRocFont, textSpacing) => {
+			let bitmapWidth = 256 + 8;
+			while (bitmapWidth < width) bitmapWidth *= 2;
 			bitmap ??= new Uint32Array(bitmapWidth * 192); // just for working
 			bitmap.fill(0xffd6f7ff, 0, bitmap.length);
 			let contentWidth = width || 1;
@@ -2382,6 +2420,7 @@
 				newBitmap.fill(0xffd6f7ff, bitmap.length, newBitmap.length);
 				bitmap = newBitmap;
 			};
+			resize();
 
 			let currentFont = font;
 			let currentReplacementFont = altFonts[0];
@@ -2393,6 +2432,7 @@
 
 			const u8 = bufToU8(message);
 			for (let o = 0; o < u8.length;) {
+				let glyph;
 				const char = u8[o++];
 				if (char === 0xff) {
 					// formatting
@@ -2436,31 +2476,32 @@
 							textWritten = false;
 						}
 					} else if (control === 0x0c) ++o; // wait TODO display some placeholder here
-					else if (control === 0x0f) o += 2; // variable TODO display some placeholder here
-					else if (control === 0x11) ++o; // button prompt TODO show this
+					else if (control === 0x0f) {
+						// variable display, generate a glyph
+						const fine = u8[o++];
+						const broad = u8[o++];
+						drawCustomChar(variableGlyph.bitmap, fine >> 4, 4, 2, 4);
+						drawCustomChar(variableGlyph.bitmap, fine & 0xf, 9, 2, 4);
+						drawCustomChar(variableGlyph.bitmap, broad >> 4, 4, 9, 4);
+						drawCustomChar(variableGlyph.bitmap, broad & 0xf, 9, 9, 4);
+						glyph = variableGlyph;
+					} else if (control === 0x11) ++o; // button prompt TODO show this
 					else if (control === 0x20) [darkColor, shadowColor] = [0xff314263, 0xffdee6ef]; // default
-					else if (control === 0x21); // (239,230,222) (82,66,58)
-					else if (control === 0x22); // (82,66,58) (197,165,107)
-					else if (control === 0x23); // (197,165,107) (230,206,165)
-					else if (control === 0x24); // (230,206,165) (255,247,214)
-					else if (control === 0x25); // (255,247,214) (255,255,255)
-					else if (control === 0x26); // (255,255,255) (0,197,0)
-					else if (control === 0x27); // (0,197,0) (230,255,222)
-					else if (control === 0x28); // (230,255,222) (255,123,0)
-					else if (control === 0x29); // (255,123,0) (255,230,197)
-					else if (control === 0x2a); // (255,230,197) (49,90,255)
-					else if (control === 0x2b); // (49,90,255) (230,247,247)
-					else if (control === 0x2c); // (230,247,247) (255,0,0)
-					else if (control === 0x2d); // (255,0,0) (255,214,214)
-					else if (control === 0x2e); // (255,0,0) (255,214,214)
-					else if (control === 0x2f); // transparent (99,66,49)
-					// TODO control 0x30..0x3f (formatting) and control 0x41..0x4f (size)
-					// 0x31 : double Y (tall text) (note: top aligned!! but line height isn't adjusted)
-					// 0x32 : double X (wide text)
-					// 0x33 : double XY (huge text)
-					// 0x34 : nothing
-					// 0x35 : center aligned
-					// 0x38 : +8 space or something
+					else if (control === 0x21) [darkColor, shadowColor] = [0xffdee6ef, 0xff3a4252]; // (239,230,222) (82,66,58)
+					else if (control === 0x22) [darkColor, shadowColor] = [0xff3a4252, 0xff6ba5c5]; // (82,66,58) (197,165,107)
+					else if (control === 0x23) [darkColor, shadowColor] = [0xff6ba5c5, 0xffa5cee6]; // (197,165,107) (230,206,165)
+					else if (control === 0x24) [darkColor, shadowColor] = [0xffa5cee6, 0xffd6f7ff]; // (230,206,165) (255,247,214)
+					else if (control === 0x25) [darkColor, shadowColor] = [0xffd6f7ff, 0xffffffff]; // (255,247,214) (255,255,255)
+					else if (control === 0x26) [darkColor, shadowColor] = [0xffffffff, 0xff00c500]; // (255,255,255) (0,197,0)
+					else if (control === 0x27) [darkColor, shadowColor] = [0xff00c500, 0xffdeffe6]; // (0,197,0) (230,255,222)
+					else if (control === 0x28) [darkColor, shadowColor] = [0xffdeff17, 0xff007bff]; // (230,255,222) (255,123,0)
+					else if (control === 0x29) [darkColor, shadowColor] = [0xff007bff, 0xffc5e6ff]; // (255,123,0) (255,230,197)
+					else if (control === 0x2a) [darkColor, shadowColor] = [0xffc5e6ff, 0xffff5a31]; // (255,230,197) (49,90,255)
+					else if (control === 0x2b) [darkColor, shadowColor] = [0xffff5a31, 0xfff7f7e6]; // (49,90,255) (230,247,247)
+					else if (control === 0x2c) [darkColor, shadowColor] = [0xfff7f7e6, 0xff0000ff]; // (230,247,247) (255,0,0)
+					else if (control === 0x2d) [darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
+					else if (control === 0x2e) [darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
+					else if (control === 0x2f) [darkColor, shadowColor] = [0x00000000, 0xff314263]; // transparent (99,66,49)
 					else if (control === 0x40) {
 						// normal font
 						[currentFont, currentReplacementFont, rocFont] = [font, altFonts[0], defaultRocFont];
@@ -2470,10 +2511,17 @@
 					} else if (control === 0x42) {
 						// big font
 						[currentFont, currentReplacementFont, rocFont] = [altFonts[3], altFonts[4], rocFonts?.[2]];
-					}
-					else if (control === 0xe8) noLetterSpacing = true;
+					} else if (0x60 <= control && control <= 0xe0) {
+						// TEST DEBUG
+						drawCustomChar(variableGlyph.bitmap, control >> 4, 4, 2, 4);
+						drawCustomChar(variableGlyph.bitmap, control & 0xf, 9, 2, 4);
+						drawCustomChar(variableGlyph.bitmap, 16, 4, 9, 4);
+						drawCustomChar(variableGlyph.bitmap, 16, 9, 9, 4);
+						glyph = variableGlyph;
+					} else if (control === 0xe8) noLetterSpacing = true;
 					else if (control === 0xef) noLetterSpacing = false;
-					continue;
+					
+					if (!glyph) continue; // some control characters are drawn
 				}
 
 				if (char === 0x00) continue; // ?
@@ -2485,50 +2533,40 @@
 				textWritten = true;
 
 				let code = char;
-				let glyph;
-				let wasReplacement = false;
-				if (char >= 0xf9) {
-					// take from replacement characters
-					code = u8[o++];
-					if (char === 0xfe) code |= 0;
-					else if (char === 0xfd) code |= 0x100;
-					else if (char === 0xfc) code |= 0x200;
-					else if (char === 0xfb) code |= 0x300;
-					else if (char === 0xfa) code |= 0x400;
-					else if (char === 0xf9) code |= 0x500;
-					glyph = currentReplacementFont?.byCode.get(code);
-					wasReplacement = true;
-				} else if (char <= 0x08 && rocFont) {
-					// ROC square font access
-					code = u8[o++];
-					if (char === 0x01) code -= 1;
-					else if (char === 0x02) code += 0xf8;
-					else if (char === 0x03) code += 0x1f1;
-					else if (char === 0x04) code += 0x2ea;
-					else if (char === 0x05) code += 0x3e3;
-					else if (char === 0x06) code += 0x4dc;
-					else if (char === 0x07) code += 0x5d5;
-					else if (char === 0x08) code += 0x6ce;
-					glyph = rocFont?.byCode.get(code);
-				} else {
-					glyph = currentFont?.byCode.get(code);
+				if (!glyph) {
+					if (char >= 0xf9 && currentReplacementFont) {
+						// take from replacement characters
+						code = u8[o++];
+						if (char === 0xfe) code |= 0;
+						else if (char === 0xfd) code |= 0x100;
+						else if (char === 0xfc) code |= 0x200;
+						else if (char === 0xfb) code |= 0x300;
+						else if (char === 0xfa) code |= 0x400;
+						else if (char === 0xf9) code |= 0x500;
+						glyph = currentReplacementFont.byCode.get(code);
+					} else if (char <= 0x08 && rocFont) {
+						// ROC square font access
+						code = u8[o++];
+						if (char === 0x01) code -= 1;
+						else if (char === 0x02) code += 0xf8;
+						else if (char === 0x03) code += 0x1f1;
+						else if (char === 0x04) code += 0x2ea;
+						else if (char === 0x05) code += 0x3e3;
+						else if (char === 0x06) code += 0x4dc;
+						else if (char === 0x07) code += 0x5d5;
+						else if (char === 0x08) code += 0x6ce;
+						glyph = rocFont.byCode.get(code);
+					} else {
+						glyph = currentFont?.byCode.get(code);
+					}
 				}
 
 				if (!glyph) {
 					// invalid glyph; generate a symbol
-					const drawErrorChar = (i, baseX, baseY) => {
-						const charBitmap = errorGlyphChars[i];
-						for (let y = 0; y < 5; ++y) {
-							for (let x = 0; x < 3; ++x) {
-								errorGlyphBitmap[(baseY + y) * 16 + baseX + x] = charBitmap[y * 3 + x];
-							}
-						}
-					};
-					drawErrorChar((code >> 8) & 0xf, 2, 3);
-					drawErrorChar((code >> 4) & 0xf, 6, 3);
-					drawErrorChar(code & 0xf, 10, 3);
-
-					glyph = { bitmap: errorGlyphBitmap, width: 16, height: 11, actualWidth: 16 };
+					drawCustomChar(errorGlyph.bitmap, (code >> 8) & 0xf, 2, 3, 3);
+					drawCustomChar(errorGlyph.bitmap, (code >> 4) & 0xf, 6, 3, 3);
+					drawCustomChar(errorGlyph.bitmap, code & 0xf, 10, 3, 3);
+					glyph = errorGlyph;
 				}
 
 				if (baseX + glyph.actualWidth > contentWidth) {
@@ -2554,10 +2592,11 @@
 						const pixel = glyph.bitmap[y * glyph.width + x];
 						if (pixel === 1) bitmap[pos] = shadowColor;
 						else if (pixel === 2) bitmap[pos] = darkColor;
-						else if (pixel === 3) bitmap[pos] = 0xff0000ff;
+						else if (pixel === 3) bitmap[pos] = 0xff0000ff; // debug red
+						else if (pixel === 4) bitmap[pos] = 0xffff9900; // debug blue
 					}
 				}
-				baseX += glyph.actualWidth + (noLetterSpacing ? 0 : 1);
+				baseX += glyph.actualWidth + (noLetterSpacing ? 0 : textSpacing);
 			}
 
 			const bitmapHeight = baseY + lineHeight + 4;
@@ -2737,16 +2776,26 @@
 		], 0, () => updateTable());
 		section.appendChild(gameFont);
 
+		const textSpacing = dropdown(['Spacing: 1 (Latin)', 'Spacing: 2 (CJK)'], headers.gamecode === 'CLJJ' || headers.gamecode === 'CLJK' ? 1 : 0, () => updateTable());
+		section.appendChild(textSpacing);
+
 		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], 0, () => updateTable());
 		if (fs.has('/Font/11x11.bin')) section.appendChild(rocFont);
+
+		const textboxScale = dropdown(['Scale: 1x', 'Scale: 1.5x', 'Scale: 2x'], 2, () => updateTable());
+		section.appendChild(textboxScale);
 
 		const fontTable = document.createElement('table');
 		fontTable.className = 'bordered';
 		section.appendChild(fontTable);
 
+		const textTableContainer = document.createElement('div');
+		textTableContainer.style.cssText = 'overflow-x: auto;';
+		section.appendChild(textTableContainer);
+
 		const textTable = document.createElement('table');
 		textTable.className = 'bordered';
-		section.appendChild(textTable);
+		textTableContainer.appendChild(textTable);
 
 		let updateTable;
 		const updateFile = () => {
@@ -2774,7 +2823,7 @@
 			}
 
 			tableSelect.replaceWith((tableSelect = dropdown(showTableOptions ? tableOptions : [''], 0, () => updateTable())));
-			tableSelect.style.display = tableOptions.length ? '' : 'none';
+			tableSelect.style.display = tableOptions.length ? 'inline-block' : 'none';
 
 			updateTable = () => {
 				fontTable.innerHTML = '';
@@ -2891,11 +2940,13 @@
 							}
 
 							const { bitmap, bitmapWidth, bitmapHeight, actualWidth } =
-								fonts.textbox(text, font, altFonts, width, height, recycledBitmap, rocFonts, defaultRocFont);
+								fonts.textbox(text, font, altFonts, width, height, recycledBitmap, rocFonts, defaultRocFont, [1, 2][textSpacing.value]);
+
+							const canvasScale = [1, 1.5, 2][textboxScale.value];
 							const canvas = document.createElement('canvas');
 							canvas.width = actualWidth;
 							canvas.height = bitmapHeight;
-							canvas.style.cssText = `width: ${actualWidth * 2}px; height: ${bitmapHeight * 2}px;`;
+							canvas.style.cssText = `width: ${actualWidth * canvasScale}px; height: ${bitmapHeight * canvasScale}px;`;
 
 							const ctx = canvas.getContext('2d');
 							ctx.putImageData(new ImageData(bufToU8Clamped(bitmap.slice(0, bitmapWidth * bitmapHeight)), bitmapWidth, bitmapHeight), 0, 0);
