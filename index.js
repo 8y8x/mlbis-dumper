@@ -907,6 +907,11 @@
 			fsext.fmapmetadata = fixedSegments(0x9b00, 0x9b00 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x19710, 0x1a85c, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, fs.overlay(3));
+
+			// ROC version only
+			if (fs.has('/Font/11x11.bin')) {
+				fsext.font = sliceDataView(fs.arm9, 0x44fa8, 0x48084);
+			}
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
