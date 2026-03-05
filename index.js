@@ -233,7 +233,7 @@
 	for (let i = 0x20; i < 0x7f; ++i) byteToChar[i] = String.fromCharCode(i);
 	for (let i = 0x7f; i < 0xa0; ++i) byteToChar[i] = '.';
 	for (let i = 0xa0; i < 0x100; ++i) byteToChar[i] = String.fromCharCode(i);
-	const latin1 = (window.latin1 = (o, l, dat = file) => {
+	const latin1 = (window.latin1 = (o, l, dat) => {
 		let end;
 		if (l !== undefined) {
 			end = o + l;
@@ -250,7 +250,7 @@
 
 	const byteToHex = [];
 	for (let i = 0; i < 256; ++i) byteToHex[i] = i.toString(16).padStart(2, '0');
-	const bytes = (window.bytes = (o, l, buf = file) => {
+	const bytes = (window.bytes = (o, l, buf) => {
 		const slice = new Uint8Array(
 			buf.buffer.slice(Math.max(buf.byteOffset + o, 0), buf.byteOffset + Math.min(o + l, buf.byteLength)),
 		);
@@ -259,7 +259,7 @@
 		return arr.join(' ');
 	});
 
-	const bits = (window.bits = (o, l, buf = file) => {
+	const bits = (window.bits = (o, l, buf) => {
 		const slice = buf.buffer.slice(buf.byteOffset + o, buf.byteOffset + o + l);
 		return Array.from(new Uint8Array(slice))
 			.map((x) => x.toString(2).padStart(8, '0'))
@@ -440,6 +440,7 @@
 			);
 		}
 
+		console.log(title, content.children.length);
 		if (content.children.length) document.body.appendChild(section);
 		return result;
 	});
@@ -452,8 +453,8 @@
 		const fields = [];
 		const headers = {};
 
-		headers.title = sanitize(latin1(0, 12));
-		headers.gamecode = sanitize(latin1(12, 4));
+		headers.title = sanitize(latin1(0, 12, file));
+		headers.gamecode = sanitize(latin1(12, 4, file));
 		fields.push(['Title', `${headers.title} (${headers.gamecode})`]);
 		document.title = `(${headers.gamecode}) MLBIS Dumper`;
 
@@ -529,7 +530,7 @@
 				const composite = file.getUint8(headers.fntOffset + o++);
 				if (!composite) break;
 
-				const name = latin1(headers.fntOffset + o, composite & 0x7f);
+				const name = latin1(headers.fntOffset + o, composite & 0x7f, file);
 				o += composite & 0x7f;
 				let id;
 				if (composite & 0x80) {
@@ -869,6 +870,8 @@
 			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
 			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
 			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
+
+			fsext.baiCommands = fixedSegments(0x13478, 0x13478 + 0x224 * 16, 16, fs.overlay(12));
 
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
@@ -2986,6 +2989,132 @@
 		updateFile();
 
 		return messages;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Battle Scripts                                                                                       |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const bai = (window.bai = createSection('Battle Scripts', (section) => {
+		const bai = {};
+
+		// preprocess commands
+		const commands = bai.commands = [];
+		for (const block of fsext.baiCommands) {
+			const argc = block.getUint8(0);
+			const args = [];
+			for (let i = 0; i < (argc & 0x7f); ++i) {
+				const type = i & 1
+					? block.getUint8(1 + (i >> 1)) >> 4
+					: block.getUint8(1 + (i >> 1)) & 0xf;
+				args.push(type);
+			}
+
+			commands.push({ returns: !!(argc & 0x80), args });
+		}
+
+		const options = [
+			['/BAI/BAI_atk_hk.dat', fsext.bai_atk_hk],
+			['/BAI/BAI_atk_mt.dat', fsext.bai_atk_mt],
+			['/BAI/BAI_atk_nh.dat', fsext.bai_atk_nh],
+			['/BAI/BAI_atk_yy.dat', fsext.bai_atk_yy],
+			['/BAI/BAI_mon_cf.dat', fsext.bai_mon_cf],
+			['/BAI/BAI_mon_ji.dat', fsext.bai_mon_ji],
+			['/BAI/BAI_mon_yo.dat', fsext.bai_mon_yo],
+			['/BAI/BAI_scn_cf.dat', fsext.bai_scn_cf],
+			['/BAI/BAI_scn_ji.dat', fsext.bai_scn_ji],
+			['/BAI/BAI_scn_yo.dat', fsext.bai_scn_yo],
+		];
+		const fileSelect = dropdown(options.map(x => x[0]), 0, () => update());
+		section.appendChild(fileSelect);
+
+		let updateScript;
+		let scriptSelect = dropdown([''], 0, () => updateScript());
+		section.appendChild(scriptSelect);
+
+		const preview = document.createElement('div');
+		section.appendChild(preview);
+
+		const update = () => {
+			preview.innerHTML = '';
+
+			const segments = options[fileSelect.value]?.[1]?.segments;
+			if (!segments) {
+				preview.innerHTML = 'No segments/offsets for this file for this game version';
+				scriptSelect.style.display = 'none';
+				return;
+			}
+
+			scriptSelect.replaceWith(scriptSelect = dropdown(segments.map((x,i) => `Script ${i} (${x.byteLength} len)`), 0, () => updateScript()));
+			updateScript = () => {
+				const script = segments[scriptSelect.value];
+				preview.innerHTML = '';
+
+				addHTML(preview, `<div><code>${bytes(0, 14, script)}</code>`);
+				const headerU16 = bufToU16(script);
+				const eventOffsets = new Map();
+				eventOffsets.set(headerU16[1] + 2, '[[[startTurn1]]]');
+				eventOffsets.set(headerU16[2] + 4, '[[[initializer]]]');
+				eventOffsets.set(headerU16[3] + 6, '[[[startTurn2]]]');
+				eventOffsets.set(headerU16[4] + 8, '[[[startPlayerTurn]]]');
+				eventOffsets.set(headerU16[5] + 10, '[[[start5]]]');
+				addHTML(preview, `<div>startTurn1 = ${str16(headerU16[1] + 2)}, initializer = ${str16(headerU16[2] + 4)}, startTurn2 = ${str16(headerU16[3] + 6)}, startPlayerTurn = ${str16(headerU16[4] + 8)}, start5 = ${str16(headerU16[5] + 10)}</div>`);
+
+				const parts = [];
+				let o = 14;
+				for (; o + 5 < script.byteLength;) {
+					const startO = o;
+					const cmd = script.getUint16(o, true);
+					const flags = script.getUint32(o + 2, true);
+					const command = commands[cmd];
+					console.log(command, cmd);
+					if (!command) break;
+
+					let prefix = `(${str16(o)}) `;
+					const evOffset = eventOffsets.get(o);
+					if (evOffset) prefix += evOffset + ' ';
+					o += 6;
+
+					if (command.returns) {
+						prefix += `var[0x${str16(script.getUint16(o, true))}] = `;
+						o += 2;
+					}
+
+					const args = [];
+					for (let i = 0; i < command.args.length; ++i) {
+						if (flags & (1 << i)) {
+							args.push(`var[0x${str16(script.getUint16(o, true))}]`);
+							o += 2; // variable
+						} else if (command.args[i] === 0) (args.push(script.getUint8(o)), ++o); // u8
+						else if (command.args[i] === 1) (args.push(script.getUint16(o, true)), o += 2); // u16
+						else if (command.args[i] === 2) (args.push(script.getUint32(o, true)), o += 4); // u32
+						else if (command.args[i] === 3) (args.push(script.getInt8(o)), ++o); // s8
+						else if (command.args[i] === 4) (args.push(script.getInt16(o, true)), o += 2); // s16
+						else if (command.args[i] === 5) (args.push(script.getInt32(o, true)), o += 4); // s32
+						else if (command.args[i] === 6) {
+							const x = script.getInt16(o, true);
+							args.push(`fp88(${x / 256})`);
+							o += 2; // fixed-point (8.8?)
+						} else if (command.args[i] === 7) {
+							const x = script.getInt32(o, true);
+							args.push(`fp2012(${x / 4096})`);
+							o += 4; // fixed-point (20.12)
+						}
+					}
+
+					if (o >= script.byteLength) break;
+
+					if (cmd === 1) parts.push(`${prefix}return`);
+					else parts.push(`${prefix}BE_${str16(cmd)}(${args.join(', ')})`);
+				}
+				addHTML(preview, `<div><code>${parts.map(x => `<div>${x}</div>`).join(' ')}</code></div>`);
+				addHTML(preview, `<div><code>${bytes(o, script.byteLength - o, script)}</code></div>`);
+			};
+			updateScript();
+		};
+		update();
+
+		return bai;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
