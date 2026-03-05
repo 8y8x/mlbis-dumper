@@ -440,7 +440,6 @@
 			);
 		}
 
-		console.log(title, content.children.length);
 		if (content.children.length) document.body.appendChild(section);
 		return result;
 	});
@@ -861,13 +860,15 @@
 		// which pointer list belongs to which file
 		// (for example, in NA /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
 		if (headers.gamecode === 'CLJE') {
-			// NA/AU
-			// two more tables of chunk length 0xc, that i can't be bothered to try and guess
-			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat')); // tile data is probably right next to it, again
-			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxPal.dat')); // seems like palette data
+			// NA
+			fsext.bai_item_ji = varLengthSegments(0x7c6c, fs.overlay(14), fs.get('/BAI/BAI_item_ji.dat')); // ?
+			fsext.blfxtex = varLengthSegments(0x7c78, fs.overlay(14), fs.get('/BRfx/BLfxTex.dat')); // ?
+			fsext.bai_scn_cf = varLengthSegments(0x7c84, fs.overlay(14), fs.get('/BAI/BAI_scn_cf.dat')); // ?
+			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxPal.dat'));
 			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
-			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat')); // might be BDfxGAll.dat instead
-			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat')); // all segments seem to be 514 in length, so probably palettes
+			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat'));
 			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
 			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
 			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
@@ -881,8 +882,8 @@
 			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
 			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
 
-			fsext.baiCommands = fixedSegments(0x13478, 0x13478 + 0x224 * 16, 16, fs.overlay(12));
-			fsext.monsters = fixedSegments(0xe074, 0xf440, 36, fs.overlay(11)); // TODO 0xf440 is not the right end offset
+			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
+			fsext.monsters = fixedSegments(0xe074, 0xf448, 36, fs.overlay(11));
 
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
@@ -899,6 +900,30 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
+			fsext.bai_item_ji = varLengthSegments(0x7c6c, fs.overlay(14), fs.get('/BAI/BAI_item_ji.dat')); // ?
+			fsext.blfxtex = varLengthSegments(0x7c78, fs.overlay(14), fs.get('/BRfx/BLfxTex.dat')); // ?
+			fsext.bai_scn_cf = varLengthSegments(0x7c84, fs.overlay(14), fs.get('/BAI/BAI_scn_cf.dat')); // ?
+			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
+			fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
+			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
+			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
+			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
+			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
+
+			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
+			fsext.monsters = fixedSegments(0x17098, 0x1846c, 36, fs.overlay(11));
+
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
@@ -912,6 +937,30 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d90, 0x462d8);
 		} else if (headers.gamecode === 'CLJJ') {
 			// JP/ROC
+			fsext.bai_scn_cf = varLengthSegments(0x540d0, fs.overlay(11), fs.get('/BAI/BAI_scn_cf.dat'));
+			fsext.bai_item_ji = varLengthSegments(0x540dc, fs.overlay(11), fs.get('/BAI/BAI_item_ji.dat'));
+			fsext.blfxtex = varLengthSegments(0x540e8, fs.overlay(11), fs.get('/BRfx/BLfxTex.dat'));
+			fsext.bofxtex = varLengthSegments(0x540f4, fs.overlay(11), fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = varLengthSegments(0x5410c, fs.overlay(11), fs.get('/BRfx/BOfxPal.dat'));
+			fsext.bmapg = varLengthSegments(0x54124, fs.overlay(11), fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = varLengthSegments(0x5413c, fs.overlay(11), fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = varLengthSegments(0x54170, fs.overlay(11), fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_mon_cf = varLengthSegments(0x541a4, fs.overlay(11), fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_atk_yy = varLengthSegments(0x541e0, fs.overlay(11), fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_yo = varLengthSegments(0x54664, fs.overlay(11), fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = varLengthSegments(0x546f8, fs.overlay(11), fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = varLengthSegments(0x54834, fs.overlay(11), fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = varLengthSegments(0x548cc, fs.overlay(11), fs.get('/BAI/BAI_mon_ji.dat'));
+			fsext.bobjmap = varLengthSegments(0x549e8, fs.overlay(11));
+			fsext.bai_atk_hk = varLengthSegments(0x54ba8, fs.overlay(11), fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = varLengthSegments(0x54de4, fs.overlay(11), fs.get('/BAI/BAI_scn_yo.dat'));
+			fsext.bobjpc = varLengthSegments(0x55068, fs.overlay(11));
+			fsext.bobjui = varLengthSegments(0x5560c, fs.overlay(11));
+			fsext.bobjmon = varLengthSegments(0x56b30, fs.overlay(11));
+
+			fsext.baiCommands = fixedSegments(0x41bc4, 0x43df0, 16, fs.overlay(11));
+			fsext.monsters = fixedSegments(0x52cd4, 0x540a8, 36, fs.overlay(11));
+
 			fsext.fevent = varLengthSegments(0xcb18, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11544, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xeb0c, fs.overlay(3), fs.get('/FObj/FObj.dat'));
@@ -925,6 +974,30 @@
 			fsext.font = sliceDataView(fs.arm9, 0x44fa8, 0x48084);
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
+			fsext.bai_item_ji = varLengthSegments(0x7c6c, fs.overlay(14), fs.get('/BAI/BAI_item_ji.dat')); // ?
+			fsext.blfxtex = varLengthSegments(0x7c78, fs.overlay(14), fs.get('/BRfx/BLfxTex.dat')); // ?
+			fsext.bai_scn_cf = varLengthSegments(0x7c84, fs.overlay(14), fs.get('/BAI/BAI_scn_cf.dat')); // ?
+			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
+			fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
+			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
+			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
+			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
+			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
+
+			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
+			fsext.monsters = fixedSegments(0xe074, 0xf448, 36, fs.overlay(11));
+
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
@@ -938,6 +1011,29 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'Y6PP') {
 			// EU Demo
+			// TODO battle offsets here. and then actually test the battle offsets and make sure they work on mlbis-dumper
+			fsext.bai_scn_cf = varLengthSegments(0x48cbc, fs.overlay(11), fs.get('/BAI/BAI_scn_cf.dat'));
+			fsext.bai_item_ji = varLengthSegments(0x48cc8, fs.overlay(11), fs.get('/BAI/BAI_item_ji.dat'));
+			fsext.bofxtex = varLengthSegments(0x48cd4, fs.overlay(11), fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = varLengthSegments(0x48cec, fs.overlay(11), fs.get('/BRfx/BOfxPal.dat'));
+			fsext.bdfxtex = varLengthSegments(0x48d04, fs.overlay(11), fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = varLengthSegments(0x48d38, fs.overlay(11), fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_mon_cf = varLengthSegments(0x48d6c, fs.overlay(11), fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_atk_yy = varLengthSegments(0x48da8, fs.overlay(11), fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_yo = varLengthSegments(0x49170, fs.overlay(11), fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = varLengthSegments(0x49204, fs.overlay(11), fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = varLengthSegments(0x49340, fs.overlay(11), fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = varLengthSegments(0x493d8, fs.overlay(11), fs.get('/BAI/BAI_mon_ji.dat'));
+			fsext.bobjmap = varLengthSegments(0x494f4, fs.overlay(11));
+			fsext.bai_atk_hk = varLengthSegments(0x496b4, fs.overlay(11), fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = varLengthSegments(0x498f0, fs.overlay(11), fs.get('/BAI/BAI_scn_yo.dat'));
+			fsext.bobjpc = varLengthSegments(0x49b74, fs.overlay(11));
+			fsext.bobjui = varLengthSegments(0x4a118, fs.overlay(11));
+			fsext.bobjmon = varLengthSegments(0x4b63c, fs.overlay(11));
+
+			fsext.baiCommands = fixedSegments(0x3a98c, 0x3cbbc, 16, fs.overlay(11));
+			fsext.monsters = fixedSegments(0x478cc, 0x48c94, 36, fs.overlay(11));
+
 			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
@@ -951,6 +1047,29 @@
 			fsext.font = sliceDataView(fs.arm9, 0x406d0, 0x42e60);
 		} else if (headers.gamecode === 'Y6PE') {
 			// NA Demo
+			fsext.blfxtex = varLengthSegments(0x48bf0, fs.overlay(11)); // ?
+			fsext.bai_scn_cf = varLengthSegments(0x48bfc, fs.overlay(11), fs.get('/BAI/BAI_scn_cf.dat'));
+			fsext.bai_item_ji = varLengthSegments(0x48c08, fs.overlay(11), fs.get('/BAI/BAI_item_ji.dat'));
+			fsext.bofxtex = varLengthSegments(0x48c14, fs.overlay(11));
+			fsext.bofxpal = varLengthSegments(0x48c2c, fs.overlay(11));
+			fsext.bdfxtex = varLengthSegments(0x48c44, fs.overlay(11));
+			fsext.bdfxpal = varLengthSegments(0x48c78, fs.overlay(11));
+			fsext.bai_mon_cf = varLengthSegments(0x48cac, fs.overlay(11), fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_atk_yy = varLengthSegments(0x48ce8, fs.overlay(11), fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_yo = varLengthSegments(0x490b0, fs.overlay(11), fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = varLengthSegments(0x49144, fs.overlay(11), fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = varLengthSegments(0x49280, fs.overlay(11), fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = varLengthSegments(0x49318, fs.overlay(11), fs.get('/BAI/BAI_mon_ji.dat'));
+			fsext.bobjmap = varLengthSegments(0x49434, fs.overlay(11));
+			fsext.bai_atk_hk = varLengthSegments(0x495f4, fs.overlay(11), fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = varLengthSegments(0x49830, fs.overlay(11), fs.get('/BAI/BAI_scn_yo.dat'));
+			fsext.bobjpc = varLengthSegments(0x49ab4, fs.overlay(11));
+			fsext.bobjui = varLengthSegments(0x4a058, fs.overlay(11));
+			fsext.bobjmon = varLengthSegments(0x4b57c, fs.overlay(11));
+
+			fsext.baiCommands = fixedSegments(0x3a98c, 0x3cbbc, 16, fs.overlay(11));
+			fsext.monsters = fixedSegments(0x4780c, 0x48be0, 36, fs.overlay(11));
+
 			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
 			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
@@ -3046,7 +3165,7 @@
 			else if ((maybeScript >> 12) === 4) script = `ji ${maybeScript & 0xfff}`;
 			else if ((maybeScript >> 12) === 7) script = `cf ${maybeScript & 0xfff}`;
 
-			const name = monsterNameTable[2]?.[nameIndex];
+			const name = monsterNameTable[2][nameIndex] || monsterNameTable[1][nameIndex];
 			addHTML(table, `<tr>
 				<th>${i}</th>
 				<td>${readMessage(0, name, true)}</td>
@@ -3088,6 +3207,7 @@
 			['/BAI/BAI_atk_mt.dat', fsext.bai_atk_mt],
 			['/BAI/BAI_atk_nh.dat', fsext.bai_atk_nh],
 			['/BAI/BAI_atk_yy.dat', fsext.bai_atk_yy],
+			['/BAI/BAI_item_ji.dat', fsext.bai_item_ji],
 			['/BAI/BAI_mon_cf.dat', fsext.bai_mon_cf],
 			['/BAI/BAI_mon_ji.dat', fsext.bai_mon_ji],
 			['/BAI/BAI_mon_yo.dat', fsext.bai_mon_yo],
@@ -3162,7 +3282,6 @@
 						const cmd = script.getUint16(o, true);
 						const flags = script.getUint32(o + 2, true);
 						const command = commands[cmd];
-						console.log(command, cmd);
 						if (!command) break;
 
 						let prefix = `(${str16(o)}) `;
@@ -3200,7 +3319,7 @@
 						if (o >= script.byteLength) break;
 
 						if (cmd === 1) parts.push(`${prefix}return`);
-						else parts.push(`${prefix}BE_${str16(cmd)}(${args.join(', ')})`);
+						else parts.push(`${prefix}BA_${str16(cmd)}(${args.join(', ')})`);
 					}
 					addHTML(preview, `<div><code>${parts.map(x => `<div>${x}</div>`).join(' ')}</code></div>`);
 					addHTML(preview, `<div><code>${bytes(o, script.byteLength - o, script)}</code></div>`);
