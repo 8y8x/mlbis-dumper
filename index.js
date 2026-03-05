@@ -872,6 +872,7 @@
 			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
 
 			fsext.baiCommands = fixedSegments(0x13478, 0x13478 + 0x224 * 16, 16, fs.overlay(12));
+			fsext.monsters = fixedSegments(0xe074, 0xf440, 36, fs.overlay(11)); // TODO 0xf440 is not the right end offset
 
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
 			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
@@ -2989,6 +2990,52 @@
 		updateFile();
 
 		return messages;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Monsters                                                                                             |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const monsters = (window.monsters = createSection('Monsters', (section) => {
+		const monsters = {};
+
+		// basically a rip straight from Yoshi Magic
+		const monsterNameTable = unpackSegmented(fs.get('/BData/mfset_MonN.dat')).map(buf => unpackSegmented(buf));
+
+		const table = document.createElement('table');
+		table.className = 'bordered';
+		section.appendChild(table);
+
+		for (let i = 0; i < fsext.monsters.length; ++i) {
+			const block = fsext.monsters[i];
+			const nameIndex = block.getUint16(0, true);
+			const maybeScript = block.getUint16(2, true);
+			const maybeSprite = block.getUint32(4, true);
+			const level = block.getUint16(8, true);
+			const hp = block.getUint16(10, true);
+			const pow = block.getUint16(12, true);
+			const def = block.getUint16(14, true);
+			const spd = block.getUint16(16, true);
+
+			const exp = block.getUint16(0x16, true);
+			const coins = block.getUint16(0x18, true);
+
+			let script = `script ${str16(maybeScript)}`;
+			if ((maybeScript >> 12) === 2) script = `yo ${maybeScript & 0xfff}`;
+			else if ((maybeScript >> 12) === 4) script = `ji ${maybeScript & 0xfff}`;
+			else if ((maybeScript >> 12) === 7) script = `cf ${maybeScript & 0xfff}`;
+
+			const name = monsterNameTable[2]?.[nameIndex];
+			addHTML(table, `<tr>
+				<th>${i}</th>
+				<td>${readMessage(0, name, true)}</td>
+				<td>${script}</td>
+				<td>HP ${hp} / POW ${pow} / DEF ${def} / SPD ${spd}</td>
+				<td>EXP ${exp} / Coins ${coins}</td>
+			</tr>`);
+		}
+
+		return monsters;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
