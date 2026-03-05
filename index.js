@@ -2192,16 +2192,25 @@
 	const fonts = (window.fonts = createSection('Fonts', (section) => {
 		const fonts = {};
 
-		fonts.glyphs1Bit = (dat, width, height) => {
+		fonts.glyphs1Bit = (dat, dataWidth, dataHeight, glyphWidth, glyphHeight) => {
 			const u8 = bufToU8(dat);
 			const glyphs = [];
 
-			const byteSkip = Math.ceil(width * height / 8);
+			const glyphY = glyphHeight - dataHeight - 3;
+
+			const byteSkip = Math.ceil(dataWidth * dataHeight / 8);
 			for (let o = 0; o < u8.length; o += byteSkip) {
-				const bitmap = new Uint8Array(width * height);
-				for (let y = 0, bitOffset = 0; y < height; ++y) {
-					for (let x = 0; x < width; ++x, ++bitOffset) {
-						bitmap[y * width + x] = u8[o + (bitOffset >> 3)] & (0x80 >> (bitOffset & 7)) ? 2 : 0;
+				const bitmap = new Uint8Array(glyphWidth * glyphHeight);
+				for (let y = 0, bitOffset = 0; y < dataHeight; ++y) {
+					for (let x = 0; x < dataWidth; ++x, ++bitOffset) {
+						const bit = u8[o + (bitOffset >> 3)] & (0x80 >> (bitOffset & 7));
+						if (bit) {
+							bitmap[(y + glyphY) * glyphWidth + x] = 2;
+							bitmap[(y + glyphY - 1) * glyphWidth + x] ||= 1; // up shadow
+							if (x > 0) bitmap[(y + glyphY + 1) * glyphWidth + (x - 1)] ||= 1; // left shadow
+							bitmap[(y + glyphY + 1) * glyphWidth + x] ||= 1; // down shadow
+							bitmap[(y + glyphY) * glyphWidth + (x + 1)] ||= 1; // right shadow
+						}
 					}
 				}
 				glyphs.push(bitmap);
@@ -2286,11 +2295,13 @@
 			return { byCode, byGlyph };
 		};
 
-		fonts.fixed = (dat, width, height, is2Bit) => {
+		fonts.fixed = (dat, dataWidth, dataHeight, glyphWidth, glyphHeight, is2Bit) => {
 			const byGlyph = new Map();
-			const glyphs = is2Bit ? fonts.glyphs2Bit(dat, width, height) : fonts.glyphs1Bit(dat, width, height);
+			const glyphs = is2Bit
+				? fonts.glyphs2Bit(dat, dataWidth, dataHeight)
+				: fonts.glyphs1Bit(dat, dataWidth, dataHeight, glyphWidth, glyphHeight);
 			for (let i = 0; i < glyphs.length; ++i) {
-				byGlyph.set(i, { actualWidth: width, bitmap: glyphs[i], height, width });
+				byGlyph.set(i, { actualWidth: glyphWidth, bitmap: glyphs[i], height: glyphHeight, width: glyphWidth });
 			}
 
 			return { byCode: byGlyph, byGlyph };
@@ -2643,9 +2654,9 @@
 		if (fs.has('/Font/11x11.bin')) { // ROC only
 			optionNames.push('11x11', '12x12', '20x20');
 			optionFonts.push(
-				fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, false),
-				fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, true),
-				fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, true),
+				fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, 12, 16, false),
+				fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, 12, 12, true),
+				fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, 20, 20, true),
 			);
 		}
 
@@ -2918,9 +2929,9 @@
 				let rocFonts, defaultRocFont;
 				if (rocFont.value > 0) {
 					rocFonts = [
-						fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, false),
-						fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, true),
-						fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, true),
+						fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, 12, 16, false),
+						fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, 12, 12, true),
+						fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, 20, 20, true),
 					];
 					defaultRocFont = rocFonts[rocFont.value - 1];
 				}
@@ -3015,6 +3026,7 @@
 		table.className = 'bordered';
 		section.appendChild(table);
 
+		monsters.monsters = [];
 		for (let i = 0; i < fsext.monsters.length; ++i) {
 			const block = fsext.monsters[i];
 			const nameIndex = block.getUint16(0, true);
@@ -3042,6 +3054,8 @@
 				<td>HP ${hp} / POW ${pow} / DEF ${def} / SPD ${spd}</td>
 				<td>EXP ${exp} / Coins ${coins}</td>
 			</tr>`);
+
+			monsters.monsters.push({ name: readMessage(0, name, true), script: maybeScript, maybeSprite, level, hp, pow, def, spd, exp, coins });
 		}
 
 		return monsters;
@@ -3084,6 +3098,9 @@
 		const fileSelect = dropdown(options.map(x => x[0]), 0, () => update());
 		section.appendChild(fileSelect);
 
+		const scriptRenderer = dropdown(['Renderer: basic'], 0, () => updateScript());
+		section.appendChild(scriptRenderer);
+
 		let updateScript;
 		let scriptSelect = dropdown([''], 0, () => updateScript());
 		section.appendChild(scriptSelect);
@@ -3101,70 +3118,94 @@
 				return;
 			}
 
-			scriptSelect.replaceWith(scriptSelect = dropdown(segments.map((x,i) => `Script ${i} (${x.byteLength} len)`), 0, () => updateScript()));
+			const segmentNames = [];
+			for (let i = 0; i < segments.length; ++i) {
+				if (segments === fsext.bai_mon_cf.segments || segments === fsext.bai_mon_ji.segments || segments === fsext.bai_mon_yo.segments) {
+					// find monsters that use this script
+					let scriptId = i;
+					if (segments === fsext.bai_mon_cf.segments) scriptId |= 0x7000;
+					else if (segments === fsext.bai_mon_ji.segments) scriptId |= 0x4000;
+					else if (segments === fsext.bai_mon_yo.segments) scriptId |= 0x2000;
+
+					const matched = new Set();
+					for (const monster of monsters.monsters) {
+						if (monster.script === scriptId) matched.add(monster.name);
+					}
+
+					const names = Array.from(matched).join(', ') || '?';
+					segmentNames.push(`Script ${i} (${segments[i].byteLength} len) (${names})`);
+				} else {
+					segmentNames.push(`Script ${i} (${segments[i].byteLength} len)`);
+				}
+			}
+			scriptSelect.replaceWith(scriptSelect = dropdown(segmentNames, 0, () => updateScript()));
 			updateScript = () => {
 				const script = segments[scriptSelect.value];
 				preview.innerHTML = '';
 
-				addHTML(preview, `<div><code>${bytes(0, 14, script)}</code>`);
-				const headerU16 = bufToU16(script);
-				const eventOffsets = new Map();
-				eventOffsets.set(headerU16[1] + 2, '[[[startTurn1]]]');
-				eventOffsets.set(headerU16[2] + 4, '[[[initializer]]]');
-				eventOffsets.set(headerU16[3] + 6, '[[[startTurn2]]]');
-				eventOffsets.set(headerU16[4] + 8, '[[[startPlayerTurn]]]');
-				eventOffsets.set(headerU16[5] + 10, '[[[start5]]]');
-				addHTML(preview, `<div>startTurn1 = ${str16(headerU16[1] + 2)}, initializer = ${str16(headerU16[2] + 4)}, startTurn2 = ${str16(headerU16[3] + 6)}, startPlayerTurn = ${str16(headerU16[4] + 8)}, start5 = ${str16(headerU16[5] + 10)}</div>`);
+				if (scriptRenderer.value === 0) {
+					// Renderer: basic
+					addHTML(preview, `<div><code>${bytes(0, 14, script)}</code>`);
+					const headerU16 = bufToU16(script);
+					const eventOffsets = new Map();
+					eventOffsets.set(headerU16[1] + 2, '[[[startTurn1]]]');
+					eventOffsets.set(headerU16[2] + 4, '[[[initializer]]]');
+					eventOffsets.set(headerU16[3] + 6, '[[[startTurn2]]]');
+					eventOffsets.set(headerU16[4] + 8, '[[[startPlayerTurn]]]');
+					eventOffsets.set(headerU16[5] + 10, '[[[start5]]]');
+					addHTML(preview, `<div>startTurn1 = ${str16(headerU16[1] + 2)}, initializer = ${str16(headerU16[2] + 4)}, startTurn2 = ${str16(headerU16[3] + 6)}, startPlayerTurn = ${str16(headerU16[4] + 8)}, start5 = ${str16(headerU16[5] + 10)}</div>`);
 
-				const parts = [];
-				let o = 14;
-				for (; o + 5 < script.byteLength;) {
-					const startO = o;
-					const cmd = script.getUint16(o, true);
-					const flags = script.getUint32(o + 2, true);
-					const command = commands[cmd];
-					console.log(command, cmd);
-					if (!command) break;
+					const parts = [];
+					let o = 14;
+					for (; o + 5 < script.byteLength;) {
+						const startO = o;
+						const cmd = script.getUint16(o, true);
+						const flags = script.getUint32(o + 2, true);
+						const command = commands[cmd];
+						console.log(command, cmd);
+						if (!command) break;
 
-					let prefix = `(${str16(o)}) `;
-					const evOffset = eventOffsets.get(o);
-					if (evOffset) prefix += evOffset + ' ';
-					o += 6;
+						let prefix = `(${str16(o)}) `;
+						const evOffset = eventOffsets.get(o);
+						if (evOffset) prefix += evOffset + ' ';
+						o += 6;
 
-					if (command.returns) {
-						prefix += `var[0x${str16(script.getUint16(o, true))}] = `;
-						o += 2;
-					}
-
-					const args = [];
-					for (let i = 0; i < command.args.length; ++i) {
-						if (flags & (1 << i)) {
-							args.push(`var[0x${str16(script.getUint16(o, true))}]`);
-							o += 2; // variable
-						} else if (command.args[i] === 0) (args.push(script.getUint8(o)), ++o); // u8
-						else if (command.args[i] === 1) (args.push(script.getUint16(o, true)), o += 2); // u16
-						else if (command.args[i] === 2) (args.push(script.getUint32(o, true)), o += 4); // u32
-						else if (command.args[i] === 3) (args.push(script.getInt8(o)), ++o); // s8
-						else if (command.args[i] === 4) (args.push(script.getInt16(o, true)), o += 2); // s16
-						else if (command.args[i] === 5) (args.push(script.getInt32(o, true)), o += 4); // s32
-						else if (command.args[i] === 6) {
-							const x = script.getInt16(o, true);
-							args.push(`fp88(${x / 256})`);
-							o += 2; // fixed-point (8.8?)
-						} else if (command.args[i] === 7) {
-							const x = script.getInt32(o, true);
-							args.push(`fp2012(${x / 4096})`);
-							o += 4; // fixed-point (20.12)
+						if (command.returns) {
+							prefix += `var[0x${str16(script.getUint16(o, true))}] = `;
+							o += 2;
 						}
+
+						const args = [];
+						for (let i = 0; i < command.args.length; ++i) {
+							if (flags & (1 << i)) {
+								args.push(`var[0x${str16(script.getUint16(o, true))}]`);
+								o += 2; // variable
+							} else if (command.args[i] === 0) (args.push(script.getUint8(o)), ++o); // u8
+							else if (command.args[i] === 1) (args.push(script.getUint16(o, true)), o += 2); // u16
+							else if (command.args[i] === 2) (args.push(script.getUint32(o, true)), o += 4); // u32
+							else if (command.args[i] === 3) (args.push(script.getInt8(o)), ++o); // s8
+							else if (command.args[i] === 4) (args.push(script.getInt16(o, true)), o += 2); // s16
+							else if (command.args[i] === 5) (args.push(script.getInt32(o, true)), o += 4); // s32
+							else if (command.args[i] === 6) {
+								const x = script.getInt16(o, true);
+								args.push(`fp88(${x / 256})`);
+								o += 2; // fixed-point (8.8?)
+							} else if (command.args[i] === 7) {
+								const x = script.getInt32(o, true);
+								args.push(`fp2012(${x / 4096})`);
+								o += 4; // fixed-point (20.12)
+							}
+						}
+
+						if (o >= script.byteLength) break;
+
+						if (cmd === 1) parts.push(`${prefix}return`);
+						else parts.push(`${prefix}BE_${str16(cmd)}(${args.join(', ')})`);
 					}
-
-					if (o >= script.byteLength) break;
-
-					if (cmd === 1) parts.push(`${prefix}return`);
-					else parts.push(`${prefix}BE_${str16(cmd)}(${args.join(', ')})`);
+					addHTML(preview, `<div><code>${parts.map(x => `<div>${x}</div>`).join(' ')}</code></div>`);
+					addHTML(preview, `<div><code>${bytes(o, script.byteLength - o, script)}</code></div>`);
+				} else if (scriptRenderer.value === 1) {
 				}
-				addHTML(preview, `<div><code>${parts.map(x => `<div>${x}</div>`).join(' ')}</code></div>`);
-				addHTML(preview, `<div><code>${bytes(o, script.byteLength - o, script)}</code></div>`);
 			};
 			updateScript();
 		};
