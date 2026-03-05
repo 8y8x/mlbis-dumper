@@ -512,10 +512,20 @@
 		fs.arm7 = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
 
 		// NA, EU, and KO versions compress initial arm9/arm7; no idea what in the header controls that
-		let armInitCompressed = headers.gamecode === 'CLJE' || headers.gamecode === 'CLJP' || headers.gamecode === 'CLJK';
-		if (armInitCompressed) {
+		let arm7Compressed = false, arm9Compressed = false;
+		if (['CLJE', 'CLJP', 'CLJK'].includes(headers.gamecode)) {
+			// NA, EU, and KO versions completely compress initial arm9/arm7
 			fs.arm9 = blz(fs.arm9);
 			fs.arm7 = blz(fs.arm7);
+			arm7Compressed = arm9Compressed = true;
+		} else if (headers.gamecode === 'CLJJ' && fs.arm9.getUint32(0x371fc, true) === 0xffffffff) {
+			// JP (not ROC) compresses most of the arm9, but not the arm7
+			const dec9 = blz(sliceDataView(fs.arm9, 0x4000, 0x3718c));
+			const new9 = new DataView(new ArrayBuffer(dec9.byteLength + 0x4000));
+			bufToU8(new9).set(bufToU8(sliceDataView(fs.arm9, 0, 0x4000)), 0);
+			bufToU8(new9).set(bufToU8(dec9), 0x4000);
+			fs.arm9 = new9;
+			arm9Compressed = true;
 		}
 
 		const names = new Map();
@@ -594,8 +604,8 @@
 		section.appendChild(singleExport);
 
 		const singleSelectEntries = [
-			`ARM9 (len 0x${headers.arm9size.toString(16)}${armInitCompressed ? ', compressed' : ''})`,
-			`ARM7 (len 0x${headers.arm7size.toString(16)}${armInitCompressed ? ', compressed' : ''})`,
+			`ARM9 (len 0x${headers.arm9size.toString(16)}${arm9Compressed ? ', compressed' : ''})`,
+			`ARM7 (len 0x${headers.arm7size.toString(16)}${arm7Compressed ? ', compressed' : ''})`,
 		];
 		for (let i = 0; i * 8 < headers.fatLength; ++i) {
 			const { start, end, path } = fs.get(i);
@@ -912,10 +922,7 @@
 			fsext.fieldAnimeIndices = fixedIndices(0x19710, 0x1a85c, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, fs.overlay(3));
 
-			// ROC version only
-			if (fs.has('/Font/11x11.bin')) {
-				fsext.font = sliceDataView(fs.arm9, 0x44fa8, 0x48084);
-			}
+			fsext.font = sliceDataView(fs.arm9, 0x44fa8, 0x48084);
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
 			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
@@ -2209,6 +2216,7 @@
 
 			for (let o = 0; o < u8.length;) {
 				const bitmap = new Uint8Array(width * height);
+				const startO = o;
 				for (let baseX = 0; baseX < width; baseX += 8) {
 					const columnWidth = Math.min(8, width - baseX);
 					for (let baseY = 0; baseY < height; baseY += 4) {
@@ -2224,6 +2232,7 @@
 						}
 					}
 				}
+				bitmap.SLICE = sliceDataView(dat, startO, o);
 				glyphs.push(bitmap);
 			}
 
