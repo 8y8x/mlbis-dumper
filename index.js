@@ -3204,7 +3204,8 @@
 
 		const options = [
 			['/BAI/BAI_atk_hk.dat', fsext.bai_atk_hk],
-			['/BAI/BAI_atk_mt.dat', fsext.bai_atk_mt],
+			// this file is not referenced in overlays?
+			['/BAI/BAI_atk_mt.dat', { segments: [fs.get('/BAI/BAI_atk_mt.dat')] }],
 			['/BAI/BAI_atk_nh.dat', fsext.bai_atk_nh],
 			['/BAI/BAI_atk_yy.dat', fsext.bai_atk_yy],
 			['/BAI/BAI_item_ji.dat', fsext.bai_item_ji],
@@ -3218,7 +3219,7 @@
 		const fileSelect = dropdown(options.map(x => x[0]), 0, () => update());
 		section.appendChild(fileSelect);
 
-		const scriptRenderer = dropdown(['Renderer: basic'], 0, () => updateScript());
+		const scriptRenderer = dropdown(['Renderer: basic', 'Renderer: advanced text'], 0, () => updateScript());
 		section.appendChild(scriptRenderer);
 
 		let updateScript;
@@ -3227,6 +3228,69 @@
 
 		const preview = document.createElement('div');
 		section.appendChild(preview);
+
+		bai.parse = script => {
+			const headerU16 = bufToU16(script);
+			const scriptU8 = bufToU8(script);
+
+			const parsed = [];
+			let o = 14;
+			for (; o + 5 < script.byteLength;) {
+				if (script.getUint8(o + 1) >= 3) {
+					// array
+					const offsetLeft = o;
+
+					while (scriptU8[o] === 0xff) ++o;
+					const composite = script.getUint16(o, true); o += 2;
+					if ((composite >>> 12) !== 8) break;
+					const type = (composite >> 8) & 0xf;
+					if (type >= 8) break;
+					const elements = composite & 0xff;
+					o += [1, 2, 4, 1, 2, 4, 2, 4][type] * elements;
+
+					while (scriptU8[o] === 0xff) ++o;
+
+					parsed.push({ opcode: -1, args: [], offsetLeft, offsetRight: o });
+					continue;
+				}
+
+				const opcode = script.getUint16(o, true);
+				const variables = script.getUint32(o + 2, true);
+				const command = commands[opcode];
+				if (!command) break;
+				const offsetLeft = o;
+				let tag;
+				if (headerU16[1] + 2 === offsetLeft) tag = 'turn1';
+				else if (headerU16[2] + 4 === offsetLeft) tag = 'init';
+				else if (headerU16[3] + 6 === offsetLeft) tag = 'turn2';
+				else if (headerU16[4] + 8 === offsetLeft) tag = 'playerTurn';
+				else if (headerU16[5] + 10 === offsetLeft) tag = 'unknown5';
+				else if (headerU16[6] + 12 === offsetLeft) tag = 'unknown6';
+
+				o += 6;
+
+				let returnTarget;
+				if (command.returns) (returnTarget = script.getUint16(o, true), o += 2);
+				
+				const args = [];
+				for (let i = 0; i < command.args.length; ++i) {
+					const type = command.args[i];
+					if (variables & (1 << i)) (args.push(['var', script.getUint16(o, true)]), o += 2);
+					else if (type === 0) args.push(['u8', script.getUint8(o++)]);
+					else if (type === 1) (args.push(['u16', script.getUint16(o, true)]), o += 2);
+					else if (type === 2) (args.push(['u32', script.getUint32(o, true)]), o += 4);
+					else if (type === 3) args.push(['s8', script.getInt8(o++)]);
+					else if (type === 4) (args.push(['s16', script.getInt16(o, true)]), o += 2);
+					else if (type === 5) (args.push(['s32', script.getInt32(o, true)]), o += 4);
+					else if (type === 6) (args.push(['fp88', script.getInt16(o, true) / 256]), o += 2);
+					else if (type === 7) (args.push(['fp2012', script.getInt32(o, true) / 4096]), o += 4);
+				}
+
+				parsed.push({ opcode, returnTarget, args, offsetLeft, offsetRight: o, tag });
+			}
+
+			return parsed;
+		};
 
 		const update = () => {
 			preview.innerHTML = '';
@@ -3284,7 +3348,7 @@
 						const command = commands[cmd];
 						if (!command) break;
 
-						let prefix = `(${str16(o)}) `;
+						let prefix = `<span style="color: #666;">${str16(o)}</span> `;
 						const evOffset = eventOffsets.get(o);
 						if (evOffset) prefix += evOffset + ' ';
 						o += 6;
@@ -3324,6 +3388,128 @@
 					addHTML(preview, `<div><code>${parts.map(x => `<div>${x}</div>`).join(' ')}</code></div>`);
 					addHTML(preview, `<div><code>${bytes(o, script.byteLength - o, script)}</code></div>`);
 				} else if (scriptRenderer.value === 1) {
+					// #1 : parse commands into a list
+					const parsed = bai.parse(script);
+
+					// #2 : tag function locations, and tag jump locations
+					const functionLocations = new Map();
+					const jumpLocations = new Map();
+
+					const headerU8 = bufToU16(script);
+					if (headerU8[1]) functionLocations.set(headerU8[1] + 2, ['turn1']);
+					if (headerU8[2]) functionLocations.set(headerU8[2] + 4, ['init']);
+					if (headerU8[3]) functionLocations.set(headerU8[3] + 6, ['turn2']);
+					if (headerU8[4]) functionLocations.set(headerU8[4] + 8, ['playerTurn']);
+					if (headerU8[5]) functionLocations.set(headerU8[5] + 10, ['unknown5']);
+
+					let highestJumps = [0, 0, 0, 0, 0];
+
+					for (const { opcode, returnTarget, args, offsetLeft, offsetRight } of parsed) {
+						if (opcode === 2) {
+							if (args[4][0] === 'var') console.warn(`jump offset is a variable: BA_0002 at ${str16(offsetLeft)}`);
+							else {
+								const to = offsetRight + args[4][1];
+								const arr = jumpLocations.get(to);
+								if (arr) arr.push(`c-${str16(offsetLeft)}`);
+								else jumpLocations.set(to, [`c-${str16(offsetLeft)}`]);
+
+								highestJumps[0] = Math.max(highestJumps[0], Math.abs(args[4][1]));
+							}
+						} else if (opcode === 3) {
+							if (args[0][0] === 'var') {
+								console.warn(`jump type is a variable: BA_0003 at ${str16(offsetLeft)}`);
+								continue;
+							}
+							if (args[1][0] === 'var') {
+								console.warn(`jump offset is a variable: BA_0003 at ${str16(offsetLeft)}`);
+								continue;
+							}
+
+							const to = offsetRight + args[1][1];
+							if (args[0][1] === 1) {
+								// function call, return address is pushed
+								const arr = functionLocations.get(to);
+								if (arr) arr.push(`f-${str16(offsetLeft)}`);
+								else functionLocations.set(to, [`f-${str16(offsetLeft)}`]);
+								highestJumps[2] = Math.max(highestJumps[2], Math.abs(args[1][1]));
+							} else {
+								// type 0 or 2, idk the difference yet
+								const arr = jumpLocations.get(to);
+								if (arr) arr.push(`u${args[0][1]}-${str16(offsetLeft)}`);
+								else jumpLocations.set(to, [`u${args[0][1]}-${str16(offsetLeft)}`]);
+								highestJumps[1 + args[0][1]] = Math.max(highestJumps[1 + args[0][1]], Math.abs(args[1][1]));
+							}
+						} else if (opcode === 7) {
+							if (args[3][0] === 'var') {
+								console.warn(`jump type is a variable: BA_0007 at ${str16(offsetLeft)}`);
+								continue;
+							}
+
+							const to = offsetRight + args[3][1];
+							const arr = jumpLocations.get(to);
+							if (arr) arr.push(`s-${str16(offsetLeft)}`);
+							else jumpLocations.set(to, [`s-${str16(offsetLeft)}`]);
+							highestJumps[4] = Math.max(highestJumps[4], Math.abs(args[3][1]));
+						}
+					}
+
+					addHTML(preview, `<div>Largest jumps: ${highestJumps.join(', ')}</div>`);
+					const nocode = script.byteLength - parsed[parsed.length - 1].offsetRight;
+					addHTML(preview, `<div>Code: ${parsed[parsed.length - 1].offsetRight} / ${script.byteLength} <span style="color: ${nocode > 500 ? '#f99' : '#999'}">(${nocode} nocode)</span></div>`);
+
+					// #3 : render commands
+					const arg = ([type, x]) => {
+						if (type === 'var') return `var[0x${str16(x)}]`;
+						else return String(x);
+					};
+					for (const { opcode, returnTarget, args, offsetLeft, offsetRight } of parsed) {
+						const parts = [`<span style="color: #666;">${str16(offsetLeft)}</span>`];
+
+						if (opcode === -1) {
+							addHTML(preview, `<div><code>${bytes(offsetLeft, offsetRight - offsetLeft, script)}</code></div>`);
+							continue;
+						}
+
+						const functions = functionLocations.get(offsetLeft);
+						if (functions) {
+							parts.push(`<span style="color: #76f;">[[[callers: ${functions.join(', ')}]]]</span>`);
+						}
+
+						if (opcode === 8) {
+							parts.push(`var[0x${str16(returnTarget)}] = ${arg(args[0])}`);
+						} else {
+							if (returnTarget !== undefined) parts.push(`var[0x${str16(returnTarget)}] =`);
+
+							if (opcode === 1) parts.push('<span style="color: var(--sapphire);">return()</span>');
+							else if (opcode === 2) {
+								if (args[0][1] <= 8) {
+									const op = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^'][args[0][1]];
+									parts.push(`if ${args[3][1] ? '' : '!'}(${arg(args[1])} ${op} ${arg(args[2])}) goto ${str16(offsetRight + args[4][1])} (+${arg(args[4])})`);
+								} else {
+									const op = ['== 0', '!= -1'][args[0][1] - 9];
+									parts.push(`if ${args[3][1] ? '' : '!'}(${arg(args[1])} ${op}}) goto ${str16(offsetRight + args[4][1])} (+${arg(args[4])})`);
+								}
+							} else if (opcode === 3) {
+								if (args[0][1] === 1) {
+									parts.push(`f${str16(offsetRight + args[1][1])}()`);
+								} else {
+									parts.push(`goto ${str16(offsetRight + args[1][1])} (+${arg(args[1])}) (mode ${args[0][1]})`);
+								}
+							} else {
+								parts.push(`BA_${str16(opcode)}(${args.map(arg).join(', ')})`);
+							}
+						}
+
+						const jumps = jumpLocations.get(offsetLeft);
+						if (jumps) {
+							parts.push(`<span style="color: #666;">// ${jumps.join(', ')}</span>`);
+						}
+
+						addHTML(preview, `<div><code>${parts.join(' ')}</code></div>`);
+					}
+
+					const endOffset = parsed[parsed.length - 1].offsetRight;
+					addHTML(preview, `<div><code>${bytes(endOffset, script.byteLength - endOffset, script)}</code></div>`);
 				}
 			};
 			updateScript();
