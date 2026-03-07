@@ -3592,12 +3592,14 @@
 
 						const explore = branch => {
 							branchLoop: for (let j = 0; j < branch.length; ++j) {
-								const left = branch[j];
+								const outer = branch[j];
 								// BA_0002(op, a, b, 0, +offset)
-								if (left.opcode === 2 && left.args[3][1] === 0 && left.args[4][1] > 0) {
-									const to = left.offsetRight + left.args[4][1];
-									let rightIdx = j;
-									for (let k = j + 1; k < branch.length; ++k) {
+								if (outer.opcode === 2 && outer.args[3][1] === 0 && outer.args[4][1] > 0) {
+									const to = outer.offsetRight + outer.args[4][1];
+									let leftIdx = j + 1;
+									const left = branch[leftIdx];
+									let rightIdx = leftIdx;
+									for (let k = leftIdx + 1; k < branch.length; ++k) {
 										if (branch[k].offsetLeft === to) break;
 										rightIdx = k;
 									}
@@ -3617,10 +3619,9 @@
 										}
 									}
 
-									const children = branch.splice(j, rightIdx - j + 1);
-									children.shift(); // remove `left`
-									branch.splice(j, 0, {
-										separators: [`if (${arg(left.args[1])} ${operators[left.args[0][1]]} ${arg(left.args[2])}) {`, `}`],
+									const children = branch.splice(leftIdx, rightIdx - leftIdx + 1);
+									branch.splice(j, 1, { // replace `outer` with a block
+										separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0][1]]} ${arg(outer.args[2])}) {`, `}`],
 										content: [children],
 										offsetLeft: left.offsetLeft,
 										offsetsMiddle: [],
@@ -3721,10 +3722,37 @@
 							return `${prefix(block.offsetLeft)}<span style="color: #f93;">${bytes(block.offsetLeft, block.offsetRight - block.offsetLeft, script)}</span>`;
 						} else {
 							// command
+							const { opcode, returnTarget, args, offsetLeft, offsetRight } = block;
 							let returnAssign = '';
-							if (block.returnTarget !== undefined)
-								returnAssign = `var[0x${str16(block.returnTarget)}] = `;
-							return `${prefix(block.offsetLeft)}${returnAssign}BA_${str16(block.opcode)}(${block.args.map(arg).join(', ')})`;
+							if (returnTarget !== undefined) returnAssign = `var[0x${str16(returnTarget)}] = `;
+
+							const p = `${prefix(offsetLeft)}${returnAssign}`;
+							if (opcode === 1) return `${p}return`;
+							if (opcode === 2) {
+								const to = offsetRight + args[4][1];
+								return `${p}if ${args[3][1] ? '' : '!'}(${arg(args[1])} ${operators[args[0][1]]} ${arg(args[2])}) goto ${str16(to)} (+${args[4][1]})`;
+							}
+							if (opcode === 3) {
+								const to = offsetRight + args[1][1];
+								if (args[0][1] === 1) return `${p}${functionLabels.get(to)}()`;
+								else return `${p}goto ${str16(to)} (+${args[1][1]})`;
+							}
+							if (opcode === 0x47) {
+								const to = offsetRight + args[2][1];
+								return `${p}thread_0047(${arg(args[0])}, ${arg(args[1])}, ${functionLabels.get(to)})`;
+							}
+							if (opcode === 0x48) {
+								const to = offsetRight + args[2][1];
+								return `${p}thread_0048(${arg(args[0])}, ${arg(args[1])}, ${functionLabels.get(to)})`;
+							}
+							if (opcode === 0x49) {
+								const to = offsetRight + args[2][1];
+								return `${p}thread_0049(${arg(args[0])}, ${arg(args[1])}, ${functionLabels.get(to)})`;
+							}
+
+							// default
+							if (opcode <= 0x46) return `${p}CM_${str16(opcode)}(${args.map(arg).join(', ')})`;
+							else return `${p}BA_${str16(opcode)}(${args.map(arg).join(', ')})`;
 						}
 					}).flat();
 					addHTML(preview, `<div><code>${explore(tree, 0).join('<br>')}</code></div>`);
