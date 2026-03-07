@@ -3607,7 +3607,7 @@
 
 									// make sure all jumps within this block STAY within this block.
 									// This doesn't support if-else, yet.
-									for (let k = j + 1; k <= rightIdx; ++k) {
+									for (let k = leftIdx; k < rightIdx; ++k) {
 										if (branch[k].opcode === 2) {
 											const withinTo = branch[k].offsetRight + branch[k].args[4][1];
 											if (left.offsetLeft <= withinTo && withinTo <= right.offsetRight);
@@ -3619,14 +3619,52 @@
 										}
 									}
 
+									// if the last command in the if-block is a jump (NOT a function call), this could
+									// be an if-else block instead
+									if (branch[rightIdx].opcode === 3 && branch[rightIdx].args[0][1] !== 1) {
+										const withinTo = branch[rightIdx].offsetRight + branch[rightIdx].args[1][1];
+										if (right.offsetRight < withinTo) {
+											// this is an if-else block
+											const ifLeftIdx = leftIdx;
+											const ifRightIdx = rightIdx - 1;
+											const elseLeftIdx = rightIdx + 1;
+											let elseRightIdx = elseLeftIdx;
+											for (let k = elseLeftIdx; k < branch.length; ++k) {
+												if (branch[k].offsetLeft === withinTo) break;
+												elseRightIdx = k;
+											}
+
+											console.log('::', ifLeftIdx, ifRightIdx, elseLeftIdx, elseRightIdx, branch.length);
+											console.log([...branch]);
+
+											const elseRight = branch[elseRightIdx];
+
+											// don't do any validation yet, let's see what happens
+											const childrenElse = branch.splice(elseLeftIdx, elseRightIdx - elseLeftIdx + 1);
+											const childrenIf = branch.splice(ifLeftIdx, ifRightIdx - ifLeftIdx + 1);
+											branch[j] = {
+												separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0][1]]} ${arg(outer.args[2])}) {`, `} else {`, `}`],
+												content: [childrenIf, childrenElse],
+												offsetLeft: outer.offsetLeft,
+												offsetsMiddle: [undefined] /* [right.offsetLeft] */,
+												offsetRight: elseRight.offsetRight,
+											};
+											branch.splice(j + 1, 1); // delete the "else" command
+
+											explore(childrenIf);
+											explore(childrenElse);
+											continue;
+										}
+									}
+
 									const children = branch.splice(leftIdx, rightIdx - leftIdx + 1);
-									branch.splice(j, 1, { // replace `outer` with a block
+									branch[j] = { // replace `outer` with a block
 										separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0][1]]} ${arg(outer.args[2])}) {`, `}`],
 										content: [children],
-										offsetLeft: left.offsetLeft,
+										offsetLeft: outer.offsetLeft,
 										offsetsMiddle: [],
 										offsetRight: right.offsetRight,
-									});
+									};
 									explore(children);
 								}
 							}
@@ -3702,7 +3740,7 @@
 					}
 
 					const explore = (branch, indent) => branch.map(block => {
-						const prefix = offsetLeft => `<span style="color: #666;">${str16(offsetLeft)}</span> ${'&nbsp;'.repeat(indent * 4)}`;
+						const prefix = offsetLeft => `<span style="color: #666;">${offsetLeft !== undefined ? str16(offsetLeft) : '----'}</span> ${'&nbsp;'.repeat(indent * 4)}`;
 						if (block.opcode === undefined) {
 							const parts = [];
 							parts.push(`${prefix(block.offsetLeft)}${block.separators[0]}`);
