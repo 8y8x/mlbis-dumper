@@ -3219,7 +3219,7 @@
 		const fileSelect = dropdown(options.map(x => x[0]), 0, () => update());
 		section.appendChild(fileSelect);
 
-		const scriptRenderer = dropdown(['Renderer: basic', 'Renderer: advanced text'], 0, () => updateScript());
+		const scriptRenderer = dropdown(['Renderer: basic', 'Renderer: few names', 'Renderer: control-flow'], 0, () => updateScript());
 		section.appendChild(scriptRenderer);
 
 		let updateScript;
@@ -3259,6 +3259,8 @@
 				const command = commands[opcode];
 				if (!command) break;
 				const offsetLeft = o;
+
+				// TODO: get rid of these tags, once the script renderer is better
 				let tag;
 				if (headerU16[1] + 2 === offsetLeft) tag = 'turn1';
 				else if (headerU16[2] + 4 === offsetLeft) tag = 'init';
@@ -3450,6 +3452,21 @@
 							if (arr) arr.push(`s-${str16(offsetLeft)}`);
 							else jumpLocations.set(to, [`s-${str16(offsetLeft)}`]);
 							highestJumps[4] = Math.max(highestJumps[4], Math.abs(args[3][1]));
+						} else if (opcode === 0x47) {
+							const to = offsetRight + args[2][1];
+							const arr = functionLocations.get(to);
+							if (arr) arr.push(`t7-${str16(offsetLeft)}`);
+							else functionLocations.set(to, [`t7-${str16(offsetLeft)}`]);
+						} else if (opcode === 0x48) {
+							const to = offsetRight + args[2][1];
+							const arr = functionLocations.get(to);
+							if (arr) arr.push(`t8-${str16(offsetLeft)}`);
+							else functionLocations.set(to, [`t8-${str16(offsetLeft)}`]);
+						} else if (opcode === 0x49) {
+							const to = offsetRight + args[2][1];
+							const arr = functionLocations.get(to);
+							if (arr) arr.push(`t9-${str16(offsetLeft)}`);
+							else functionLocations.set(to, [`t9-${str16(offsetLeft)}`]);
 						}
 					}
 
@@ -3495,6 +3512,12 @@
 								} else {
 									parts.push(`goto ${str16(offsetRight + args[1][1])} (+${arg(args[1])}) (mode ${args[0][1]})`);
 								}
+							} else if (opcode === 0x47) {
+								parts.push(`thread_0047(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2][1])} (+${arg(args[2])})`);
+							} else if (opcode === 0x48) {
+								parts.push(`thread_0048(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2][1])} (+${arg(args[2])})`);
+							} else if (opcode === 0x49) {
+								parts.push(`thread_0049(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2][1])} (+${arg(args[2])})`);
 							} else {
 								parts.push(`BA_${str16(opcode)}(${args.map(arg).join(', ')})`);
 							}
@@ -3510,6 +3533,201 @@
 
 					const endOffset = parsed[parsed.length - 1].offsetRight;
 					addHTML(preview, `<div><code>${bytes(endOffset, script.byteLength - endOffset, script)}</code></div>`);
+				} else if (scriptRenderer.value === 2) {
+					const parsed = bai.parse(script);
+
+					const arg = ([type, x]) => {
+						if (type === 'var') return `var[0x${str16(x)}]`;
+						else return String(x);
+					};
+					const operators = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^']; // unary operators unused
+
+					// #1 : prepare quick index
+					const offsetToCommandIdx = new Map();
+					for (let i = 0; i < parsed.length; ++i) offsetToCommandIdx.set(parsed[i].offsetLeft, i);
+
+					// #2 : find function calls. jumps won't happen between functions.
+					const functionLabels = new Map();
+					functionLabels.set(0xe, 'default_init');
+					for (const cmd of parsed) {
+						if (cmd.opcode === 3 && cmd.args[0][1] === 1) {
+							const to = cmd.offsetRight + cmd.args[1][1];
+							functionLabels.set(to, `fun_${str16(to)}`);
+						} else if (cmd.opcode === 0x47 || cmd.opcode === 0x48 || cmd.opcode === 0x49) {
+							const to = cmd.offsetRight + cmd.args[2][1];
+							functionLabels.set(to, `fun_${str16(to)}`);
+						}
+					}
+
+					const headerU16 = bufToU16(script);
+					if (headerU16[1]) functionLabels.set(headerU16[1] + 2, 'turn1');
+					if (headerU16[2]) functionLabels.set(headerU16[2] + 4, 'init');
+					if (headerU16[3]) functionLabels.set(headerU16[3] + 6, 'turn2');
+					if (headerU16[4]) functionLabels.set(headerU16[4] + 8, 'player_turn');
+					if (headerU16[5]) functionLabels.set(headerU16[5] + 10, 'unknown5');
+					if (headerU16[6]) functionLabels.set(headerU16[6] + 12, 'unknown6');
+
+					// #3 : replace tree with functions, and explore those functions
+					const tree = [...parsed];
+					for (let i = 0; i < tree.length; ++i) {
+						const label = functionLabels.get(tree[i].offsetLeft);
+						if (!label) continue;
+
+						// function found: go until the next function
+						let fnEnd = i;
+						for (let j = i + 1; j < tree.length; ++j) {
+							if (tree[j].opcode === -1) break;
+							if (functionLabels.has(tree[j].offsetLeft)) break;
+							fnEnd = j;
+						}
+
+						const children = tree.splice(i, fnEnd - i + 1);
+						tree.splice(i, 0, {
+							separators: [`def ${label}() {`, `}`],
+							content: [children],
+							offsetLeft: children[0].offsetLeft,
+							offsetsMiddle: [],
+							offsetRight: children[children.length - 1].offsetRight,
+						});
+
+						const explore = branch => {
+							branchLoop: for (let j = 0; j < branch.length; ++j) {
+								const left = branch[j];
+								// BA_0002(op, a, b, 0, +offset)
+								if (left.opcode === 2 && left.args[3][1] === 0 && left.args[4][1] > 0) {
+									const to = left.offsetRight + left.args[4][1];
+									let rightIdx = j;
+									for (let k = j + 1; k < branch.length; ++k) {
+										if (branch[k].offsetLeft === to) break;
+										rightIdx = k;
+									}
+									const right = branch[rightIdx];
+
+									// make sure all jumps within this block STAY within this block.
+									// This doesn't support if-else, yet.
+									for (let k = j + 1; k <= rightIdx; ++k) {
+										if (branch[k].opcode === 2) {
+											const withinTo = branch[k].offsetRight + branch[k].args[4][1];
+											if (left.offsetLeft <= withinTo && withinTo <= right.offsetRight);
+											else continue branchLoop;
+										} else if (branch[k].opcode === 3 && branch[k].args[0][1] !== 1) {
+											const withinTo = branch[k].offsetRight + branch[k].args[1][1];
+											if (left.offsetLeft <= withinTo && withinTo <= right.offsetRight);
+											else continue branchLoop;
+										}
+									}
+
+									const children = branch.splice(j, rightIdx - j + 1);
+									children.shift(); // remove `left`
+									branch.splice(j, 0, {
+										separators: [`if (${arg(left.args[1])} ${operators[left.args[0][1]]} ${arg(left.args[2])}) {`, `}`],
+										content: [children],
+										offsetLeft: left.offsetLeft,
+										offsetsMiddle: [],
+										offsetRight: right.offsetRight,
+									});
+									explore(children);
+								}
+							}
+						};
+						explore(children);
+
+						/* const explore = branch => {
+							// first, find backwards branches (loops)
+							for (let j = 0; j < branch.length; ++j) {
+								const cmd = branch[j];
+								if (typeof cmd === 'string') continue;
+
+								// BA_0003(0, negative offset) or BA_0003(2, negative offset)
+								if (cmd.opcode === 3
+									&& (cmd.args[0][1] === 0 || cmd.args[0][1] === 2)
+									&& cmd.args[1][1] < 0) {
+									const to = cmd.offsetRight + cmd.args[1][1];
+									let startJ = j;
+									for (; startJ >= 0; --startJ) {
+										if (branch[startJ].offsetLeft === to) break;
+									}
+
+									const children = branch.splice(startJ, j - startJ);
+									children.push({
+										opcode: -2,
+										str: `continue`,
+										offsetLeft: cmd.offsetLeft,
+										offsetRight: cmd.offsetRight,
+									}); // BA_0003 is replaced with this
+									branch.splice(startJ, 0, {
+										before: `loop {`,
+										segments: [{ children, after: `}`, offsetRight: undefined }],
+										offsetLeft: children[0].offsetLeft,
+										offsetRight: cmd.offsetRight,
+									});
+
+									j = startJ + 1;
+									explore(children);
+									continue;
+								}
+
+								// BA_0002(a, b, c, d, negative offset)
+								if (cmd.opcode === 2 && cmd.args[4][1] < 0) {
+									const to = cmd.offsetRight + cmd.args[4][1];
+									let startJ = j;
+									for (; startJ >= 0; --startJ) {
+										if (branch[startJ].offsetLeft === to) break;
+									}
+
+									const children = branch.splice(startJ, j - startJ);
+									children.push({
+										opcode: -2,
+										str: `if ${cmd.args[3][1] ? '' : '!'}(${arg(cmd.args[1])} ${operators[cmd.args[0][1]]} ${arg(cmd.args[2])}) continue`,
+										offsetLeft: cmd.offsetLeft,
+										offsetRight: cmd.offsetRight,
+									});
+									branch.splice(startJ, 0, {
+										before: `loop {`,
+										segments: [{ children, after: `}`, offsetRight: undefined }],
+										offsetLeft: children[0].offsetLeft,
+										offsetRight: cmd.offsetRight,
+									});
+
+									j = startJ + 1;
+									explore(children);
+									continue;
+								}
+							}
+
+							// then, find if-blocks
+						};
+						explore(children); */
+					}
+
+					const explore = (branch, indent) => branch.map(block => {
+						const prefix = offsetLeft => `<span style="color: #666;">${str16(offsetLeft)}</span> ${'&nbsp;'.repeat(indent * 4)}`;
+						if (block.opcode === undefined) {
+							const parts = [];
+							parts.push(`${prefix(block.offsetLeft)}${block.separators[0]}`);
+							for (let i = 0; i < block.content.length - 1; ++i) {
+								parts.push(...explore(block.content[i], indent + 1));
+								parts.push(`${prefix(block.offsetsMiddle[i])}${block.separators[i + 1]}`);
+							}
+							parts.push(...explore(block.content[block.content.length - 1], indent + 1));
+							parts.push(`${prefix(block.offsetRight)}${block.separators[block.separators.length - 1]}`);
+							return parts;
+						} else if (block.opcode === -2) {
+							// raw string
+							return `${prefix}${block.str}`;
+						} else if (block.opcode === -1) {
+							// raw data
+							console.warn('RAWWW');
+							return `${prefix(block.offsetLeft)}<span style="color: #f93;">${bytes(block.offsetLeft, block.offsetRight - block.offsetLeft, script)}</span>`;
+						} else {
+							// command
+							let returnAssign = '';
+							if (block.returnTarget !== undefined)
+								returnAssign = `var[0x${str16(block.returnTarget)}] = `;
+							return `${prefix(block.offsetLeft)}${returnAssign}BA_${str16(block.opcode)}(${block.args.map(arg).join(', ')})`;
+						}
+					}).flat();
+					addHTML(preview, `<div><code>${explore(tree, 0).join('<br>')}</code></div>`);
 				}
 			};
 			updateScript();
