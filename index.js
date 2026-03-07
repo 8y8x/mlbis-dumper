@@ -3604,9 +3604,10 @@
 										rightIdx = k;
 									}
 									const right = branch[rightIdx];
+									if (!left || !right) continue;
 
 									// make sure all jumps within this block STAY within this block.
-									// This doesn't support if-else, yet.
+									// because if they didn't, the expansion would be even more confusing
 									for (let k = leftIdx; k < rightIdx; ++k) {
 										if (branch[k].opcode === 2) {
 											const withinTo = branch[k].offsetRight + branch[k].args[4][1];
@@ -3621,8 +3622,8 @@
 
 									// if the last command in the if-block is a jump (NOT a function call), this could
 									// be an if-else block instead
-									if (branch[rightIdx].opcode === 3 && branch[rightIdx].args[0][1] !== 1) {
-										const withinTo = branch[rightIdx].offsetRight + branch[rightIdx].args[1][1];
+									if (right.opcode === 3 && right.args[0][1] !== 1) {
+										const withinTo = right.offsetRight + right.args[1][1];
 										if (right.offsetRight < withinTo) {
 											// this is an if-else block
 											const ifLeftIdx = leftIdx;
@@ -3633,27 +3634,24 @@
 												if (branch[k].offsetLeft === withinTo) break;
 												elseRightIdx = k;
 											}
-
-											console.log('::', ifLeftIdx, ifRightIdx, elseLeftIdx, elseRightIdx, branch.length);
-											console.log([...branch]);
-
 											const elseRight = branch[elseRightIdx];
+											if (elseRight) {
+												// don't do any validation yet, let's see what happens
+												const childrenElse = branch.splice(elseLeftIdx, elseRightIdx - elseLeftIdx + 1);
+												const childrenIf = branch.splice(ifLeftIdx, ifRightIdx - ifLeftIdx + 1);
+												branch[j] = {
+													separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0][1]]} ${arg(outer.args[2])}) {`, `} else {`, `}`],
+													content: [childrenIf, childrenElse],
+													offsetLeft: outer.offsetLeft,
+													offsetsMiddle: [undefined] /* [right.offsetLeft] */,
+													offsetRight: elseRight.offsetRight,
+												};
+												branch.splice(j + 1, 1); // delete the "else" command
 
-											// don't do any validation yet, let's see what happens
-											const childrenElse = branch.splice(elseLeftIdx, elseRightIdx - elseLeftIdx + 1);
-											const childrenIf = branch.splice(ifLeftIdx, ifRightIdx - ifLeftIdx + 1);
-											branch[j] = {
-												separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0][1]]} ${arg(outer.args[2])}) {`, `} else {`, `}`],
-												content: [childrenIf, childrenElse],
-												offsetLeft: outer.offsetLeft,
-												offsetsMiddle: [undefined] /* [right.offsetLeft] */,
-												offsetRight: elseRight.offsetRight,
-											};
-											branch.splice(j + 1, 1); // delete the "else" command
-
-											explore(childrenIf);
-											explore(childrenElse);
-											continue;
+												explore(childrenIf);
+												explore(childrenElse);
+												continue;
+											}
 										}
 									}
 
@@ -3670,73 +3668,6 @@
 							}
 						};
 						explore(children);
-
-						/* const explore = branch => {
-							// first, find backwards branches (loops)
-							for (let j = 0; j < branch.length; ++j) {
-								const cmd = branch[j];
-								if (typeof cmd === 'string') continue;
-
-								// BA_0003(0, negative offset) or BA_0003(2, negative offset)
-								if (cmd.opcode === 3
-									&& (cmd.args[0][1] === 0 || cmd.args[0][1] === 2)
-									&& cmd.args[1][1] < 0) {
-									const to = cmd.offsetRight + cmd.args[1][1];
-									let startJ = j;
-									for (; startJ >= 0; --startJ) {
-										if (branch[startJ].offsetLeft === to) break;
-									}
-
-									const children = branch.splice(startJ, j - startJ);
-									children.push({
-										opcode: -2,
-										str: `continue`,
-										offsetLeft: cmd.offsetLeft,
-										offsetRight: cmd.offsetRight,
-									}); // BA_0003 is replaced with this
-									branch.splice(startJ, 0, {
-										before: `loop {`,
-										segments: [{ children, after: `}`, offsetRight: undefined }],
-										offsetLeft: children[0].offsetLeft,
-										offsetRight: cmd.offsetRight,
-									});
-
-									j = startJ + 1;
-									explore(children);
-									continue;
-								}
-
-								// BA_0002(a, b, c, d, negative offset)
-								if (cmd.opcode === 2 && cmd.args[4][1] < 0) {
-									const to = cmd.offsetRight + cmd.args[4][1];
-									let startJ = j;
-									for (; startJ >= 0; --startJ) {
-										if (branch[startJ].offsetLeft === to) break;
-									}
-
-									const children = branch.splice(startJ, j - startJ);
-									children.push({
-										opcode: -2,
-										str: `if ${cmd.args[3][1] ? '' : '!'}(${arg(cmd.args[1])} ${operators[cmd.args[0][1]]} ${arg(cmd.args[2])}) continue`,
-										offsetLeft: cmd.offsetLeft,
-										offsetRight: cmd.offsetRight,
-									});
-									branch.splice(startJ, 0, {
-										before: `loop {`,
-										segments: [{ children, after: `}`, offsetRight: undefined }],
-										offsetLeft: children[0].offsetLeft,
-										offsetRight: cmd.offsetRight,
-									});
-
-									j = startJ + 1;
-									explore(children);
-									continue;
-								}
-							}
-
-							// then, find if-blocks
-						};
-						explore(children); */
 					}
 
 					const explore = (branch, indent) => branch.map(block => {
