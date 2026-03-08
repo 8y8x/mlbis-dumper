@@ -3219,7 +3219,7 @@
 		const fileSelect = dropdown(options.map(x => x[0]), 0, () => update());
 		section.appendChild(fileSelect);
 
-		const scriptRenderer = dropdown(['Renderer: colorful + flow', 'Renderer: jumps only', 'Renderer: basic'], 2, () => updateScript());
+		const scriptRenderer = dropdown(['Renderer: basic', 'Renderer: jumps only', 'Renderer: colorful + flow'], 2, () => updateScript());
 		section.appendChild(scriptRenderer);
 
 		let updateScript;
@@ -3294,6 +3294,22 @@
 			return parsed;
 		};
 
+		bai.actor_attribute = x => {
+			switch (x) {
+				case 3: return 'x';
+				case 4: return 'y';
+				case 5: return 'z';
+				case 24: return 'animation';
+				case 32: return 'level';
+				case 33: return 'max_hp';
+				case 34: return 'hp';
+				case 35: return 'spd'; // why are you here
+				case 36: return 'pow';
+				case 37: return 'def';
+				case 47: return 'invincible';
+			}
+		};
+
 		const operators = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^']; // unary operators are unused
 		const builtin = x => `<span style="color: var(--peach);">${x}</span>`;
 		const fn = x => `<span style="color: var(--blue);">${x}</span>`;
@@ -3307,6 +3323,9 @@
 			if (context === 'actor' && x === 0x1000) return constant('MARIO');
 			if (context === 'actor' && x === 0x1001) return constant('LUIGI');
 			if (context === 'actor' && x === 0x1002) return constant('BOWSER');
+			if (context === 'action_block')
+				return constant([, 'JUMP', 'HAMMER', 'FLEE', 'ITEM', 'SPECIAL', 'PUNCH'][x] || x);
+			if (context === 'positioning') return constant(['ABSOLUTE', 'RELATIVE'][x] || x);
 			if (context === 'hex16') return constant('0x' + str16(x));
 			if (context === 'bool' && x === 0) return constant('false');
 			if (context === 'bool' && x === 1) return constant('true');
@@ -3420,15 +3439,23 @@
 				// end CM_xxxx commands, begin BA_xxxx commands
 				case 0x47: {
 					const to = offsetRight + args[2].x;
-					return fn('thread_0047') + `(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+					return fn('thread_0047') + `(${arg(0)}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x48: {
 					const to = offsetRight + args[2].x;
-					return fn('thread_0048') + `(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+					return fn('thread_0048') + `(${arg(0)}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x49: {
 					const to = offsetRight + args[2].x;
-					return fn('spawn_thread_for_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return fn('spawn_actor_thread') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+				}
+				case 0x4a: return fn('join_actor_thread') + `(${arg(0, 'actor')})`;
+				case 0x65: {
+					let comment;
+					if (args[1].type !== 'var') {
+						comment = ' // ' + monsters.monsters[args[1].x]?.name ?? '(?)';
+					}
+					return fn('create_monster') + `(${arg(0, 'actor')}, ${arg(1)})` + comment;
 				}
 				case 0x66: {
 					let scriptFile = '(?)';
@@ -3438,35 +3465,50 @@
 					return fn('load_atk_script') + `(${arg(0, 'hex16')}) // ${scriptFile} ${args[0].x & 0xfff}`;
 				}
 				case 0x6a: return fn('call_atk_script') + '()';
-				case 0x73: return fn('BA_0073') + `(${arg(0, 'actor')}, ${arg(1)})`;
-				case 0x7e: return fn('exit_battle') + `(${arg(0)}, ${arg(1)})`;
-				case 0xbf: {
-					let attribute = arg(1);
-					switch (args[1].x) {
-						case 3: attribute = text('.x'); break;
-						case 4: attribute = text('.y'); break;
-						case 5: attribute = text('.z'); break;
-						case 24: attribute = text('.animation'); break;
-						case 33: attribute = text('.max_hp'); break;
-						case 34: attribute = text('.hp'); break;
-						case 47: attribute = text('.invincible'); break;
+				case 0x71: {
+					let bmapK = '(?)';
+					let bmapML = '(?)';
+					if (args[0].type !== 'var') {
+						if (args[0].x === -1) bmapK = 'default';
+						else bmapK = '0x' + str8(args[0].x / 8);
 					}
-					return rp + fn('get_actor_attribute') + `(${arg(0, 'actor')}, ${attribute})`;
+					if (args[1].type !== 'var') {
+						if (args[1].x === -1) bmapML = 'default';
+						else bmapML = '0x' + str8(args[1].x / 8);
+					}
+					return fn('set_battle_background') + `(${arg(0)}, ${arg(1)}) // bowser bmap = ${bmapK}, m&l bmap = ${bmapML}`;
+				}
+				case 0x73: return fn('BA_0073') + `(${arg(0, 'actor')}, ${arg(1)})`;
+				case 0x7b: return fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
+				case 0x7e: return fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
+				case 0xbf: {
+					let attribute = bai.actor_attribute(args[1].x);
+					if (attribute) attribute = text('.' + attribute);
+					else attribute = arg(1);
+
+					return rp + fn('actor_attr_get') + `(${arg(0, 'actor')}, ${attribute})`;
 				}
 				case 0xc0: {
-					let attribute = arg(1);
+					let attribute = bai.actor_attribute(args[1].x);
+					if (attribute) attribute = text('.' + attribute);
+					else attribute = arg(1);
+
 					let value = arg(2);
 					switch (args[1].x) {
-						case 3: attribute = text('.x'); break;
-						case 4: attribute = text('.y'); break;
-						case 5: attribute = text('.z'); break;
-						case 24: attribute = text('.animation'); break;
-						case 33: attribute = text('.max_hp'); break;
-						case 34: attribute = text('.hp'); break;
-						case 47: attribute = text('.invincible'); value = arg(2, 'bool'); break;
+						case 47: value = arg(2, 'bool'); break; // .invincible
 					}
-					return fn('set_actor_attribute') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
+					return fn('actor_attr_set') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
 				}
+				case 0xc9: return fn('actor_despawn') + `(${arg(0, 'actor')})`;
+				case 0xe7: return fn('actor_move') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
+				case 0xe9: return fn('actor_move_to_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
+				case 0xeb: return fn('actor_move_wait') + `(${arg(0, 'actor')}, ${arg(1)})`;
+				case 0xf3: return fn('actor_set_pos') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0x10f: return rp + fn('BA_010f') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
+				case 0x1f2: return fn('textbox_wait') + `(${arg(0)})`;
+				case 0x202: return fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x21c: return rp + fn('BA_021c') + `(${arg(0, 'actor')})`;
 			}
 
 			// defaults
@@ -3742,9 +3784,9 @@
 					}
 
 					const headerU16 = bufToU16(script);
-					if (headerU16[1]) functionLabels.set(headerU16[1] + 2, 'turn1');
+					if (headerU16[1]) functionLabels.set(headerU16[1] + 2, 'other_monster_turn');
 					if (headerU16[2]) functionLabels.set(headerU16[2] + 4, 'init');
-					if (headerU16[3]) functionLabels.set(headerU16[3] + 6, 'turn2');
+					if (headerU16[3]) functionLabels.set(headerU16[3] + 6, 'monster_turn');
 					if (headerU16[4]) functionLabels.set(headerU16[4] + 8, 'player_turn');
 					if (headerU16[5]) functionLabels.set(headerU16[5] + 10, 'unknown5');
 					if (headerU16[6]) functionLabels.set(headerU16[6] + 12, 'unknown6');
@@ -3821,7 +3863,7 @@
 												// don't do any validation yet, let's see what happens
 												const childrenElse = branch.splice(elseLeftIdx, elseRightIdx - elseLeftIdx + 1);
 												const childrenIf = branch.splice(ifLeftIdx, ifRightIdx - ifLeftIdx + 1);
-												branch[j] = {
+												const ifelse = branch[j] = {
 													separators: [`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`, `} ${keyword('else')} {`, `}`],
 													content: [childrenIf, childrenElse],
 													offsetLeft: outer.offsetLeft,
@@ -3832,6 +3874,24 @@
 
 												explore(childrenIf);
 												explore(childrenElse);
+
+												if (childrenElse.length === 1 && childrenElse[0].separators) {
+													const inner = childrenElse[0];
+													// TODO maybe won't look too right if i introduce a loop { or smth
+													ifelse.separators.pop();
+													ifelse.separators.pop();
+													ifelse.separators.push(`} ${keyword('else')} ${inner.separators[0]}`);
+													for (let k = 1; k < inner.separators.length; ++k) {
+														ifelse.separators.push(inner.separators[k]);
+													}
+
+													ifelse.offsetsMiddle.pop();
+													ifelse.offsetsMiddle.push(inner.offsetLeft);
+													ifelse.offsetsMiddle.push(...inner.offsetsMiddle);
+
+													ifelse.content.pop();
+													ifelse.content.push(...inner.content);
+												}
 												continue;
 											}
 										}
@@ -3869,8 +3929,7 @@
 							return `${prefix}${block.str}`;
 						} else if (block.opcode === -1) {
 							// raw data
-							console.warn('RAWWW');
-							return `${prefix(block.offsetLeft)}<span style="color: #f93;">${bytes(block.offsetLeft, block.offsetRight - block.offsetLeft, script)}</span>`;
+							return `${prefix(block.offsetLeft)}${text(bytes(block.offsetLeft, block.offsetRight - block.offsetLeft, script))}</span>`;
 						} else {
 							// command
 							const { opcode, returnTarget, args, offsetLeft, offsetRight } = block;
@@ -3952,6 +4011,7 @@
 		symb.strm = symbFileList(symbDat.getUint32(36, true));
 
 		// LET"S try this again
+		sound.names = [];
 		const symbSseqOffset = symbDat.byteLength ? symbDat.getUint32(8, true) : 0;
 		const infoSseqOffset = infoDat.getUint32(8, true);
 		const infoSseqLength = infoDat.getUint32(infoSseqOffset, true);
@@ -3971,6 +4031,7 @@
 				name = latin1(nameOffset, undefined, symbDat);
 			}
 
+			sound.names[i] = name;
 			let html = `sseq[${i}] : ${name} (fatId ${fatId}) (bank ${bank}) (volume ${volume}) (cpr ${cpr}) (ppr ${ppr}) (ply ${ply});`;
 			if (12 + fatId * 16 + 8 <= fatDat.byteLength) {
 				const fileStart = fatDat.getUint32(12 + fatId * 16, true);
