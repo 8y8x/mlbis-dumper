@@ -3219,7 +3219,7 @@
 		const fileSelect = dropdown(options.map(x => x[0]), 0, () => update());
 		section.appendChild(fileSelect);
 
-		const scriptRenderer = dropdown(['Renderer: basic', 'Renderer: few names', 'Renderer: control-flow'], 0, () => updateScript());
+		const scriptRenderer = dropdown(['Renderer: colorful + flow', 'Renderer: jumps only', 'Renderer: basic'], 2, () => updateScript());
 		section.appendChild(scriptRenderer);
 
 		let updateScript;
@@ -3314,7 +3314,7 @@
 		};
 		bai.variable = (x, context) => {
 			if (x === 0x4000) return storage('brg_self');
-			if (x === 0x400e) return text('brg_party_size');
+			if (x === 0x400e) return text('brg_party_type');
 			return text('var') + `[${constant('0x' + str16(x))}]`;
 		};
 		bai.command = (opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels) => {
@@ -3440,11 +3440,29 @@
 				case 0x6a: return fn('call_atk_script') + '()';
 				case 0x73: return fn('BA_0073') + `(${arg(0, 'actor')}, ${arg(1)})`;
 				case 0x7e: return fn('exit_battle') + `(${arg(0)}, ${arg(1)})`;
+				case 0xbf: {
+					let attribute = arg(1);
+					switch (args[1].x) {
+						case 3: attribute = text('.x'); break;
+						case 4: attribute = text('.y'); break;
+						case 5: attribute = text('.z'); break;
+						case 24: attribute = text('.animation'); break;
+						case 33: attribute = text('.max_hp'); break;
+						case 34: attribute = text('.hp'); break;
+						case 47: attribute = text('.invincible'); break;
+					}
+					return rp + fn('get_actor_attribute') + `(${arg(0, 'actor')}, ${attribute})`;
+				}
 				case 0xc0: {
 					let attribute = arg(1);
 					let value = arg(2);
 					switch (args[1].x) {
+						case 3: attribute = text('.x'); break;
+						case 4: attribute = text('.y'); break;
+						case 5: attribute = text('.z'); break;
 						case 24: attribute = text('.animation'); break;
+						case 33: attribute = text('.max_hp'); break;
+						case 34: attribute = text('.hp'); break;
 						case 47: attribute = text('.invincible'); value = arg(2, 'bool'); break;
 					}
 					return fn('set_actor_attribute') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
@@ -3492,7 +3510,7 @@
 				preview.innerHTML = '';
 
 				if (scriptRenderer.value === 0) {
-					// Renderer: basic
+					// Renderer: basic (legacy)
 					addHTML(preview, `<div><code>${bytes(0, 14, script)}</code>`);
 					const headerU16 = bufToU16(script);
 					const eventOffsets = new Map();
@@ -3552,6 +3570,7 @@
 					addHTML(preview, `<div><code>${parts.map(x => `<div>${x}</div>`).join(' ')}</code></div>`);
 					addHTML(preview, `<div><code>${bytes(o, script.byteLength - o, script)}</code></div>`);
 				} else if (scriptRenderer.value === 1) {
+					// Renderer: jumps only (legacy)
 					// #1 : parse commands into a list
 					const parsed = bai.parse(script);
 
@@ -3696,6 +3715,7 @@
 					const endOffset = parsed[parsed.length - 1].offsetRight;
 					addHTML(preview, `<div><code>${bytes(endOffset, script.byteLength - endOffset, script)}</code></div>`);
 				} else if (scriptRenderer.value === 2) {
+					// Renderer: colorful + flow
 					const parsed = bai.parse(script);
 
 					const arg = ({ type, x }, context) => {
