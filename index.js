@@ -3277,21 +3277,143 @@
 				const args = [];
 				for (let i = 0; i < command.args.length; ++i) {
 					const type = command.args[i];
-					if (variables & (1 << i)) (args.push(['var', script.getUint16(o, true)]), o += 2);
-					else if (type === 0) args.push(['u8', script.getUint8(o++)]);
-					else if (type === 1) (args.push(['u16', script.getUint16(o, true)]), o += 2);
-					else if (type === 2) (args.push(['u32', script.getUint32(o, true)]), o += 4);
-					else if (type === 3) args.push(['s8', script.getInt8(o++)]);
-					else if (type === 4) (args.push(['s16', script.getInt16(o, true)]), o += 2);
-					else if (type === 5) (args.push(['s32', script.getInt32(o, true)]), o += 4);
-					else if (type === 6) (args.push(['fp88', script.getInt16(o, true) / 256]), o += 2);
-					else if (type === 7) (args.push(['fp2012', script.getInt32(o, true) / 4096]), o += 4);
+					if (variables & (1 << i)) (args.push({ type: 'var', x: script.getUint16(o, true) }), o += 2);
+					else if (type === 0) args.push({ type: 'u8', x: script.getUint8(o++) });
+					else if (type === 1) (args.push({ type: 'u16', x: script.getUint16(o, true) }), o += 2);
+					else if (type === 2) (args.push({ type: 'u32', x: script.getUint32(o, true) }), o += 4);
+					else if (type === 3) args.push({ type: 's8', x: script.getInt8(o++) });
+					else if (type === 4) (args.push({ type: 's16', x: script.getInt16(o, true) }), o += 2);
+					else if (type === 5) (args.push({ type: 's32', x: script.getInt32(o, true) }), o += 4);
+					else if (type === 6) (args.push({ type: 'fp88', x: script.getInt16(o, true) / 256 }), o += 2);
+					else if (type === 7) (args.push({ type: 'fp2012', x: script.getInt32(o, true) / 4096 }), o += 4);
 				}
 
 				parsed.push({ opcode, returnTarget, args, offsetLeft, offsetRight: o, tag });
 			}
 
 			return parsed;
+		};
+
+		const operators = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^']; // unary operators are unused
+		bai.command = (opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels) => {
+			const arg = i => {
+				if (args[i].type === 'var') return `var[0x${str16(args[i].x)}]`;
+				else return String(args[i].x);
+			};
+			const argsConcat = () => args.map((_,i) => arg(i)).join(', ');
+			const pm = x => x < 0 ? String(x) : '+' + x;
+
+			const rp = returnTarget !== undefined ? `var[0x${str16(returnTarget)}] = ` : '';
+
+			switch (opcode) {
+				case 1: return `return`;
+				case 2: {
+					const to = offsetRight + args[4].x;
+					return `if ${args[3].x ? '' : '!'}(${arg(1)} ${operators[args[0].x]} ${arg(2)}) goto ${str16(to)} (${pm(args[4].x)})`;
+				}
+				case 3: {
+					const to = offsetRight + args[1].x;
+					if (args[0].x === 1) return `${functionLabels.get(to)}()`;
+					else return `goto ${str16(to)} (${pm(args[1].x)})`;
+				}
+				case 4: return `wait(${arg(0)})`;
+				case 5: return `stack_push(${arg(0)})`;
+				case 7: {
+					const to = offsetRight + args[3].x;
+					return `if stack_compare(${arg(0)}, ${arg(1)}, ${arg(2)}) goto ${str16(to)} (${pm(args[3].x)})`;
+				}
+				case 8: return rp + arg(0);
+				case 9: return rp + arg(0) + ' + ' + arg(1);
+				case 0xa: return rp + arg(0) + ' - ' + arg(1);
+				case 0xb: return rp + arg(0) + ' * ' + arg(1);
+				case 0xc: return rp + arg(0) + ' / ' + arg(1);
+				case 0xd: return rp + arg(0) + ' % ' + arg(1);
+				case 0xe: return rp + arg(0) + ' << ' + arg(1);
+				case 0xf: return rp + arg(0) + ' >> ' + arg(1);
+				case 0x10: return rp + arg(0) + ' & ' + arg(1);
+				case 0x11: return rp + arg(0) + ' | ' + arg(1);
+				case 0x12: return rp + arg(0) + ' ^ ' + arg(1);
+				case 0x13: return rp + '-' + arg(0);
+				case 0x14: return rp + `bool(${arg(0)})`;
+				case 0x15: return rp + '~' + arg(0);
+				case 0x16: return `var[0x${str16(returnTarget)}]++`;
+				case 0x17: return `var[0x${str16(returnTarget)}]--`;
+				case 0x18: return `var[0x${str16(returnTarget)}] += ${arg(0)}`;
+				case 0x19: return `var[0x${str16(returnTarget)}] -= ${arg(0)}`;
+				case 0x1a: return `var[0x${str16(returnTarget)}] *= ${arg(0)}`;
+				case 0x1b: return `var[0x${str16(returnTarget)}] /= ${arg(0)}`;
+				case 0x1c: return `var[0x${str16(returnTarget)}] %= ${arg(0)}`;
+				case 0x1d: return `var[0x${str16(returnTarget)}] <<= ${arg(0)}`;
+				case 0x1e: return `var[0x${str16(returnTarget)}] >>= ${arg(0)}`;
+				case 0x1f: return `var[0x${str16(returnTarget)}] &= ${arg(0)}`;
+				case 0x20: return `var[0x${str16(returnTarget)}] |= ${arg(0)}`;
+				case 0x21: return `var[0x${str16(returnTarget)}] ^= ${arg(0)}`;
+				case 0x22: return rp + `sqrt(${arg(0)})`;
+				case 0x23: return rp + `invsqrt(${arg(0)})`;
+				case 0x24: return rp + `1 / ${arg(0)}`;
+				case 0x25: return rp + `sin(${arg(0)})`;
+				case 0x26: return rp + `cos(${arg(0)})`;
+				case 0x27: return rp + `atan(${arg(0)})`;
+				case 0x28: return rp + `atan2(${arg(0)}, ${arg(1)})`;
+				case 0x29: return rp + `random(${arg(0)})`;
+				// TODO these fp2012 names SUCK
+				case 0x2a: return rp + `${arg(0)} [fx32]`;
+				case 0x2b: return rp + `${arg(0)} + ${arg(1)} [fx32]`;
+				case 0x2c: return rp + `${arg(0)} - ${arg(1)} [fx32]`;
+				case 0x2d: return rp + `${arg(0)} * ${arg(1)} [fx32]`;
+				case 0x2e: return rp + `${arg(0)} / ${arg(1)} [fx32]`;
+				case 0x2f: return rp + `${arg(0)} % ${arg(1)} [fx32]`;
+				case 0x30: return rp + `fx32_to_int(${arg(0)})`;
+				case 0x31: return rp + `trunc(${arg(0)}) [fx32]`;
+				case 0x32: return rp + `sqrt(${arg(0)}) [fx32]`;
+				case 0x33: return rp + `invsqrt(${arg(0)}) [fx32]`;
+				case 0x34: return rp + `1 / ${arg(0)} [fx32]`;
+				case 0x35: return rp + `sin(${arg(0)}) [fx32]`;
+				case 0x36: return rp + `cos(${arg(0)}) [fx32]`;
+				case 0x37: return rp + `atan(${arg(0)}) [fx32]`;
+				case 0x38: return rp + `atan2(${arg(0)}, ${arg(1)}) [fx32]`;
+				case 0x39: {
+					const to = offsetRight + args[0].x;
+					return rp + `load_data_from_array(${str16(to)}, ${arg(1)})`;
+				}
+				case 0x3a: {
+					const to = offsetRight + args[0].x;
+					return rp + `load_data(${str16(to)})`;
+				}
+				case 0x3b: {
+					const to = offsetRight + args[0].x;
+					return `debugln(${str16(to)})`;
+				}
+				case 0x3c: {
+					const to = offsetRight + args[0].x;
+					return `debug(${str16(to)})`;
+				}
+				case 0x3d: return `debug_bin(${arg(0)})`;
+				case 0x3e: return `debug_dec(${arg(0)})`;
+				case 0x3f: return `debug_hex(${arg(0)})`;
+				case 0x41: return rp + `add_coins(${arg(0)})`;
+				case 0x43: return rp + `get_item_amount(${arg(0)})`;
+				case 0x44: return rp + `add_items(${arg(0)})`;
+				case 0x45: return rp + `get_player_stat(${arg(0)}, ${arg(1)})`;
+				case 0x46: return rp + `set_player_stat(${argsConcat()})`;
+				// end CM_xxxx commands, begin BA_xxxx commands
+				case 0x47: {
+					const to = offsetRight + args[2].x;
+					return `thread_0047(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+				}
+				case 0x48: {
+					const to = offsetRight + args[2].x;
+					return `thread_0048(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+				}
+				case 0x49: {
+					const to = offsetRight + args[2].x;
+					return `thread_0049(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+				}
+			}
+
+			// defaults
+			if (opcode <= 0x46) return `${rp}CM_${str16(opcode)}(${argsConcat()})`;
+			else return `${rp}BA_${str16(opcode)}(${argsConcat()})`;
 		};
 
 		const update = () => {
@@ -3408,62 +3530,62 @@
 
 					for (const { opcode, returnTarget, args, offsetLeft, offsetRight } of parsed) {
 						if (opcode === 2) {
-							if (args[4][0] === 'var') console.warn(`jump offset is a variable: BA_0002 at ${str16(offsetLeft)}`);
+							if (args[4].type === 'var') console.warn(`jump offset is a variable: BA_0002 at ${str16(offsetLeft)}`);
 							else {
-								const to = offsetRight + args[4][1];
+								const to = offsetRight + args[4].x;
 								const arr = jumpLocations.get(to);
 								if (arr) arr.push(`c-${str16(offsetLeft)}`);
 								else jumpLocations.set(to, [`c-${str16(offsetLeft)}`]);
 
-								highestJumps[0] = Math.max(highestJumps[0], Math.abs(args[4][1]));
+								highestJumps[0] = Math.max(highestJumps[0], Math.abs(args[4].x));
 							}
 						} else if (opcode === 3) {
-							if (args[0][0] === 'var') {
+							if (args[0].type === 'var') {
 								console.warn(`jump type is a variable: BA_0003 at ${str16(offsetLeft)}`);
 								continue;
 							}
-							if (args[1][0] === 'var') {
+							if (args[1].type === 'var') {
 								console.warn(`jump offset is a variable: BA_0003 at ${str16(offsetLeft)}`);
 								continue;
 							}
 
-							const to = offsetRight + args[1][1];
-							if (args[0][1] === 1) {
+							const to = offsetRight + args[1].x;
+							if (args[0].x === 1) {
 								// function call, return address is pushed
 								const arr = functionLocations.get(to);
 								if (arr) arr.push(`f-${str16(offsetLeft)}`);
 								else functionLocations.set(to, [`f-${str16(offsetLeft)}`]);
-								highestJumps[2] = Math.max(highestJumps[2], Math.abs(args[1][1]));
+								highestJumps[2] = Math.max(highestJumps[2], Math.abs(args[1].x));
 							} else {
 								// type 0 or 2, idk the difference yet
 								const arr = jumpLocations.get(to);
-								if (arr) arr.push(`u${args[0][1]}-${str16(offsetLeft)}`);
-								else jumpLocations.set(to, [`u${args[0][1]}-${str16(offsetLeft)}`]);
-								highestJumps[1 + args[0][1]] = Math.max(highestJumps[1 + args[0][1]], Math.abs(args[1][1]));
+								if (arr) arr.push(`u${args[0].x}-${str16(offsetLeft)}`);
+								else jumpLocations.set(to, [`u${args[0].x}-${str16(offsetLeft)}`]);
+								highestJumps[1 + args[0].x] = Math.max(highestJumps[1 + args[0].x], Math.abs(args[1].x));
 							}
 						} else if (opcode === 7) {
-							if (args[3][0] === 'var') {
+							if (args[3].type === 'var') {
 								console.warn(`jump type is a variable: BA_0007 at ${str16(offsetLeft)}`);
 								continue;
 							}
 
-							const to = offsetRight + args[3][1];
+							const to = offsetRight + args[3].x;
 							const arr = jumpLocations.get(to);
 							if (arr) arr.push(`s-${str16(offsetLeft)}`);
 							else jumpLocations.set(to, [`s-${str16(offsetLeft)}`]);
-							highestJumps[4] = Math.max(highestJumps[4], Math.abs(args[3][1]));
+							highestJumps[4] = Math.max(highestJumps[4], Math.abs(args[3].x));
 						} else if (opcode === 0x47) {
-							const to = offsetRight + args[2][1];
+							const to = offsetRight + args[2].x;
 							const arr = functionLocations.get(to);
 							if (arr) arr.push(`t7-${str16(offsetLeft)}`);
 							else functionLocations.set(to, [`t7-${str16(offsetLeft)}`]);
 						} else if (opcode === 0x48) {
-							const to = offsetRight + args[2][1];
+							const to = offsetRight + args[2].x;
 							const arr = functionLocations.get(to);
 							if (arr) arr.push(`t8-${str16(offsetLeft)}`);
 							else functionLocations.set(to, [`t8-${str16(offsetLeft)}`]);
 						} else if (opcode === 0x49) {
-							const to = offsetRight + args[2][1];
+							const to = offsetRight + args[2].x;
 							const arr = functionLocations.get(to);
 							if (arr) arr.push(`t9-${str16(offsetLeft)}`);
 							else functionLocations.set(to, [`t9-${str16(offsetLeft)}`]);
@@ -3475,7 +3597,7 @@
 					addHTML(preview, `<div>Code: ${parsed[parsed.length - 1].offsetRight} / ${script.byteLength} <span style="color: ${nocode > 500 ? '#f99' : '#999'}">(${nocode} nocode)</span></div>`);
 
 					// #3 : render commands
-					const arg = ([type, x]) => {
+					const arg = ({ type, x }) => {
 						if (type === 'var') return `var[0x${str16(x)}]`;
 						else return String(x);
 					};
@@ -3499,25 +3621,25 @@
 
 							if (opcode === 1) parts.push('<span style="color: var(--sapphire);">return()</span>');
 							else if (opcode === 2) {
-								if (args[0][1] <= 8) {
-									const op = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^'][args[0][1]];
-									parts.push(`if ${args[3][1] ? '' : '!'}(${arg(args[1])} ${op} ${arg(args[2])}) goto ${str16(offsetRight + args[4][1])} (+${arg(args[4])})`);
+								if (args[0].x <= 8) {
+									const op = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^'][args[0].x];
+									parts.push(`if ${args[3].x ? '' : '!'}(${arg(args[1])} ${op} ${arg(args[2])}) goto ${str16(offsetRight + args[4].x)} (+${arg(args[4])})`);
 								} else {
-									const op = ['== 0', '!= -1'][args[0][1] - 9];
-									parts.push(`if ${args[3][1] ? '' : '!'}(${arg(args[1])} ${op}}) goto ${str16(offsetRight + args[4][1])} (+${arg(args[4])})`);
+									const op = ['== 0', '!= -1'][args[0].x - 9];
+									parts.push(`if ${args[3].x ? '' : '!'}(${arg(args[1])} ${op}}) goto ${str16(offsetRight + args[4].x)} (+${arg(args[4])})`);
 								}
 							} else if (opcode === 3) {
-								if (args[0][1] === 1) {
-									parts.push(`f${str16(offsetRight + args[1][1])}()`);
+								if (args[0].x === 1) {
+									parts.push(`f${str16(offsetRight + args[1].x)}()`);
 								} else {
-									parts.push(`goto ${str16(offsetRight + args[1][1])} (+${arg(args[1])}) (mode ${args[0][1]})`);
+									parts.push(`goto ${str16(offsetRight + args[1].x)} (+${arg(args[1])}) (mode ${args[0].x})`);
 								}
 							} else if (opcode === 0x47) {
-								parts.push(`thread_0047(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2][1])} (+${arg(args[2])})`);
+								parts.push(`thread_0047(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2].x)} (+${arg(args[2])})`);
 							} else if (opcode === 0x48) {
-								parts.push(`thread_0048(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2][1])} (+${arg(args[2])})`);
+								parts.push(`thread_0048(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2].x)} (+${arg(args[2])})`);
 							} else if (opcode === 0x49) {
-								parts.push(`thread_0049(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2][1])} (+${arg(args[2])})`);
+								parts.push(`thread_0049(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2].x)} (+${arg(args[2])})`);
 							} else {
 								parts.push(`BA_${str16(opcode)}(${args.map(arg).join(', ')})`);
 							}
@@ -3536,7 +3658,7 @@
 				} else if (scriptRenderer.value === 2) {
 					const parsed = bai.parse(script);
 
-					const arg = ([type, x]) => {
+					const arg = ({ type, x }) => {
 						if (type === 'var') return `var[0x${str16(x)}]`;
 						else return String(x);
 					};
@@ -3550,11 +3672,11 @@
 					const functionLabels = new Map();
 					functionLabels.set(0xe, 'default_init');
 					for (const cmd of parsed) {
-						if (cmd.opcode === 3 && cmd.args[0][1] === 1) {
-							const to = cmd.offsetRight + cmd.args[1][1];
+						if (cmd.opcode === 3 && cmd.args[0].x === 1) {
+							const to = cmd.offsetRight + cmd.args[1].x;
 							functionLabels.set(to, `fun_${str16(to)}`);
 						} else if (cmd.opcode === 0x47 || cmd.opcode === 0x48 || cmd.opcode === 0x49) {
-							const to = cmd.offsetRight + cmd.args[2][1];
+							const to = cmd.offsetRight + cmd.args[2].x;
 							functionLabels.set(to, `fun_${str16(to)}`);
 						}
 					}
@@ -3594,8 +3716,8 @@
 							branchLoop: for (let j = 0; j < branch.length; ++j) {
 								const outer = branch[j];
 								// BA_0002(op, a, b, 0, +offset)
-								if (outer.opcode === 2 && outer.args[3][1] === 0 && outer.args[4][1] > 0) {
-									const to = outer.offsetRight + outer.args[4][1];
+								if (outer.opcode === 2 && outer.args[3].x === 0 && outer.args[4].x > 0) {
+									const to = outer.offsetRight + outer.args[4].x;
 									let leftIdx = j + 1;
 									const left = branch[leftIdx];
 									let rightIdx = leftIdx;
@@ -3610,11 +3732,11 @@
 									// because if they didn't, the expansion would be even more confusing
 									for (let k = leftIdx; k < rightIdx; ++k) {
 										if (branch[k].opcode === 2) {
-											const withinTo = branch[k].offsetRight + branch[k].args[4][1];
+											const withinTo = branch[k].offsetRight + branch[k].args[4].x;
 											if (left.offsetLeft <= withinTo && withinTo <= right.offsetRight);
 											else continue branchLoop;
-										} else if (branch[k].opcode === 3 && branch[k].args[0][1] !== 1) {
-											const withinTo = branch[k].offsetRight + branch[k].args[1][1];
+										} else if (branch[k].opcode === 3 && branch[k].args[0].x !== 1) {
+											const withinTo = branch[k].offsetRight + branch[k].args[1].x;
 											if (left.offsetLeft <= withinTo && withinTo <= right.offsetRight);
 											else continue branchLoop;
 										}
@@ -3622,8 +3744,8 @@
 
 									// if the last command in the if-block is a jump (NOT a function call), this could
 									// be an if-else block instead
-									if (right.opcode === 3 && right.args[0][1] !== 1) {
-										const withinTo = right.offsetRight + right.args[1][1];
+									if (right.opcode === 3 && right.args[0].x !== 1) {
+										const withinTo = right.offsetRight + right.args[1].x;
 										if (right.offsetRight < withinTo) {
 											// this is an if-else block
 											const ifLeftIdx = leftIdx;
@@ -3640,7 +3762,7 @@
 												const childrenElse = branch.splice(elseLeftIdx, elseRightIdx - elseLeftIdx + 1);
 												const childrenIf = branch.splice(ifLeftIdx, ifRightIdx - ifLeftIdx + 1);
 												branch[j] = {
-													separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0][1]]} ${arg(outer.args[2])}) {`, `} else {`, `}`],
+													separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0].x]} ${arg(outer.args[2])}) {`, `} else {`, `}`],
 													content: [childrenIf, childrenElse],
 													offsetLeft: outer.offsetLeft,
 													offsetsMiddle: [undefined] /* [right.offsetLeft] */,
@@ -3657,7 +3779,7 @@
 
 									const children = branch.splice(leftIdx, rightIdx - leftIdx + 1);
 									branch[j] = { // replace `outer` with a block
-										separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0][1]]} ${arg(outer.args[2])}) {`, `}`],
+										separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0].x]} ${arg(outer.args[2])}) {`, `}`],
 										content: [children],
 										offsetLeft: outer.offsetLeft,
 										offsetsMiddle: [],
@@ -3692,36 +3814,7 @@
 						} else {
 							// command
 							const { opcode, returnTarget, args, offsetLeft, offsetRight } = block;
-							let returnAssign = '';
-							if (returnTarget !== undefined) returnAssign = `var[0x${str16(returnTarget)}] = `;
-
-							const p = `${prefix(offsetLeft)}${returnAssign}`;
-							if (opcode === 1) return `${p}return`;
-							if (opcode === 2) {
-								const to = offsetRight + args[4][1];
-								return `${p}if ${args[3][1] ? '' : '!'}(${arg(args[1])} ${operators[args[0][1]]} ${arg(args[2])}) goto ${str16(to)} (+${args[4][1]})`;
-							}
-							if (opcode === 3) {
-								const to = offsetRight + args[1][1];
-								if (args[0][1] === 1) return `${p}${functionLabels.get(to)}()`;
-								else return `${p}goto ${str16(to)} (+${args[1][1]})`;
-							}
-							if (opcode === 0x47) {
-								const to = offsetRight + args[2][1];
-								return `${p}thread_0047(${arg(args[0])}, ${arg(args[1])}, ${functionLabels.get(to)})`;
-							}
-							if (opcode === 0x48) {
-								const to = offsetRight + args[2][1];
-								return `${p}thread_0048(${arg(args[0])}, ${arg(args[1])}, ${functionLabels.get(to)})`;
-							}
-							if (opcode === 0x49) {
-								const to = offsetRight + args[2][1];
-								return `${p}thread_0049(${arg(args[0])}, ${arg(args[1])}, ${functionLabels.get(to)})`;
-							}
-
-							// default
-							if (opcode <= 0x46) return `${p}CM_${str16(opcode)}(${args.map(arg).join(', ')})`;
-							else return `${p}BA_${str16(opcode)}(${args.map(arg).join(', ')})`;
+							return prefix(offsetLeft) + bai.command(opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels);
 						}
 					}).flat();
 					addHTML(preview, `<div><code>${explore(tree, 0).join('<br>')}</code></div>`);
