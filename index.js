@@ -3295,125 +3295,165 @@
 		};
 
 		const operators = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^']; // unary operators are unused
+		const builtin = x => `<span style="color: var(--peach);">${x}</span>`;
+		const fn = x => `<span style="color: var(--blue);">${x}</span>`;
+		const keyword = x => `<span style="color: var(--mauve);">${x}</span>`;
+		const constant = x => `<span style="color: var(--peach);">${x}</span>`;
+		const storage = x => `<span style="color: var(--yellow);">${x}</span>`;
+		const operator = x => `<span style="color: var(--teal);">${x}</span>`;
+		const text = x => `<span style="color: var(--text);">${x}</span>`;
+		const location = x => `<span style="color: var(--sapphire);">${x}</span>`;
+		bai.value = (x, context) => {
+			if (context === 'actor' && x === 0x1000) return constant('MARIO');
+			if (context === 'actor' && x === 0x1001) return constant('LUIGI');
+			if (context === 'actor' && x === 0x1002) return constant('BOWSER');
+			if (context === 'hex16') return constant('0x' + str16(x));
+			if (context === 'bool' && x === 0) return constant('false');
+			if (context === 'bool' && x === 1) return constant('true');
+			return constant(x);
+		};
+		bai.variable = (x, context) => {
+			if (x === 0x4000) return storage('brg_self');
+			if (x === 0x400e) return text('brg_party_size');
+			return text('var') + `[${constant('0x' + str16(x))}]`;
+		};
 		bai.command = (opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels) => {
-			const arg = i => {
-				if (args[i].type === 'var') return `var[0x${str16(args[i].x)}]`;
-				else return String(args[i].x);
-			};
+			const arg = (i, context) => {
+				if (args[i].type === 'var') return bai.variable(args[i].x, context);
+				else return bai.value(args[i].x, context);
+			}
 			const argsConcat = () => args.map((_,i) => arg(i)).join(', ');
 			const pm = x => x < 0 ? String(x) : '+' + x;
 
-			const rp = returnTarget !== undefined ? `var[0x${str16(returnTarget)}] = ` : '';
+			const rp = returnTarget !== undefined ? `${bai.variable(returnTarget)} ${operator('=')} ` : '';
 
 			switch (opcode) {
-				case 1: return `return`;
+				case 1: return keyword('return');
 				case 2: {
 					const to = offsetRight + args[4].x;
-					return `if ${args[3].x ? '' : '!'}(${arg(1)} ${operators[args[0].x]} ${arg(2)}) goto ${str16(to)} (${pm(args[4].x)})`;
+					return `${keyword('if')} ${args[3].x ? '' : operator('!')}(${arg(1)} ${operator(operators[args[0].x])} ${arg(2)}) ${keyword('goto')} ${location(str16(to))} // (${pm(args[4].x)})`;
 				}
 				case 3: {
 					const to = offsetRight + args[1].x;
-					if (args[0].x === 1) return `${functionLabels.get(to)}()`;
-					else return `goto ${str16(to)} (${pm(args[1].x)})`;
+					if (args[0].x === 1) return fn(functionLabels.get(to)) + '()';
+					else return `${keyword('goto')} ${location(str16(to))} // (${pm(args[1].x)})`;
 				}
-				case 4: return `wait(${arg(0)})`;
-				case 5: return `stack_push(${arg(0)})`;
+				case 4: return builtin('wait') + `(${arg(0)})`;
+				case 5: return builtin('stack_push') + `(${arg(0)})`;
 				case 7: {
 					const to = offsetRight + args[3].x;
-					return `if stack_compare(${arg(0)}, ${arg(1)}, ${arg(2)}) goto ${str16(to)} (${pm(args[3].x)})`;
+					return `${keyword('if')} (${builtin('stack_compare')}(${arg(0)}, ${arg(1)}, ${arg(2)})) ${keyword('goto')} ${location(str16(to))} // (${pm(args[3].x)})`;
 				}
 				case 8: return rp + arg(0);
-				case 9: return rp + arg(0) + ' + ' + arg(1);
-				case 0xa: return rp + arg(0) + ' - ' + arg(1);
-				case 0xb: return rp + arg(0) + ' * ' + arg(1);
-				case 0xc: return rp + arg(0) + ' / ' + arg(1);
-				case 0xd: return rp + arg(0) + ' % ' + arg(1);
-				case 0xe: return rp + arg(0) + ' << ' + arg(1);
-				case 0xf: return rp + arg(0) + ' >> ' + arg(1);
-				case 0x10: return rp + arg(0) + ' & ' + arg(1);
-				case 0x11: return rp + arg(0) + ' | ' + arg(1);
-				case 0x12: return rp + arg(0) + ' ^ ' + arg(1);
-				case 0x13: return rp + '-' + arg(0);
-				case 0x14: return rp + `bool(${arg(0)})`;
-				case 0x15: return rp + '~' + arg(0);
-				case 0x16: return `var[0x${str16(returnTarget)}]++`;
-				case 0x17: return `var[0x${str16(returnTarget)}]--`;
-				case 0x18: return `var[0x${str16(returnTarget)}] += ${arg(0)}`;
-				case 0x19: return `var[0x${str16(returnTarget)}] -= ${arg(0)}`;
-				case 0x1a: return `var[0x${str16(returnTarget)}] *= ${arg(0)}`;
-				case 0x1b: return `var[0x${str16(returnTarget)}] /= ${arg(0)}`;
-				case 0x1c: return `var[0x${str16(returnTarget)}] %= ${arg(0)}`;
-				case 0x1d: return `var[0x${str16(returnTarget)}] <<= ${arg(0)}`;
-				case 0x1e: return `var[0x${str16(returnTarget)}] >>= ${arg(0)}`;
-				case 0x1f: return `var[0x${str16(returnTarget)}] &= ${arg(0)}`;
-				case 0x20: return `var[0x${str16(returnTarget)}] |= ${arg(0)}`;
-				case 0x21: return `var[0x${str16(returnTarget)}] ^= ${arg(0)}`;
-				case 0x22: return rp + `sqrt(${arg(0)})`;
-				case 0x23: return rp + `invsqrt(${arg(0)})`;
-				case 0x24: return rp + `1 / ${arg(0)}`;
-				case 0x25: return rp + `sin(${arg(0)})`;
-				case 0x26: return rp + `cos(${arg(0)})`;
-				case 0x27: return rp + `atan(${arg(0)})`;
-				case 0x28: return rp + `atan2(${arg(0)}, ${arg(1)})`;
-				case 0x29: return rp + `random(${arg(0)})`;
-				// TODO these fp2012 names SUCK
+				case 9: return rp + arg(0) + operator(' + ') + arg(1);
+				case 0xa: return rp + arg(0) + operator(' - ') + arg(1);
+				case 0xb: return rp + arg(0) + operator(' * ') + arg(1);
+				case 0xc: return rp + arg(0) + operator(' / ') + arg(1);
+				case 0xd: return rp + arg(0) + operator(' % ') + arg(1);
+				case 0xe: return rp + arg(0) + operator(' << ') + arg(1);
+				case 0xf: return rp + arg(0) + operator(' >> ') + arg(1);
+				case 0x10: return rp + arg(0) + operator(' & ') + arg(1);
+				case 0x11: return rp + arg(0) + operator(' | ') + arg(1);
+				case 0x12: return rp + arg(0) + operator(' ^ ') + arg(1);
+				case 0x13: return rp + operator('-') + arg(0);
+				case 0x14: return rp + builtin('bool') + `(${arg(0)})`;
+				case 0x15: return rp + operator('~') + arg(0);
+				case 0x16: return bai.variable(returnTarget) + operator('++');
+				case 0x17: return bai.variable(returnTarget) + operator('--');
+				case 0x18: return `${bai.variable(returnTarget)} ${operator('+=')} ${arg(0)}`;
+				case 0x19: return `${bai.variable(returnTarget)} ${operator('-=')} ${arg(0)}`;
+				case 0x1a: return `${bai.variable(returnTarget)} ${operator('*=')} ${arg(0)}`;
+				case 0x1b: return `${bai.variable(returnTarget)} ${operator('/=')} ${arg(0)}`;
+				case 0x1c: return `${bai.variable(returnTarget)} ${operator('%=')} ${arg(0)}`;
+				case 0x1d: return `${bai.variable(returnTarget)} ${operator('<<=')} ${arg(0)}`;
+				case 0x1e: return `${bai.variable(returnTarget)} ${operator('>>=')} ${arg(0)}`;
+				case 0x1f: return `${bai.variable(returnTarget)} ${operator('&=')} ${arg(0)}`;
+				case 0x20: return `${bai.variable(returnTarget)} ${operator('|=')} ${arg(0)}`;
+				case 0x21: return `${bai.variable(returnTarget)} ${operator('^=')} ${arg(0)}`;
+				case 0x22: return rp + builtin('sqrt') + `(${arg(0)})`;
+				case 0x23: return rp + builtin('invsqrt') + `(${arg(0)})`;
+				case 0x24: return rp + `${constant(1)} ${operator('/')} ${arg(0)}`;
+				case 0x25: return rp + builtin('sin') + `(${arg(0)})`;
+				case 0x26: return rp + builtin('cos') + `(${arg(0)})`;
+				case 0x27: return rp + builtin('atan') + `(${arg(0)})`;
+				case 0x28: return rp + builtin('atan2') + `(${arg(0)}, ${arg(1)})`;
+				case 0x29: return rp + builtin('random') + `(${arg(0)})`;
 				case 0x2a: return rp + `${arg(0)} [fx32]`;
-				case 0x2b: return rp + `${arg(0)} + ${arg(1)} [fx32]`;
-				case 0x2c: return rp + `${arg(0)} - ${arg(1)} [fx32]`;
-				case 0x2d: return rp + `${arg(0)} * ${arg(1)} [fx32]`;
-				case 0x2e: return rp + `${arg(0)} / ${arg(1)} [fx32]`;
-				case 0x2f: return rp + `${arg(0)} % ${arg(1)} [fx32]`;
-				case 0x30: return rp + `fx32_to_int(${arg(0)})`;
-				case 0x31: return rp + `trunc(${arg(0)}) [fx32]`;
-				case 0x32: return rp + `sqrt(${arg(0)}) [fx32]`;
-				case 0x33: return rp + `invsqrt(${arg(0)}) [fx32]`;
-				case 0x34: return rp + `1 / ${arg(0)} [fx32]`;
-				case 0x35: return rp + `sin(${arg(0)}) [fx32]`;
-				case 0x36: return rp + `cos(${arg(0)}) [fx32]`;
-				case 0x37: return rp + `atan(${arg(0)}) [fx32]`;
-				case 0x38: return rp + `atan2(${arg(0)}, ${arg(1)}) [fx32]`;
+				case 0x2b: return rp + `${arg(0)} ${operator('+')} ${arg(1)} [fx32]`;
+				case 0x2c: return rp + `${arg(0)} ${operator('-')} ${arg(1)} [fx32]`;
+				case 0x2d: return rp + `${arg(0)} ${operator('*')} ${arg(1)} [fx32]`;
+				case 0x2e: return rp + `${arg(0)} ${operator('/')} ${arg(1)} [fx32]`;
+				case 0x2f: return rp + `${arg(0)} ${operator('%')} ${arg(1)} [fx32]`;
+				case 0x30: return rp + builtin('fx32_to_int') + `(${arg(0)})`;
+				case 0x31: return rp + builtin('trunc') + `(${arg(0)}) [fx32]`;
+				case 0x32: return rp + builtin('sqrt') + `(${arg(0)}) [fx32]`;
+				case 0x33: return rp + builtin('invsqrt') + `(${arg(0)}) [fx32]`;
+				case 0x34: return rp + `${constant(1)} ${operator('/')} ${arg(0)} [fx32]`;
+				case 0x35: return rp + builtin('sin') + `(${arg(0)}) [fx32]`;
+				case 0x36: return rp + builtin('cos') + `(${arg(0)}) [fx32]`;
+				case 0x37: return rp + builtin('atan') + `(${arg(0)}) [fx32]`;
+				case 0x38: return rp + builtin('atan2') + `(${arg(0)}, ${arg(1)}) [fx32]`;
 				case 0x39: {
 					const to = offsetRight + args[0].x;
-					return rp + `load_data_from_array(${str16(to)}, ${arg(1)})`;
+					return rp + builtin('load_data_from_array') + `(${location(str16(to))}, ${arg(1)})`;
 				}
 				case 0x3a: {
 					const to = offsetRight + args[0].x;
-					return rp + `load_data(${str16(to)})`;
+					return rp + builtin('load_data') + `(${location(str16(to))})`;
 				}
 				case 0x3b: {
 					const to = offsetRight + args[0].x;
-					return `debugln(${str16(to)})`;
+					return builtin('debugln') + `(${location(str16(to))})`;
 				}
 				case 0x3c: {
 					const to = offsetRight + args[0].x;
-					return `debug(${str16(to)})`;
+					return builtin('debug') + `(${location(str16(to))})`;
 				}
-				case 0x3d: return `debug_bin(${arg(0)})`;
-				case 0x3e: return `debug_dec(${arg(0)})`;
-				case 0x3f: return `debug_hex(${arg(0)})`;
-				case 0x41: return rp + `add_coins(${arg(0)})`;
-				case 0x43: return rp + `get_item_amount(${arg(0)})`;
-				case 0x44: return rp + `add_items(${arg(0)})`;
-				case 0x45: return rp + `get_player_stat(${arg(0)}, ${arg(1)})`;
-				case 0x46: return rp + `set_player_stat(${argsConcat()})`;
+				case 0x3d: return builtin('debug_bin') + `(${arg(0)})`;
+				case 0x3e: return builtin('debug_dec') + `(${arg(0)})`;
+				case 0x3f: return builtin('debug_hex') + `(${arg(0)})`;
+				case 0x41: return rp + builtin('add_coins') + `(${arg(0)})`;
+				case 0x43: return rp + builtin('get_item_amount') + `(${arg(0)})`;
+				case 0x44: return rp + builtin('add_items') + `(${arg(0)})`;
+				case 0x45: return rp + builtin('get_player_stat') + `(${arg(0)}, ${arg(1)})`;
+				case 0x46: return rp + builtin('set_player_stat') + `(${argsConcat()})`;
 				// end CM_xxxx commands, begin BA_xxxx commands
 				case 0x47: {
 					const to = offsetRight + args[2].x;
-					return `thread_0047(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+					return fn('thread_0047') + `(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
 				}
 				case 0x48: {
 					const to = offsetRight + args[2].x;
-					return `thread_0048(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+					return fn('thread_0048') + `(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
 				}
 				case 0x49: {
 					const to = offsetRight + args[2].x;
-					return `thread_0049(${arg(0)}, ${arg(1)}, ${functionLabels.get(to)})`;
+					return fn('spawn_thread_for_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+				}
+				case 0x66: {
+					let scriptFile = '(?)';
+					if (args[0].x >= 0xd000) scriptFile = 'BAI_atk_hk';
+					else if (args[0].x >= 0xc000) scriptFile = 'BAI_atk_yy';
+					else if (args[0].x >= 0xa000) scriptFile = 'BAI_atk_nh';
+					return fn('load_atk_script') + `(${arg(0, 'hex16')}) // ${scriptFile} ${args[0].x & 0xfff}`;
+				}
+				case 0x6a: return fn('call_atk_script') + '()';
+				case 0x73: return fn('BA_0073') + `(${arg(0, 'actor')}, ${arg(1)})`;
+				case 0x7e: return fn('exit_battle') + `(${arg(0)}, ${arg(1)})`;
+				case 0xc0: {
+					let attribute = arg(1);
+					let value = arg(2);
+					switch (args[1].x) {
+						case 24: attribute = text('.animation'); break;
+						case 47: attribute = text('.invincible'); value = arg(2, 'bool'); break;
+					}
+					return fn('set_actor_attribute') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
 				}
 			}
 
 			// defaults
-			if (opcode <= 0x46) return `${rp}CM_${str16(opcode)}(${argsConcat()})`;
-			else return `${rp}BA_${str16(opcode)}(${argsConcat()})`;
+			if (opcode <= 0x46) return rp + fn('CM_' + str16(opcode)) + `(${argsConcat()})`;
+			else return rp + fn('BA_' + str16(opcode)) + `(${argsConcat()})`;
 		};
 
 		const update = () => {
@@ -3658,9 +3698,9 @@
 				} else if (scriptRenderer.value === 2) {
 					const parsed = bai.parse(script);
 
-					const arg = ({ type, x }) => {
-						if (type === 'var') return `var[0x${str16(x)}]`;
-						else return String(x);
+					const arg = ({ type, x }, context) => {
+						if (type === 'var') return bai.variable(x, context);
+						else return bai.value(x, context);
 					};
 					const operators = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^']; // unary operators unused
 
@@ -3705,7 +3745,7 @@
 
 						const children = tree.splice(i, fnEnd - i + 1);
 						tree.splice(i, 0, {
-							separators: [`def ${label}() {`, `}`],
+							separators: [`${keyword('def')} ${fn(label)}() {`, `}`],
 							content: [children],
 							offsetLeft: children[0].offsetLeft,
 							offsetsMiddle: [],
@@ -3762,7 +3802,7 @@
 												const childrenElse = branch.splice(elseLeftIdx, elseRightIdx - elseLeftIdx + 1);
 												const childrenIf = branch.splice(ifLeftIdx, ifRightIdx - ifLeftIdx + 1);
 												branch[j] = {
-													separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0].x]} ${arg(outer.args[2])}) {`, `} else {`, `}`],
+													separators: [`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`, `} ${keyword('else')} {`, `}`],
 													content: [childrenIf, childrenElse],
 													offsetLeft: outer.offsetLeft,
 													offsetsMiddle: [undefined] /* [right.offsetLeft] */,
@@ -3779,7 +3819,7 @@
 
 									const children = branch.splice(leftIdx, rightIdx - leftIdx + 1);
 									branch[j] = { // replace `outer` with a block
-										separators: [`if (${arg(outer.args[1])} ${operators[outer.args[0].x]} ${arg(outer.args[2])}) {`, `}`],
+										separators: [`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`, `}`],
 										content: [children],
 										offsetLeft: outer.offsetLeft,
 										offsetsMiddle: [],
@@ -3793,7 +3833,7 @@
 					}
 
 					const explore = (branch, indent) => branch.map(block => {
-						const prefix = offsetLeft => `<span style="color: #666;">${offsetLeft !== undefined ? str16(offsetLeft) : '----'}</span> ${'&nbsp;'.repeat(indent * 4)}`;
+						const prefix = offsetLeft => `${offsetLeft !== undefined ? str16(offsetLeft) : '----'} ${'&nbsp;'.repeat(indent * 4)}`;
 						if (block.opcode === undefined) {
 							const parts = [];
 							parts.push(`${prefix(block.offsetLeft)}${block.separators[0]}`);
@@ -3817,7 +3857,7 @@
 							return prefix(offsetLeft) + bai.command(opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels);
 						}
 					}).flat();
-					addHTML(preview, `<div><code>${explore(tree, 0).join('<br>')}</code></div>`);
+					addHTML(preview, `<div style="color: var(--overlay2);"><code>${explore(tree, 0).join('<br>')}</code></div>`);
 				}
 			};
 			updateScript();
