@@ -3341,6 +3341,7 @@
 				if (x === 0x1002) return constant('BOWSER');
 				if (0x2000 <= x && x <= 0x2fff) return constant('MONSTER_' + (x & 0xfff));
 				if (0x4000 <= x && x <= 0x4fff) return constant('NPC_' + (x & 0xfff));
+				if (0xa000 <= x && x <= 0xafff) return constant('DESC_ATK_' + (x & 0xfff));
 				if (0xb000 <= x && x <= 0xbfff) return constant('DESCRIPTION_' + (x & 0xfff));
 			}
 			if (context === 'action_block')
@@ -3503,7 +3504,10 @@
 					}
 					return fn('set_battle_background') + `(${arg(0)}, ${arg(1)}) // bowser bmap = ${bmapK}, m&l bmap = ${bmapML}`;
 				}
-				case 0x73: return fn('BA_0073') + `(${arg(0, 'actor')}, ${arg(1)})`;
+				case 0x73: {
+					const counterattack = constant(['NOTHING', 'JUMP', 'HAMMER', 'PUNCH', 'SHELL'][args[1].x] || args[1].x);
+					return fn('player_set_counterattack') + `(${arg(0, 'actor')}, ${counterattack})`;
+				}
 				case 0x7b: return fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
 				case 0x7e: return fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
 				case 0xbf: {
@@ -3532,7 +3536,7 @@
 					if (args[1].x & 4) flagNames.push('flying');
 					if (args[1].x & 8) flagNames.push('0x8');
 					if (args[1].x & 0x10) flagNames.push('0x10');
-					return rp + fn('actor_test_monster_flags') + `(${arg(0, 'actor')}, ${arg(1)}) // ${flagNames.join(', ')}`;
+					return rp + fn('monster_test_flags') + `(${arg(0, 'actor')}, ${arg(1)}) // ${flagNames.join(', ')}`;
 				}
 				case 0xc9: return fn('actor_despawn') + `(${arg(0, 'actor')})`;
 				case 0xd3: return fn('npc_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
@@ -3552,7 +3556,7 @@
 				case 0x21c: {
 					let comment;
 					if (args[0].type !== 'var') comment = ' // ' + monsters.monsters[args[0].x]?.name ?? '(?)';
-					return rp + fn('monster_unavailable') + `(${arg(0)})` + comment;
+					return rp + fn('desc_by_monster_id_cached') + `(${arg(0)})` + comment;
 				}
 			}
 
