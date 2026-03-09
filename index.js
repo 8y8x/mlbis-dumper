@@ -248,6 +248,13 @@
 		return arr.join('');
 	});
 
+	const shiftJisDecoder = new TextDecoder('shift_jis');
+	const shiftJis = (window.shiftJis = (dat, o) => {
+		let end = o;
+		while (end < dat.byteLength && dat.getUint8(end)) ++end;
+		return shiftJisDecoder.decode(bufToU8(sliceDataView(dat, o, end)));
+	});
+
 	const byteToHex = [];
 	for (let i = 0; i < 256; ++i) byteToHex[i] = i.toString(16).padStart(2, '0');
 	const bytes = (window.bytes = (o, l, buf) => {
@@ -3326,6 +3333,7 @@
 		const operator = x => `<span style="color: var(--teal);">${x}</span>`;
 		const text = x => `<span style="color: var(--text);">${x}</span>`;
 		const location = x => `<span style="color: var(--sapphire);">${x}</span>`;
+		const string = x => `<span style="color: var(--green);">${x}</span>`;
 		bai.value = (x, context) => {
 			if (context === 'actor') {
 				if (x === 0x1000) return constant('MARIO');
@@ -3349,7 +3357,7 @@
 			if (x === 0x400e) return text('brg_party_type');
 			return text('var') + `[${constant('0x' + str16(x))}]`;
 		};
-		bai.command = (opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels) => {
+		bai.command = (script, opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels) => {
 			const arg = (i, context) => {
 				if (args[i].type === 'var') return bai.variable(args[i].x, context);
 				else return bai.value(args[i].x, context);
@@ -3435,11 +3443,11 @@
 				}
 				case 0x3b: {
 					const to = offsetRight + args[0].x;
-					return builtin('debugln') + `(${location(str16(to))})`;
+					return builtin('debugln') + `(${string('"' + shiftJis(script, to) + '"')})`;
 				}
 				case 0x3c: {
 					const to = offsetRight + args[0].x;
-					return builtin('debug') + `(${location(str16(to))})`;
+					return builtin('debug') + `(${string('"' + shiftJis(script, to) + '"')})`;
 				}
 				case 0x3d: return builtin('debug_bin') + `(${arg(0)})`;
 				case 0x3e: return builtin('debug_dec') + `(${arg(0)})`;
@@ -3970,7 +3978,7 @@
 						} else {
 							// command
 							const { opcode, returnTarget, args, offsetLeft, offsetRight } = block;
-							return prefix(offsetLeft) + bai.command(opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels);
+							return prefix(offsetLeft) + bai.command(script, opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels);
 						}
 					}).flat();
 					addHTML(preview, `<div style="color: var(--overlay2);"><code>${explore(tree, 0).join('<br>')}</code></div>`);
