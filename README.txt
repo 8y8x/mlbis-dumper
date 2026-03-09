@@ -12,6 +12,8 @@ console.
 - Near-complete field map support, including blending, tile and palette
     animations, collision, depth, loading zone, toggles, treasure, and map info
 - Complete battle map support, including tile and palette animations
+- Near-complete font support and textbox display, across the entire game
+- Basic battle script support
 - Basic giant battle map support
 - Basic menu map support
 
@@ -29,3 +31,4 @@ Thank yous:
 - GBATEK https://problemkaputt.de/gbatek.htm
 - Yoshi Magic https://www.tapatalk.com/groups/lighthouse_of_yoshi/
 - ThePurpleAnon
+- DimiDimit
