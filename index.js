@@ -3298,6 +3298,9 @@
 				parsed.push({ opcode, returnTarget, args, offsetLeft, offsetRight: o, tag });
 			}
 
+			if (o < script.byteLength)
+				parsed.push({ opcode: -1, args: [], offsetLeft: o, offsetRight: script.byteLength });
+
 			return parsed;
 		};
 
@@ -3340,6 +3343,7 @@
 				if (x === 0x1001) return constant('LUIGI');
 				if (x === 0x1002) return constant('BOWSER');
 				if (0x2000 <= x && x <= 0x2fff) return constant('MONSTER_' + (x & 0xfff));
+				if (0x3000 <= x && x <= 0x3fff) return constant('NPC_ATK_' + (x & 0xfff));
 				if (0x4000 <= x && x <= 0x4fff) return constant('NPC_' + (x & 0xfff));
 				if (0xa000 <= x && x <= 0xafff) return constant('DESC_ATK_' + (x & 0xfff));
 				if (0xb000 <= x && x <= 0xbfff) return constant('DESCRIPTION_' + (x & 0xfff));
@@ -3355,6 +3359,7 @@
 		};
 		bai.variable = (x, context) => {
 			if (x === 0x4000) return storage('brg_self');
+			if (x === 0x4002) return text('brg_target');
 			if (x === 0x400e) return text('brg_party_type');
 			return text('var') + `[${constant('0x' + str16(x))}]`;
 		};
@@ -3488,7 +3493,6 @@
 				}
 				case 0x68: return fn('desc_by_sprite_id_load') + `(${arg(0, 'actor')})`;
 				case 0x69: return fn('desc_by_monster_id_load') + `(${arg(0, 'actor')})`;
-				case 0x6a: return fn('call_atk_script') + '()';
 				case 0x6d: return fn('npc_init') + `(${arg(0, 'actor')})`;
 				case 0x6f: return fn('monster_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
 				case 0x71: {
@@ -3528,7 +3532,13 @@
 					}
 					return fn('actor_attr_set') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
 				}
-				case 0xc1: return fn('BA_00c1') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)})`;
+				case 0xc1: {
+					let attribute = bai.actorAttribute(args[1].x);
+					if (attribute) attribute = text('.' + attribute);
+					else attribute = arg(1);
+
+					return fn('actor_attr_set_fx32') + `(${arg(0, 'actor')}, ${attribute}, ${arg(2)})`;
+				}
 				case 0xc6: {
 					const flagNames = [];
 					if (args[1].x & 1) flagNames.push('spiky');
@@ -3538,6 +3548,7 @@
 					if (args[1].x & 0x10) flagNames.push('0x10');
 					return rp + fn('monster_test_flags') + `(${arg(0, 'actor')}, ${arg(1)}) // ${flagNames.join(', ')}`;
 				}
+				case 0xc8: return fn('monster_kill') + `(${arg(0, 'actor')})`;
 				case 0xc9: return fn('actor_despawn') + `(${arg(0, 'actor')})`;
 				case 0xd3: return fn('npc_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
 				case 0xe7: return fn('actor_move') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
@@ -3547,9 +3558,12 @@
 				case 0xf0: return fn('actor_set_position_around_actor') + `(${arg(0, 'actor')}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
 				case 0xf3: return fn('actor_set_home') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
 				case 0x10f: return rp + fn('BA_010f') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0x121: return fn('spawn_monster_atk_thread') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
+				case 0x122: return fn('join_monster_atk_thread') + `(${arg(0, 'actor')})`;
 				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
 				case 0x1f2: return fn('textbox_wait') + `(${arg(0)})`;
 				case 0x202: return fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x213: return rp + fn('random_attack_target') + `(${arg(0)}, ${arg(1)})`;
 				case 0x216: return rp + fn('actor_is_monster') + `(${arg(0, 'actor')})`;
 				case 0x219: return rp + fn('monster_next_slot') + '()';
 				case 0x21a: return rp + fn('desc_next_slot') + '()';
