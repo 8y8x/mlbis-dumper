@@ -3294,7 +3294,7 @@
 			return parsed;
 		};
 
-		bai.actor_attribute = x => {
+		bai.actorAttribute = x => {
 			switch (x) {
 				case 3: return 'x';
 				case 4: return 'y';
@@ -3310,6 +3310,13 @@
 			}
 		};
 
+		bai.spriteFile = x => {
+			if ((x >>> 24) === 0xc0) return `BObjPc[0x${(x & 0xffff).toString(16)}]`;
+			if ((x >>> 24) === 0xc1) return `BObjMon[0x${(x & 0xffff).toString(16)}]`;
+			if ((x >>> 24) === 0xc2) return `BObjUI[0x${(x & 0xffff).toString(16)}]`;
+			return '(?)';
+		};
+
 		const operators = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^']; // unary operators are unused
 		const builtin = x => `<span style="color: var(--peach);">${x}</span>`;
 		const fn = x => `<span style="color: var(--blue);">${x}</span>`;
@@ -3320,13 +3327,19 @@
 		const text = x => `<span style="color: var(--text);">${x}</span>`;
 		const location = x => `<span style="color: var(--sapphire);">${x}</span>`;
 		bai.value = (x, context) => {
-			if (context === 'actor' && x === 0x1000) return constant('MARIO');
-			if (context === 'actor' && x === 0x1001) return constant('LUIGI');
-			if (context === 'actor' && x === 0x1002) return constant('BOWSER');
+			if (context === 'actor') {
+				if (x === 0x1000) return constant('MARIO');
+				if (x === 0x1001) return constant('LUIGI');
+				if (x === 0x1002) return constant('BOWSER');
+				if (0x2000 <= x && x <= 0x2fff) return constant('MONSTER_' + (x & 0xfff));
+				if (0x4000 <= x && x <= 0x4fff) return constant('NPC_' + (x & 0xfff));
+				if (0xb000 <= x && x <= 0xbfff) return constant('DESCRIPTION_' + (x & 0xfff));
+			}
 			if (context === 'action_block')
 				return constant([, 'JUMP', 'HAMMER', 'FLEE', 'ITEM', 'SPECIAL', 'PUNCH'][x] || x);
 			if (context === 'positioning') return constant(['ABSOLUTE', 'RELATIVE'][x] || x);
 			if (context === 'hex16') return constant('0x' + str16(x));
+			if (context === 'hex32') return constant('0x' + str32(x));
 			if (context === 'bool' && x === 0) return constant('false');
 			if (context === 'bool' && x === 1) return constant('true');
 			return constant(x);
@@ -3439,23 +3452,23 @@
 				// end CM_xxxx commands, begin BA_xxxx commands
 				case 0x47: {
 					const to = offsetRight + args[2].x;
-					return fn('thread_0047') + `(${arg(0)}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return fn('thread_0047') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x48: {
 					const to = offsetRight + args[2].x;
-					return fn('thread_0048') + `(${arg(0)}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return fn('thread_0048') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x49: {
 					const to = offsetRight + args[2].x;
 					return fn('spawn_actor_thread') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x4a: return fn('join_actor_thread') + `(${arg(0, 'actor')})`;
+				case 0x4e: return fn('BA_004e') + `(${arg(0, 'actor')})`;
+				case 0x63: return fn('desc_by_sprite_id') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}) // ${bai.spriteFile(args[1].x)}`;
 				case 0x65: {
 					let comment;
-					if (args[1].type !== 'var') {
-						comment = ' // ' + monsters.monsters[args[1].x]?.name ?? '(?)';
-					}
-					return fn('create_monster') + `(${arg(0, 'actor')}, ${arg(1)})` + comment;
+					if (args[1].type !== 'var') comment = ' // ' + monsters.monsters[args[1].x]?.name ?? '(?)';
+					return fn('desc_by_monster_id') + `(${arg(0, 'actor')}, ${arg(1)})` + comment;
 				}
 				case 0x66: {
 					let scriptFile = '(?)';
@@ -3464,7 +3477,11 @@
 					else if (args[0].x >= 0xa000) scriptFile = 'BAI_atk_nh';
 					return fn('load_atk_script') + `(${arg(0, 'hex16')}) // ${scriptFile} ${args[0].x & 0xfff}`;
 				}
+				case 0x68: return fn('desc_by_sprite_id_load') + `(${arg(0, 'actor')})`;
+				case 0x69: return fn('desc_by_monster_id_load') + `(${arg(0, 'actor')})`;
 				case 0x6a: return fn('call_atk_script') + '()';
+				case 0x6d: return fn('npc_init') + `(${arg(0, 'actor')})`;
+				case 0x6f: return fn('monster_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
 				case 0x71: {
 					let bmapK = '(?)';
 					let bmapML = '(?)';
@@ -3482,14 +3499,14 @@
 				case 0x7b: return fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
 				case 0x7e: return fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
 				case 0xbf: {
-					let attribute = bai.actor_attribute(args[1].x);
+					let attribute = bai.actorAttribute(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
 					return rp + fn('actor_attr_get') + `(${arg(0, 'actor')}, ${attribute})`;
 				}
 				case 0xc0: {
-					let attribute = bai.actor_attribute(args[1].x);
+					let attribute = bai.actorAttribute(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
@@ -3499,16 +3516,36 @@
 					}
 					return fn('actor_attr_set') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
 				}
+				case 0xc1: return fn('BA_00c1') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)})`;
+				case 0xc6: {
+					const flagNames = [];
+					if (args[1].x & 1) flagNames.push('spiky');
+					if (args[1].x & 2) flagNames.push('0x2');
+					if (args[1].x & 4) flagNames.push('flying');
+					if (args[1].x & 8) flagNames.push('0x8');
+					if (args[1].x & 0x10) flagNames.push('0x10');
+					return rp + fn('actor_test_monster_flags') + `(${arg(0, 'actor')}, ${arg(1)}) // ${flagNames.join(', ')}`;
+				}
 				case 0xc9: return fn('actor_despawn') + `(${arg(0, 'actor')})`;
+				case 0xd3: return fn('npc_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
 				case 0xe7: return fn('actor_move') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
-				case 0xe9: return fn('actor_move_to_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
+				case 0xe9: return fn('actor_move_around_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
 				case 0xeb: return fn('actor_move_wait') + `(${arg(0, 'actor')}, ${arg(1)})`;
-				case 0xf3: return fn('actor_set_pos') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0xef: return fn('actor_set_position') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0xf0: return fn('actor_set_position_around_actor') + `(${arg(0, 'actor')}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0xf3: return fn('actor_set_home') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
 				case 0x10f: return rp + fn('BA_010f') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
 				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
 				case 0x1f2: return fn('textbox_wait') + `(${arg(0)})`;
 				case 0x202: return fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
-				case 0x21c: return rp + fn('BA_021c') + `(${arg(0, 'actor')})`;
+				case 0x216: return rp + fn('actor_is_monster') + `(${arg(0, 'actor')})`;
+				case 0x219: return rp + fn('monster_next_slot') + '()';
+				case 0x21a: return rp + fn('desc_next_slot') + '()';
+				case 0x21c: {
+					let comment;
+					if (args[0].type !== 'var') comment = ' // ' + monsters.monsters[args[0].x]?.name ?? '(?)';
+					return rp + fn('monster_unavailable') + `(${arg(0)})` + comment;
+				}
 			}
 
 			// defaults
