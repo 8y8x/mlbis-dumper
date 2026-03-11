@@ -368,6 +368,7 @@
 	const bufToU16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Uint16Array(buf.buffer, off, len);
 	const bufToS16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Int16Array(buf.buffer, off, len);
 	const bufToU32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) => new Uint32Array(buf.buffer, off, len);
+	const bufToS32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) => new Int32Array(buf.buffer, off, len);
 	const bufToDat = (buf, off = buf.byteOffset, len = buf.byteLength) => new DataView(buf.buffer, off, len);
 	Object.assign(window, { sliceDataView, bufToU8, bufToU8Clamped, bufToU16, bufToS16, bufToU32, bufToDat });
 
@@ -3350,6 +3351,7 @@
 			}
 			if (context === 'action_block')
 				return constant([, 'JUMP', 'HAMMER', 'FLEE', 'ITEM', 'SPECIAL', 'PUNCH'][x] || x);
+			if (context === 'coordinate') return constant(['X', 'Y', 'Z'][x] || x);
 			if (context === 'positioning') return constant(['ABSOLUTE', 'RELATIVE'][x] || x);
 			if (context === 'hex16') return constant('0x' + str16(x));
 			if (context === 'hex32') return constant('0x' + str32(x));
@@ -3514,6 +3516,7 @@
 				}
 				case 0x7b: return fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
 				case 0x7e: return fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
+				case 0xad: return rp + fn('select_coordinate') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3, 'coordinate')})`;
 				case 0xbf: {
 					let attribute = bai.actorAttribute(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
@@ -3562,11 +3565,38 @@
 				case 0x122: return fn('join_monster_atk_thread') + `(${arg(0, 'actor')})`;
 				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
 				case 0x1f2: return fn('textbox_wait') + `(${arg(0)})`;
+				case 0x1fc: return fn('play_sound_01fc') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x1fd: return fn('play_sound_01fd') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x1fe: return fn('play_sound_01fe') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x1ff: return fn('play_sound_01ff') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x201: return fn('BA_0201') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
 				case 0x202: return fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x203: return fn('fade_out_music') + `(${arg(0)})`;
+				case 0x204: {
+					const to = offsetRight + args[5].x;
+					return fn('BA_0204') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${location(str16(to))}) // (${pm(args[5].x)})`;
+				}
+				case 0x205: {
+					const to = offsetRight + args[4].x;
+					return fn('BA_0205') + `(${arg(0)}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${location(str16(to))}) // (${pm(args[4].x)})`;
+				}
+				case 0x206: {
+					const to = offsetRight + args[2].x;
+					return fn('BA_0206') + `(${arg(0, 'actor')}, ${arg(1)}, ${location(str16(to))}) // (${pm(args[2].x)})`;
+				}
+				case 0x207: {
+					const to = offsetRight + args[3].x;
+					return fn('BA_0207') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
+				}
+				case 0x209: {
+					const to = offsetRight + args[3].x;
+					return fn('BA_0209') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
+				}
 				case 0x213: return rp + fn('random_attack_target') + `(${arg(0)}, ${arg(1)})`;
 				case 0x216: return rp + fn('actor_is_monster') + `(${arg(0, 'actor')})`;
 				case 0x219: return rp + fn('monster_next_slot') + '()';
 				case 0x21a: return rp + fn('desc_next_slot') + '()';
+				case 0x21b: return rp + fn('desc_by_sprite_id_cached') + `(${arg(0)}, ${arg(1, 'hex32')}) // ${bai.spriteFile(args[1].x)}`;
 				case 0x21c: {
 					let comment;
 					if (args[0].type !== 'var') comment = ' // ' + monsters.monsters[args[0].x]?.name ?? '(?)';
@@ -3837,11 +3867,12 @@
 					const functionLabels = new Map();
 					functionLabels.set(0xe, 'default_init');
 					for (const cmd of parsed) {
-						if (cmd.opcode === 3 && cmd.args[0].x === 1) {
-							const to = cmd.offsetRight + cmd.args[1].x;
-							functionLabels.set(to, `fun_${str16(to)}`);
-						} else if (cmd.opcode === 0x47 || cmd.opcode === 0x48 || cmd.opcode === 0x49) {
-							const to = cmd.offsetRight + cmd.args[2].x;
+						let offset;
+						if (cmd.opcode === 3 && cmd.args[0].x === 1) offset = cmd.args[1].x;
+						if (cmd.opcode === 0x47 || cmd.opcode === 0x48 || cmd.opcode === 0x49) offset = cmd.args[2].x;
+
+						if (offset !== undefined) {
+							const to = cmd.offsetRight + offset;
 							functionLabels.set(to, `fun_${str16(to)}`);
 						}
 					}
@@ -3872,9 +3903,9 @@
 						tree.splice(i, 0, {
 							separators: [`${keyword('def')} ${fn(label)}() {`, `}`],
 							content: [children],
-							offsetLeft: children[0].offsetLeft,
+							offsetLeft: undefined /* children[0].offsetLeft */,
 							offsetsMiddle: [],
-							offsetRight: children[children.length - 1].offsetRight,
+							offsetRight: undefined /* children[children.length - 1].offsetRight */,
 						});
 
 						const explore = branch => {
@@ -3930,8 +3961,8 @@
 													separators: [`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`, `} ${keyword('else')} {`, `}`],
 													content: [childrenIf, childrenElse],
 													offsetLeft: outer.offsetLeft,
-													offsetsMiddle: [undefined] /* [right.offsetLeft] */,
-													offsetRight: elseRight.offsetRight,
+													offsetsMiddle: [right.offsetLeft],
+													offsetRight: undefined /* elseRight.offsetRight */,
 												};
 												branch.splice(j + 1, 1); // delete the "else" command
 
