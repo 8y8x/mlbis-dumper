@@ -3484,6 +3484,7 @@
 				case 0x65: {
 					let comment;
 					if (args[1].type !== 'var') comment = ' // ' + monsters.monsters[args[1].x]?.name ?? '(?)';
+					else comment = ' // (?)';
 					return fn('desc_by_monster_id') + `(${arg(0, 'actor')}, ${arg(1)})` + comment;
 				}
 				case 0x66: {
@@ -3600,6 +3601,7 @@
 				case 0x21c: {
 					let comment;
 					if (args[0].type !== 'var') comment = ' // ' + monsters.monsters[args[0].x]?.name ?? '(?)';
+					else comment = ' // (?)';
 					return rp + fn('desc_by_monster_id_cached') + `(${arg(0)})` + comment;
 				}
 			}
