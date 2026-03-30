@@ -3999,7 +3999,7 @@
 										content: [children],
 										offsetLeft: outer.offsetLeft,
 										offsetsMiddle: [],
-										offsetRight: right.offsetRight,
+										offsetRight: undefined /*right.offsetRight*/,
 									};
 									explore(children);
 								}
