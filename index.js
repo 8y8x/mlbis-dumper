@@ -3305,6 +3305,135 @@
 			return parsed;
 		};
 
+		// This is for debugging only. It can compile a BAI script from a textual format very similar to what is output,
+		// except you denote locations with @name
+		// and you can pass those to parameters, or label an instruction with one, then wherever that label is used
+		// will be replaced with a relative offset to that instruction
+		// Example:
+		// @player_turn var[0x9000] = CM_0008(1)
+		// var[0x1234] = BA_0123(var[0x4000], 0, 0x1000, @label) // this is a comment
+		// BA_0001()
+		bai.encode = (str, dat) => {
+			const lines = str.trim().split('\n');
+			const labelInjectLocations = new Map();
+			const labelLocations = new Map();
+
+			// first pass: compute instructions, and add to labels map
+			dat.setUint16(0, 6, true);
+			labelInjectLocations.set('@other_monster_turn', [[2, 2]]);
+			dat.setUint16(2, 0, true);
+			labelInjectLocations.set('@init', [[4, 4]]);
+			dat.setUint16(4, 0, true);
+			labelInjectLocations.set('@monster_turn', [[6, 6]]);
+			dat.setUint16(6, 0, true);
+			labelInjectLocations.set('@player_turn', [[8, 8]]);
+			dat.setUint16(8, 0, true);
+			labelInjectLocations.set('@unknown5', [[10, 10]]);
+			dat.setUint16(10, 0, true);
+			labelInjectLocations.set('@unknown6', [[12, 12]]);
+			dat.setUint16(12, 0, true);
+			let o = 14;
+			for (let i = 0; i < lines.length; ++i) {
+				const L = 'L' + String(i + 1) + ' ';
+				const line = lines[i].trim();
+				if (!line) continue;
+
+				const components = line.match(/^(@[A-Za-z0-9_]+)?\s*(?:var\[0x([0-9A-Fa-f]{4})\]\s*\=\s*)?(?:BA|CM)_([A-Fa-f0-9]{4})\(([^\)]*)\)(?:\s*\/\/.*)?$/);
+				if (!components) throw `invalid line: ${line}`;
+
+				const label = components[1];
+				if (label) {
+					if (labelLocations.has(label)) throw L + `Label ${label} already in use`;
+					labelLocations.set(label, o);
+				}
+
+				const assignment = components[2];
+
+				const opcode = parseInt(components[3], 16);
+				const command = bai.commands[opcode];
+				if (!command) throw L + `Command 0x${str16(opcode)} not found`;
+				if (assignment && !command.returns) throw L + `Command 0x${str16(opcode)} does not return a value`;
+				if (!assignment && command.returns) throw L + `Command 0x${str16(opcode)} must accept a return value`;
+
+				let varflags = 0;
+				const rawArgs = components[4] === '' ? [] : components[4].split(', ');
+				if (rawArgs.length !== command.args.length) throw L + `Command 0x${str16(opcode)} expects ${command.args.length} args, got ${rawArgs.length}`;
+
+				dat.setUint16(o, opcode, true); o += 2;
+				const varflagsOffset = o; o += 4;
+				if (command.returns) {
+					dat.setUint16(o, parseInt(assignment, 16), true); o += 2;
+				}
+
+				const labelInjectOffsetRightTodos = [];
+				const write = (i, x) => {
+					if (command.args[i] === 0) dat.setUint8(o++, x);
+					else if (command.args[i] === 1) (dat.setUint16(o, x, true), o += 2);
+					else if (command.args[i] === 2) (dat.setUint32(o, x, true), o += 4);
+					else if (command.args[i] === 3) (dat.setInt8(o++, x));
+					else if (command.args[i] === 4) (dat.setInt16(o, x, true), o += 2);
+					else if (command.args[i] === 5) (dat.setInt32(o, x, true), o += 4);
+					else if (command.args[i] === 6) (dat.setInt16(o, x * 256, true), o += 2);
+					else if (command.args[i] === 7) (dat.setInt32(o, x * 4096, true), o += 4);
+				};
+				for (let i = 0; i < rawArgs.length; ++i) {
+					const x = rawArgs[i];
+					const decimalMatch = x.match(/^\-?\d+(?:\.\d+)?$/);
+					if (decimalMatch) {
+						write(i, Number(x));
+						continue;
+					}
+
+					const hexMatch = x.match(/^\-?0x([0-9A-Fa-f]+)$/);
+					if (hexMatch) {
+						write(i, parseInt(hexMatch[1], 16));
+						continue;
+					}
+
+					const labelMatch = x.match(/^@[A-Za-z0-9_]+$/);
+					if (labelMatch) {
+						const list = labelLocations.get(x);
+						const pair = [o, 0];
+						labelInjectOffsetRightTodos.push(pair);
+						if (list) list.push(pair);
+						else labelLocations.set(x, [pair]);
+						write(i, 0);
+						continue;
+					}
+
+					const varMatch = x.match(/^var\[0x([0-9A-Fa-f]{4})\]$/);
+					if (varMatch) {
+						varflags |= 1 << i;
+						dat.setUint16(o, parseInt(varMatch[1], 16), true); o += 2;
+						continue;
+					}
+
+					throw L + `Invalid argument ${x}`;
+				}
+
+				dat.setUint32(varflagsOffset, varflags, true);
+				for (const todo of labelInjectOffsetRightTodos) {
+					todo[1] = o;
+				}
+			}
+
+			// second pass: inject label locations
+			for (const [label, locations] of labelInjectLocations) {
+				const loc = labelLocations.get(label);
+				if (!loc) {
+					console.warn(`Label ${label} not assigned to any instruction, leaving as zero`);
+					continue;
+				}
+
+				for (let i = 0; i < locations.length; ++i) {
+					const [writeAt, base] = locations[i]
+					dat.setInt16(writeAt, loc - base, true);
+				}
+			}
+
+			return sliceDataView(dat, 0, o);
+		};
+
 		bai.actorAttribute = x => {
 			switch (x) {
 				case 3: return 'x';
@@ -3318,6 +3447,13 @@
 				case 36: return 'pow';
 				case 37: return 'def';
 				case 47: return 'invincible';
+			}
+		};
+
+		bai.monsterAttribute = x => {
+			switch (x) {
+				case 2: return 'sprite';
+				case 12: return 'flying';
 			}
 		};
 
@@ -3343,6 +3479,7 @@
 				if (x === 0x1000) return constant('MARIO');
 				if (x === 0x1001) return constant('LUIGI');
 				if (x === 0x1002) return constant('BOWSER');
+				if (0x0000 <= x && x <= 0x0fff) return constant('UI_' + (x & 0xfff));
 				if (0x2000 <= x && x <= 0x2fff) return constant('MONSTER_' + (x & 0xfff));
 				if (0x3000 <= x && x <= 0x3fff) return constant('NPC_ATK_' + (x & 0xfff));
 				if (0x4000 <= x && x <= 0x4fff) return constant('NPC_' + (x & 0xfff));
@@ -3544,13 +3681,11 @@
 					return fn('actor_attr_set_fx32') + `(${arg(0, 'actor')}, ${attribute}, ${arg(2)})`;
 				}
 				case 0xc6: {
-					const flagNames = [];
-					if (args[1].x & 1) flagNames.push('spiky');
-					if (args[1].x & 2) flagNames.push('0x2');
-					if (args[1].x & 4) flagNames.push('flying');
-					if (args[1].x & 8) flagNames.push('0x8');
-					if (args[1].x & 0x10) flagNames.push('0x10');
-					return rp + fn('monster_test_flags') + `(${arg(0, 'actor')}, ${arg(1)}) // ${flagNames.join(', ')}`;
+					let attribute = bai.monsterAttribute(args[1].x);
+					if (attribute) attribute = text('.' + attribute);
+					else attribute = arg(1);
+
+					return rp + fn('monster_get_attribute') + `(${arg(0, 'actor')}, ${attribute});`;
 				}
 				case 0xc8: return fn('monster_kill') + `(${arg(0, 'actor')})`;
 				case 0xc9: return fn('actor_despawn') + `(${arg(0, 'actor')})`;
