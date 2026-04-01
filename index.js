@@ -3728,7 +3728,7 @@
 					if (args[0].x === 24) file = 'BMes_cf';
 					else if (args[0].x === 23) file = 'BMes_ji';
 					else if (args[0].x === 22) file = 'BMes_yo';
-					return rp + fn('load_messages') + `(${arg(0)}, ${arg(1)}) // ${file} table 0x${args[1].x.toString(16)}`;
+					return rp + fn('load_messages') + `(${arg(0)}, ${arg(1)}) // ${file} table 0x${(args[1].x + 1).toString(16)}`;
 				}
 				case 0x1ef: return rp + fn('load_messages2') + '()';
 				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
