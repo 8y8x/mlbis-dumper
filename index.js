@@ -3392,11 +3392,11 @@
 
 					const labelMatch = x.match(/^@[A-Za-z0-9_]+$/);
 					if (labelMatch) {
-						const list = labelLocations.get(x);
+						const list = labelInjectLocations.get(x);
 						const pair = [o, 0];
 						labelInjectOffsetRightTodos.push(pair);
 						if (list) list.push(pair);
-						else labelLocations.set(x, [pair]);
+						else labelInjectLocations.set(x, [pair]);
 						write(i, 0);
 						continue;
 					}
@@ -3439,6 +3439,9 @@
 				case 3: return 'x';
 				case 4: return 'y';
 				case 5: return 'z';
+				case 9: return 'home_x';
+				case 10: return 'home_y';
+				case 11: return 'home_z';
 				case 24: return 'animation';
 				case 32: return 'level';
 				case 33: return 'max_hp';
@@ -3605,36 +3608,36 @@
 				// end CM_xxxx commands, begin BA_xxxx commands
 				case 0x47: {
 					const to = offsetRight + args[2].x;
-					return fn('thread_0047') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return rp + fn('thread_0047') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x48: {
 					const to = offsetRight + args[2].x;
-					return fn('thread_0048') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return rp + fn('thread_0048') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x49: {
 					const to = offsetRight + args[2].x;
-					return fn('spawn_actor_thread') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return rp + fn('spawn_actor_thread') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
-				case 0x4a: return fn('join_actor_thread') + `(${arg(0, 'actor')})`;
-				case 0x4e: return fn('BA_004e') + `(${arg(0, 'actor')})`;
-				case 0x63: return fn('desc_by_sprite_id') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}) // ${bai.spriteFile(args[1].x)}`;
+				case 0x4a: return rp + fn('join_actor_thread') + `(${arg(0, 'actor')})`;
+				case 0x4e: return rp + fn('BA_004e') + `(${arg(0, 'actor')})`;
+				case 0x63: return rp + fn('desc_by_sprite_id') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}) // ${bai.spriteFile(args[1].x)}`;
 				case 0x65: {
 					let comment;
 					if (args[1].type !== 'var') comment = ' // ' + monsters.monsters[args[1].x]?.name ?? '(?)';
 					else comment = ' // (?)';
-					return fn('desc_by_monster_id') + `(${arg(0, 'actor')}, ${arg(1)})` + comment;
+					return rp + fn('desc_by_monster_id') + `(${arg(0, 'actor')}, ${arg(1)})` + comment;
 				}
 				case 0x66: {
 					let scriptFile = '(?)';
 					if (args[0].x >= 0xd000) scriptFile = 'BAI_atk_hk';
 					else if (args[0].x >= 0xc000) scriptFile = 'BAI_atk_yy';
 					else if (args[0].x >= 0xa000) scriptFile = 'BAI_atk_nh';
-					return fn('load_atk_script') + `(${arg(0, 'hex16')}) // ${scriptFile} ${args[0].x & 0xfff}`;
+					return rp + fn('load_atk_script') + `(${arg(0, 'hex16')}) // ${scriptFile} ${args[0].x & 0xfff}`;
 				}
-				case 0x68: return fn('desc_by_sprite_id_load') + `(${arg(0, 'actor')})`;
-				case 0x69: return fn('desc_by_monster_id_load') + `(${arg(0, 'actor')})`;
-				case 0x6d: return fn('npc_init') + `(${arg(0, 'actor')})`;
-				case 0x6f: return fn('monster_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
+				case 0x68: return rp + fn('desc_by_sprite_id_load') + `(${arg(0, 'actor')})`;
+				case 0x69: return rp + fn('desc_by_monster_id_load') + `(${arg(0, 'actor')})`;
+				case 0x6d: return rp + fn('npc_init') + `(${arg(0, 'actor')})`;
+				case 0x6f: return rp + fn('monster_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
 				case 0x71: {
 					let bmapK = '(?)';
 					let bmapML = '(?)';
@@ -3646,14 +3649,14 @@
 						if (args[1].x === -1) bmapML = 'default';
 						else bmapML = '0x' + str8(args[1].x / 8);
 					}
-					return fn('set_battle_background') + `(${arg(0)}, ${arg(1)}) // bowser bmap = ${bmapK}, m&l bmap = ${bmapML}`;
+					return rp + fn('set_battle_background') + `(${arg(0)}, ${arg(1)}) // bowser bmap = ${bmapK}, m&l bmap = ${bmapML}`;
 				}
 				case 0x73: {
 					const counterattack = constant(['NOTHING', 'JUMP', 'HAMMER', 'PUNCH', 'SHELL'][args[1].x] || args[1].x);
-					return fn('player_set_counterattack') + `(${arg(0, 'actor')}, ${counterattack})`;
+					return rp + fn('player_set_counterattack') + `(${arg(0, 'actor')}, ${counterattack})`;
 				}
-				case 0x7b: return fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
-				case 0x7e: return fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
+				case 0x7b: return rp + fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
+				case 0x7e: return rp + fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
 				case 0xad: return rp + fn('select_coordinate') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3, 'coordinate')})`;
 				case 0xbf: {
 					let attribute = bai.actorAttribute(args[1].x);
@@ -3671,14 +3674,14 @@
 					switch (args[1].x) {
 						case 47: value = arg(2, 'bool'); break; // .invincible
 					}
-					return fn('actor_attr_set') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
+					return rp + fn('actor_attr_set') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
 				}
 				case 0xc1: {
 					let attribute = bai.actorAttribute(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
-					return fn('actor_attr_set_fx32') + `(${arg(0, 'actor')}, ${attribute}, ${arg(2)})`;
+					return rp + fn('actor_attr_set_fx32') + `(${arg(0, 'actor')}, ${attribute}, ${arg(2)})`;
 				}
 				case 0xc6: {
 					let attribute = bai.monsterAttribute(args[1].x);
@@ -3687,46 +3690,60 @@
 
 					return rp + fn('monster_get_attribute') + `(${arg(0, 'actor')}, ${attribute});`;
 				}
-				case 0xc8: return fn('monster_kill') + `(${arg(0, 'actor')})`;
-				case 0xc9: return fn('actor_despawn') + `(${arg(0, 'actor')})`;
-				case 0xd3: return fn('npc_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
-				case 0xe7: return fn('actor_move') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
-				case 0xe9: return fn('actor_move_around_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
-				case 0xeb: return fn('actor_move_wait') + `(${arg(0, 'actor')}, ${arg(1)})`;
-				case 0xef: return fn('actor_set_position') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
-				case 0xf0: return fn('actor_set_position_around_actor') + `(${arg(0, 'actor')}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
-				case 0xf3: return fn('actor_set_home') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
-				case 0x10f: return rp + fn('BA_010f') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
-				case 0x121: return fn('spawn_monster_atk_thread') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
-				case 0x122: return fn('join_monster_atk_thread') + `(${arg(0, 'actor')})`;
+				case 0xc8: return rp + fn('monster_kill') + `(${arg(0, 'actor')})`;
+				case 0xc9: return rp + fn('actor_despawn') + `(${arg(0, 'actor')})`;
+				case 0xd3: return rp + fn('npc_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
+				case 0xe7: return rp + fn('actor_move') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
+				case 0xe8: return rp + fn('actor_move_fixed_duration') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, duration=${arg(6)})`;
+				case 0xe9: return rp + fn('actor_move_around_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
+				case 0xea: return rp + fn('actor_move_around_actor_fixed_duration') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, duration=${arg(6)})`;
+				case 0xeb: return rp + fn('actor_move_wait') + `(${arg(0, 'actor')}, ${arg(1)})`;
+				case 0xef: return rp + fn('actor_set_position') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0xf0: return rp + fn('actor_set_position_around_actor') + `(${arg(0, 'actor')}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0xf3: return rp + fn('actor_set_home') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
+				case 0x10f: return rp + fn('actor_jump') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, height=${arg(3)}, speed=${arg(4)})`;
+				case 0x121: return rp + fn('spawn_monster_atk_thread') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
+				case 0x122: return rp + fn('join_monster_atk_thread') + `(${arg(0, 'actor')})`;
+				case 0x124: return rp + fn('monster_set_damage_victim') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)})`;
+				case 0x125: return rp + fn('monster_set_damage_victims') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)})`;
+				case 0x126: return rp + fn('monster_clear_damage_victims') + `(${arg(0, 'actor')})`;
+				case 0x132: return rp + fn('play_boss_death_animation') + `(${arg(0)}, ${arg(1, 'actor')}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x133: return rp + fn('play_boss_death_animation_0133') + `(${argsConcat()})`;
+				case 0x134: return rp + fn('play_boss_death_animation_0134') + `(${argsConcat()})`;
+				case 0x13b: return rp + fn('wait_for_boss_death_animation') + `(${argsConcat()})`;
 				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
-				case 0x1f2: return fn('textbox_wait') + `(${arg(0)})`;
-				case 0x1fc: return fn('play_sound_01fc') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x1fd: return fn('play_sound_01fd') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x1fe: return fn('play_sound_01fe') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x1ff: return fn('play_sound_01ff') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x201: return fn('BA_0201') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
-				case 0x202: return fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
-				case 0x203: return fn('fade_out_music') + `(${arg(0)})`;
+				case 0x1f2: return rp + fn('textbox_wait') + `(${arg(0)})`;
+				case 0x1fc: return rp + fn('play_sound_directional') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x1fd: return rp + fn('play_sound_directional_handle') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x1fe: return rp + fn('play_sound') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x1ff: return rp + fn('play_sound_handle') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
+				case 0x200: return rp + fn('stop_sound') + `(${arg(0)})`;
+				case 0x201: return rp + fn('BA_0201') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x202: return rp + fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x203: return rp + fn('fade_out_music') + `(${arg(0)})`;
 				case 0x204: {
 					const to = offsetRight + args[5].x;
-					return fn('BA_0204') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${location(str16(to))}) // (${pm(args[5].x)})`;
+					return rp + fn('BA_0204') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${location(str16(to))}) // (${pm(args[5].x)})`;
 				}
 				case 0x205: {
 					const to = offsetRight + args[4].x;
-					return fn('BA_0205') + `(${arg(0)}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${location(str16(to))}) // (${pm(args[4].x)})`;
+					let key = bai.actorAttribute(args[2].x);
+					if (key) key = text(key);
+					else key = text('attr' + args[2].x);
+
+					return `${keyword('if')} (${arg(1, 'actor')}.${key} ${operator(operators[args[0].x])} ${arg(3)}) ${keyword('goto')} ${location(str16(to))} // (${pm(args[4].x)})`;
 				}
 				case 0x206: {
 					const to = offsetRight + args[2].x;
-					return fn('BA_0206') + `(${arg(0, 'actor')}, ${arg(1)}, ${location(str16(to))}) // (${pm(args[2].x)})`;
+					return rp + fn('BA_0206') + `(${arg(0, 'actor')}, ${arg(1)}, ${location(str16(to))}) // (${pm(args[2].x)})`;
 				}
 				case 0x207: {
 					const to = offsetRight + args[3].x;
-					return fn('BA_0207') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
+					return rp + fn('BA_0207') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
 				}
 				case 0x209: {
 					const to = offsetRight + args[3].x;
-					return fn('BA_0209') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
+					return rp + fn('BA_0209') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
 				}
 				case 0x213: return rp + fn('random_attack_target') + `(${arg(0)}, ${arg(1)})`;
 				case 0x216: return rp + fn('actor_is_monster') + `(${arg(0, 'actor')})`;
