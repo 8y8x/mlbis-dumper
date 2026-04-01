@@ -3507,6 +3507,10 @@
 		bai.variable = (x, context) => {
 			if (x === 0x4000) return storage('brg_self');
 			if (x === 0x4002) return text('brg_target');
+			if (x === 0x4008) return text('brg_buttons_held');
+			if (x === 0x4009) return text('brg_buttons_pressed');
+			if (x === 0x400a) return text('brg_buttons_released');
+			if (x === 0x400b) return text('brg_buttons_released2');
 			if (x === 0x400e) return text('brg_party_type');
 			return text('var') + `[${constant('0x' + str16(x))}]`;
 		};
