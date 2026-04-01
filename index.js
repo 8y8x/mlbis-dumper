@@ -3492,7 +3492,12 @@
 			if (context === 'action_block')
 				return constant([, 'JUMP', 'HAMMER', 'FLEE', 'ITEM', 'SPECIAL', 'PUNCH'][x] || x);
 			if (context === 'coordinate') return constant(['X', 'Y', 'Z'][x] || x);
+			if (context === 'party') {
+				if (x === 2) return constant('MONSTERS');
+				if (x === 513) return constant('PLAYERS');
+			}
 			if (context === 'positioning') return constant(['ABSOLUTE', 'RELATIVE'][x] || x);
+
 			if (context === 'hex16') return constant('0x' + str16(x));
 			if (context === 'hex32') return constant('0x' + str32(x));
 			if (context === 'bool' && x === 0) return constant('false');
@@ -3608,11 +3613,11 @@
 				// end CM_xxxx commands, begin BA_xxxx commands
 				case 0x47: {
 					const to = offsetRight + args[2].x;
-					return rp + fn('thread_0047') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return rp + fn('call_then_bind') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x48: {
 					const to = offsetRight + args[2].x;
-					return rp + fn('thread_0048') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return rp + fn('bind_and_defer') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
 				}
 				case 0x49: {
 					const to = offsetRight + args[2].x;
@@ -3620,6 +3625,8 @@
 				}
 				case 0x4a: return rp + fn('join_actor_thread') + `(${arg(0, 'actor')})`;
 				case 0x4e: return rp + fn('BA_004e') + `(${arg(0, 'actor')})`;
+				case 0x58: return rp + fn('party_turn_check') + `(${arg(0, 'party')})`;
+				case 0x59: return rp + fn('party_turn_wait') + `(${arg(0, 'party')}, ${arg(1)})`;
 				case 0x63: return rp + fn('desc_by_sprite_id') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}) // ${bai.spriteFile(args[1].x)}`;
 				case 0x65: {
 					let comment;
@@ -3636,6 +3643,7 @@
 				}
 				case 0x68: return rp + fn('desc_by_sprite_id_load') + `(${arg(0, 'actor')})`;
 				case 0x69: return rp + fn('desc_by_monster_id_load') + `(${arg(0, 'actor')})`;
+				case 0x6a: return rp + fn('load_atk_script2') + '()';
 				case 0x6d: return rp + fn('npc_init') + `(${arg(0, 'actor')})`;
 				case 0x6f: return rp + fn('monster_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
 				case 0x71: {
@@ -3688,7 +3696,7 @@
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
-					return rp + fn('monster_get_attribute') + `(${arg(0, 'actor')}, ${attribute});`;
+					return rp + fn('monster_get_attribute') + `(${arg(0, 'actor')}, ${attribute})`;
 				}
 				case 0xc8: return rp + fn('monster_kill') + `(${arg(0, 'actor')})`;
 				case 0xc9: return rp + fn('actor_despawn') + `(${arg(0, 'actor')})`;
@@ -3711,6 +3719,14 @@
 				case 0x133: return rp + fn('play_boss_death_animation_0133') + `(${argsConcat()})`;
 				case 0x134: return rp + fn('play_boss_death_animation_0134') + `(${argsConcat()})`;
 				case 0x13b: return rp + fn('wait_for_boss_death_animation') + `(${argsConcat()})`;
+				case 0x1ee: {
+					let file = '(?)';
+					if (args[0].x === 24) file = 'BMes_cf';
+					else if (args[0].x === 23) file = 'BMes_ji';
+					else if (args[0].x === 22) file = 'BMes_yo';
+					return rp + fn('load_messages') + `(${arg(0)}, ${arg(1)}) // ${file} table 0x${args[1].x.toString(16)}`;
+				}
+				case 0x1ef: return rp + fn('load_messages2') + '()';
 				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
 				case 0x1f2: return rp + fn('textbox_wait') + `(${arg(0)})`;
 				case 0x1fc: return rp + fn('play_sound_directional') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
@@ -3718,8 +3734,8 @@
 				case 0x1fe: return rp + fn('play_sound') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
 				case 0x1ff: return rp + fn('play_sound_handle') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
 				case 0x200: return rp + fn('stop_sound') + `(${arg(0)})`;
-				case 0x201: return rp + fn('BA_0201') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
-				case 0x202: return rp + fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x201: return rp + fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x202: return rp + fn('set_music2') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
 				case 0x203: return rp + fn('fade_out_music') + `(${arg(0)})`;
 				case 0x204: {
 					const to = offsetRight + args[5].x;
