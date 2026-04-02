@@ -3996,7 +3996,7 @@
 				case 0x203: return rp + fn('fade_out_music') + `(${arg(0)})`;
 				case 0x204: {
 					const to = offsetRight + args[5].x;
-					return rp + fn('BA_0204') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${location(str16(to))}) // (${pm(args[5].x)})`;
+					return `${keyword('if')} ${args[4].x ? '' : '!'}((${arg(1)} ${operator(operators[args[0].x])} ${arg(2)}) ${operator('==')} ${arg(3)}) ${keyword('goto')} ${location(str16(to))}) // (${pm(args[5].x)})`;
 				}
 				case 0x205: {
 					const to = offsetRight + args[4].x;
