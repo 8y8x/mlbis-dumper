@@ -4389,6 +4389,17 @@
 		let segmentSelect = dropdown([''], 0, () => {});
 		section.appendChild(segmentSelect);
 
+		const scaleSelect = dropdown(['Scale: 1x', 'Scale: 2x', 'Scale: 3x', 'Scale: 4x'], 0, () => updateTexture());
+		section.appendChild(scaleSelect);
+
+		const paletteRowOptions = [];
+		for (let i = 0; i < 16; ++i) paletteRowOptions.push(`Pal Row: 0x${i.toString(16)}`);
+		const paletteRowSelect = dropdown(paletteRowOptions, 0, () => updateTexture());
+		section.appendChild(paletteRowSelect);
+
+		const forceFallbackPalette = checkbox('Force Fallback Palette', false, () => updateTexture());
+		section.appendChild(forceFallbackPalette);
+
 		const metaTop = document.createElement('div');
 		section.appendChild(metaTop);
 
@@ -4396,24 +4407,16 @@
 		preview.style.cssText = 'position: relative; height: calc(20px + 128px);';
 		section.appendChild(preview);
 
-		const paletteHeader = document.createElement('div');
-		paletteHeader.style.cssText = `position: absolute; top: 0; left: 0; height: 20px; width: 128px; text-align: center;`;
-		preview.appendChild(paletteHeader);
-
 		const paletteCanvas = document.createElement('canvas');
 		const paletteCtx = paletteCanvas.getContext('2d');
-		paletteCanvas.style.cssText = `position: absolute; top: 20px; left: 0; height: 128px; width: 128px;`;
+		paletteCanvas.style.cssText = `position: absolute; top: 0; left: 0; height: 128px; width: 128px;`;
 		paletteCanvas.width = 16;
 		paletteCanvas.height = 16;
 		preview.appendChild(paletteCanvas);
 
-		const textureHeader = document.createElement('div');
-		textureHeader.style.cssText = `position: absolute; top: 0; left: 128px; height: 20px; width: 512px;`;
-		preview.appendChild(textureHeader);
-
 		const textureCanvas = document.createElement('canvas');
 		const textureCtx = textureCanvas.getContext('2d');
-		textureCanvas.style.cssText = `position: absolute; top: 20px; left: 128px; height: 256px; width: 192px;`;
+		textureCanvas.style.cssText = `position: absolute; top: 0; left: 128px; height: 256px; width: 192px;`;
 		textureCanvas.width = 256;
 		textureCanvas.height = 192;
 		preview.appendChild(textureCanvas);
@@ -4421,7 +4424,31 @@
 		const meta = document.createElement('div');
 		section.appendChild(meta);
 
+		const fallbackPaletteU16 = new Uint16Array(256);
+		for (let row = 0; row < 16; ++row) {
+			fallbackPaletteU16.set([
+				0,
+				31 | 0 << 5 | row << 11,
+				31 | 8 << 5 | row << 11,
+				31 | 16 << 5 | row << 11,
+				31 | 24 << 5 | row << 11,
+				31 | 31 << 5 | row << 11,
+				row << 1 | 31 << 5 | 0 << 10,
+				row << 1 | 31 << 5 | 8 << 10,
+				row << 1 | 31 << 5 | 16 << 10,
+				row << 1 | 31 << 5 | 24 << 10,
+				row << 1 | 31 << 5 | 31 << 10,
+				0 | row << 6 | 31 << 10,
+				8 | row << 6 | 31 << 10,
+				16 | row << 6 | 31 << 10,
+				24 | row << 6 | 31 << 10,
+				31 | row << 6 | 31 << 10,
+			], row * 16);
+		}
+		const fallbackPaletteU32 = rgb15To32(fallbackPaletteU16);
+
 		let updateSegment = () => {};
+		let updateTexture = () => {};
 
 		const updateFile = () => {
 			const { label, pals, texs } = files[fileSelect.value];
@@ -4429,118 +4456,106 @@
 				meta.innerHTML = '';
 				preview.style.display = 'none';
 				metaTop.innerHTML = `No palette offsets or texture offsets available`;
-				segmentSelect.replaceWith(segmentSelect = dropdown([''], 0, () => {}));
+				segmentSelect.style.display = 'none';
 				updateSegment = () => {};
+				updateTexture = () => {};
 				return;
 			}
 
-			const options = [];
-			for (let i = 0, l = Math.max(pals?.length ?? texs?.length); i < l; ++i) {
-				options.push(`${i}`);
-			}
-			segmentSelect.replaceWith(segmentSelect = dropdown(options, 0, () => updateSegment()));
-
+			// textures are required, palettes are optional
 			const palettesById = new Map();
 			if (pals) {
-				for (const pal of pals) {
-					console.log(pal);
-					if (pal.byteLength !== 516) continue;
-					const id = pal.getUint32(0, true);
-					if (palettesById.has(id)) console.warn(`Duplicate palette 0x${id.toString(16)}`);
-					palettesById.set(id, pal);
+				for (let i = 0; i < pals.length; ++i) {
+					if (pals[i].byteLength !== 516) continue;
+					palettesById.set(pals[i].getUint32(0, true), sliceDataView(pals[i], 4, 516));
 				}
 			}
 
-			console.log(palettesById);
+			const options = [];
+			for (let i = 0; i < texs.length; ++i) {
+				if (texs[i].byteLength < 8) continue;
+				options.push([`Texture 0x${i.toString(16)}`, i]);
+			}
+			segmentSelect.replaceWith(segmentSelect = dropdown(options.map(x => x[0]), 0, () => updateSegment()));
 
 			updateSegment = () => {
 				metaTop.innerHTML = '';
 				meta.innerHTML = '';
-				let pal = pals?.[segmentSelect.value];
-				const texCompressed = texs?.[segmentSelect.value];
-				const tex = texCompressed?.byteLength ? lzBis(texCompressed) : undefined;
+				const id = options[segmentSelect.value][1];
 
-				if (tex?.byteLength) pal = palettesById.get(tex.getUint32(4, true));
-
-				if (!pal?.byteLength && !tex?.byteLength) {
-					addHTML(metaTop, `<div>This entry has no palette nor texture</div>`);
+				// the compressed textures can expand to 0 bytes
+				const texCompressed = texs[id];
+				const tex = texCompressed.byteLength ? lzBis(texCompressed) : undefined;
+				if (!tex?.byteLength) {
+					addHTML(metaTop, `Texture 0x${id.toString(16)} is empty`);
 					preview.style.display = 'none';
+					updateTexture = () => {};
 					return;
 				}
 				preview.style.display = '';
 
-				if (!pal?.byteLength) {
-					addHTML(metaTop, `<div>No palette available, using a custom one instead</div>`);
+				const width = tex.getUint8(0);
+				const height = tex.getUint8(1);
+				const bitDepth = tex.getUint8(2);
+				const unknown = tex.getUint8(3);
+				const paletteId = tex.getUint32(4, true);
+				addHTML(metaTop, `<div>${width}x${height} / ${bitDepth}bpp / pal 0x${paletteId.toString(16)}</div>`);
 
-					const palU16 = new Uint16Array(256 + 2);
-					pal = new DataView(palU16.buffer);
-					pal.setUint32(0, 0x78563412, true);
+				const fallbackPaletteWarning = document.createElement('div');
+				fallbackPaletteWarning.style.cssText = 'color: var(--red); display: none';
+				fallbackPaletteWarning.textContent = 'Palette not found, using fallback palette';
+				metaTop.appendChild(fallbackPaletteWarning);
 
-					for (let row = 0; row < 16; ++row) {
-						palU16.set([
-							0,
-							31 | 0 << 5 | row << 11,
-							31 | 8 << 5 | row << 11,
-							31 | 16 << 5 | row << 11,
-							31 | 24 << 5 | row << 11,
-							31 | 31 << 5 | row << 11,
-							row << 1 | 31 << 5 | 0 << 10,
-							row << 1 | 31 << 5 | 8 << 10,
-							row << 1 | 31 << 5 | 16 << 10,
-							row << 1 | 31 << 5 | 24 << 10,
-							row << 1 | 31 << 5 | 31 << 10,
-							0 | row << 6 | 31 << 10,
-							8 | row << 6 | 31 << 10,
-							16 | row << 6 | 31 << 10,
-							24 | row << 6 | 31 << 10,
-							31 | row << 6 | 31 << 10,
-						], 2 + row * 16);
+				updateTexture = () => {
+					let palU32;
+					if (forceFallbackPalette.checked) {
+						palU32 = fallbackPaletteU32;
+					} else {
+						const palDat = palettesById.get(paletteId);
+						if (palDat) {
+							fallbackPaletteWarning.style.display = 'none';
+							palU32 = rgb15To32(bufToU16(palDat));
+						} else {
+							fallbackPaletteWarning.style.display = '';
+							palU32 = fallbackPaletteU32;
+						}
 					}
-				}
-				if (!tex) addHTML(metaTop, `<div>No texture available</div>`);
 
-				paletteHeader.innerHTML = `<code>${bytes(0, 4, pal)}</code>`;
+					paletteCtx.putImageData(new ImageData(bufToU8Clamped(palU32), 16, 16), 0, 0);
 
-				const paletteRgb32 = rgb15To32(bufToU16(sliceDataView(pal, 4, 516)));
-				paletteCtx.putImageData(new ImageData(bufToU8Clamped(paletteRgb32), 16, 16), 0, 0);
-
-				if (tex) {
-					const widthTiles = tex.getUint8(0);
-					const heightTiles = tex.getUint8(1);
-					const bitDepth = tex.getUint8(2);
-					const unk4 = tex.getUint8(3);
-					const paletteIndex = tex.getUint32(4, true);
-					textureHeader.innerHTML = `<code>(${widthTiles}x${heightTiles} size) <span style="color:#666;">(${bitDepth} bit depth)</span> (unk4 ${unk4}) <span style="color:#666;">(pal 0x${paletteIndex.toString(16)})</span></code>`;
-
-					textureCanvas.width = widthTiles * 8;
-					textureCanvas.height = heightTiles * 8;
-					textureCanvas.style.width = `${widthTiles * 8}px`;
-					textureCanvas.style.height = `${heightTiles * 8}px`;
-					preview.style.height = `${Math.max(heightTiles * 8, 128) + 20}px`;
-					const bitmapU32 = new Uint32Array(widthTiles * heightTiles * 64);
+					const scale = [1, 2, 3, 4][scaleSelect.value];
+					textureCanvas.width = width * 8;
+					textureCanvas.height = height * 8;
+					textureCanvas.style.width = `${width * 8 * scale}px`;
+					textureCanvas.style.height = `${height * 8 * scale}px`;
+					preview.style.height = `${Math.max(height * 8 * scale, 128) + 20}px`;
+					
+					const paletteOffset = paletteRowSelect.value << 4;
+					const bitmapU32 = new Uint32Array(width * height * 64);
 					let o = 8;
 					const texU8 = bufToU8(tex);
-					for (let tileY = 0; tileY < heightTiles; ++tileY) {
-						for (let tileX = 0; tileX < widthTiles; ++tileX) {
-							const basePos = (tileY * 8 * widthTiles * 8) + tileX * 8;
+					for (let tileY = 0; tileY < height; ++tileY) {
+						for (let tileX = 0; tileX < width; ++tileX) {
+							const basePos = (tileY * 8 * width * 8) + tileX * 8;
 							if (bitDepth === 4) {
 								for (let i = 0; i < 32; ++i) {
-									const pos = basePos + (i >> 2) * widthTiles * 8 + ((i & 3) << 1);
+									const pos = basePos + (i >> 2) * width * 8 + ((i & 3) << 1);
 									const composite = texU8[o++];
-									bitmapU32[pos] = paletteRgb32[composite & 0xf];
-									bitmapU32[pos ^ 1] = paletteRgb32[composite >> 4];
+									bitmapU32[pos] = palU32[(composite & 0xf) + paletteOffset] ?? 0;
+									bitmapU32[pos ^ 1] = palU32[(composite >> 4) + paletteOffset] ?? 0;
 								}
 							} else if (bitDepth === 8) {
 								for (let i = 0; i < 64; ++i) {
-									const pos = basePos + (i >> 3) * widthTiles * 8 + (i & 7);
-									bitmapU32[pos] = paletteRgb32[texU8[o++]];
+									const pos = basePos + (i >> 3) * width * 8 + (i & 7);
+									bitmapU32[pos] = palU32[texU8[o++] + paletteOffset] ?? 0;
 								}
 							}
 						}
 					}
 
-					textureCtx.putImageData(new ImageData(bufToU8Clamped(bitmapU32), widthTiles * 8, heightTiles * 8), 0, 0);
-				}
+					textureCtx.putImageData(new ImageData(bufToU8Clamped(bitmapU32), width * 8, height * 8), 0, 0);
+				};
+				updateTexture();
 			};
 			updateSegment();
 		};
