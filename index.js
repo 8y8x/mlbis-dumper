@@ -4440,12 +4440,27 @@
 			}
 			segmentSelect.replaceWith(segmentSelect = dropdown(options, 0, () => updateSegment()));
 
+			const palettesById = new Map();
+			if (pals) {
+				for (const pal of pals) {
+					console.log(pal);
+					if (pal.byteLength !== 516) continue;
+					const id = pal.getUint32(0, true);
+					if (palettesById.has(id)) console.warn(`Duplicate palette 0x${id.toString(16)}`);
+					palettesById.set(id, pal);
+				}
+			}
+
+			console.log(palettesById);
+
 			updateSegment = () => {
 				metaTop.innerHTML = '';
 				meta.innerHTML = '';
 				let pal = pals?.[segmentSelect.value];
 				const texCompressed = texs?.[segmentSelect.value];
 				const tex = texCompressed?.byteLength ? lzBis(texCompressed) : undefined;
+
+				if (tex?.byteLength) pal = palettesById.get(tex.getUint32(4, true));
 
 				if (!pal?.byteLength && !tex?.byteLength) {
 					addHTML(metaTop, `<div>This entry has no palette nor texture</div>`);
@@ -4495,7 +4510,7 @@
 					const bitDepth = tex.getUint8(2);
 					const unk4 = tex.getUint8(3);
 					const paletteIndex = tex.getUint32(4, true);
-					textureHeader.innerHTML = `<code>${widthTiles}x${heightTiles} --- ${bitDepth} bit depth --- ${unk4} unk4</code>`;
+					textureHeader.innerHTML = `<code>(${widthTiles}x${heightTiles} size) <span style="color:#666;">(${bitDepth} bit depth)</span> (unk4 ${unk4}) <span style="color:#666;">(pal 0x${paletteIndex.toString(16)})</span></code>`;
 
 					textureCanvas.width = widthTiles * 8;
 					textureCanvas.height = heightTiles * 8;
