@@ -255,6 +255,82 @@
 		return shiftJisDecoder.decode(bufToU8(sliceDataView(dat, o, end)));
 	});
 
+	// barebones text, without any formatting or replacement characters
+	const bisAlphabetJapanese = [
+		'', 'ガ', 'ギ', 'グ', 'ゲ', 'ゴ', 'ザ', 'ジ', 'ズ', 'ゼ', 'ゾ', 'ダ', '×', 'ヅ', 'デ', 'ド',
+		'バ', 'ビ', 'ブ', 'べ', 'ボ', 'が', 'ぎ', 'ぐ', 'げ', 'ご', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ', 'ゃ',
+		'', '！', 'ゅ', 'ょ', 'っ', '%', '&', '\'', '(', ')', '・', '+', ',', '-', '.', '/',
+		'０', '１', '２', '３', '４', '５', '６', '７', '８', '９', ':', ';', '。', '=', '、', '？',
+		'一', 'Ａ', 'Ｂ', 'Ｃ', 'Ｄ', 'Ｅ', 'Ｆ', 'Ｇ', 'Ｈ', 'Ｉ', 'Ｊ', 'Ｋ', 'Ｌ', 'Ｍ', 'Ｎ', 'Ｏ',
+		'Ｐ', 'Ｑ', 'Ｒ', 'Ｓ', 'Ｔ', 'Ｕ', 'Ｖ', 'Ｗ', 'Ｘ', 'Ｙ', 'Ｚ', '[', '¥', ']', 'わ', 'を',
+		'ん', 'ａ', 'ｂ', 'ｃ', 'ｄ', 'ｅ', 'ｆ', 'ｇ', 'ｈ', 'ｉ', 'ｊ', 'ｋ', 'ｌ', 'ｍ', 'ｎ', 'ｏ',
+		'ｐ', 'ｑ', 'ｒ', 'ｓ', 'ｔ', 'ｕ', 'ｖ', 'ｗ', 'ｘ', 'ｙ', 'ｚ', 'ば', 'び', 'ぶ', '〜', 'べ',
+		'ぼ', 'ぱ', 'ぴ', 'ぷ', 'ぺ', '…', 'ぽ', 'だ', 'ぢ', 'づ', 'で', 'ど', 'ぁ', 'ぃ', 'ぅ', 'ぇ',
+		'ぉ', 'あ', 'い', 'う', 'え', 'お', 'か', 'き', 'く', 'け', 'こ', 'さ', 'し', 'す', 'せ', 'そ',
+		'「', '」', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ャ', 'ュ', 'ョ', 'ッ', 'ア', 'イ', 'ウ', 'エ', 'オ',
+		'カ', 'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'ス', 'セ', 'ソ', 'タ', 'チ', 'ッ', 'テ', 'ト', 'ナ',
+		'ニ', 'ヌ', 'ネ', 'ノ', 'ハ', 'ヒ', 'フ', 'ヘ', 'ホ', 'マ', 'ミ', 'ム', 'メ', 'モ', 'ヤ', 'ユ',
+		'ヨ', 'ラ', 'リ', 'ル', 'レ', 'ロ', 'ワ', 'ン', 'パ', 'ピ', 'プ', 'ペ', 'ポ', 'た', 'ち', 'つ',
+		'て', 'と', 'な', 'に', 'ぬ', 'ね', 'の', 'は', 'ひ', 'ふ', 'へ', 'ほ', 'ま', 'み', 'む', 'め',
+		'も', 'や', 'ゆ', 'よ', 'ら', 'り', 'る', 'れ', 'ろ',
+	];
+	const bisAlphabetLatin = [
+		'', '⬆︎', '⮕', '⬇︎', '⬅︎', 'Ⓧ', '', 'Ⓨ', '', '♥︎', '♪', '★', '×', 'ᵉ', 'ᵉʳ', 'ʳᵉ',
+		'↑', '', '↓', '', '←', '', '→', '', 'Ⓛ', '', 'Ⓡ', '', 'Ⓐ', '', 'Ⓑ', '',
+		' ', '!', '˝', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/',
+		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '', '=', '', '?',
+		'˵', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+		'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '', '_',
+		'`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 
+		'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '', '}', '~', '',
+		'©', '', ',', '', '„', '…', '', '▲', '', '■', '', 'Œ', '', '', '',
+		'', '‘', '’', '“', '”', '•', '', '-', '', '', '', '', 'œ', '', '', '',
+		'', '¡', '', '', '', '¥', '', '', '', '', 'ª', '«', '', '', '', '',
+		'°', '', '', '', '', '', '', '', '', '', 'º', '»', '', '', '', '¿', // TODO: which is masculine ordinal indicator?
+		'À', 'Á', 'Â', '', 'Ä', 'Å', '', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï',
+		'', 'Ñ', 'Ò', 'Ó', 'Ô', '', 'Ö', '', '', 'Ù', 'Ú', 'Û', 'Ü', '', '', 'ẞ',
+		'à', 'á', 'â', '', 'ä', 'å', '', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
+		'', 'ñ', 'ò', 'ó', 'ô', '', 'ö', '', '', 'ù', 'ú', 'û', 'ü',
+	];
+	const bisAlphabetKorean = [];
+	const bisAlphabetChinese = [];
+	const bisUnicode = (window.bisUnicode = (dat, alphabetName) => {
+		const u8 = bufToU8(dat);
+		const out = [];
+
+		for (let o = 0; o < u8.length;) {
+			const char = u8[o++];
+			if (char === 0xff) {
+				// formatting
+				const control = u8[o++];
+				if (control === 0) out.push(' '); // newline; ignore it here
+				else if (control === 1) { out.push('\n'); ++o; } // reset text
+				else if (control === 0x0a) ++o; // close textbox
+				else if (control === 0x0b) ++o; // new textbox page
+				else if (control === 0x0c) ++o; // wait
+				else if (control === 0x0f) o += 2; // variable display
+				else if (control === 0x11) ++o;
+				continue;
+			}
+
+			if (alphabetName === 'latin') {
+				if (bisAlphabetLatin[char]) out.push(bisAlphabetLatin[char]);
+			} else if (alphabetName === 'japanese' || alphabetName === 'korean') {
+				if (char >= 0xf9) {
+					out.push('?');
+					++o;
+				} else if (alphabetName === 'japanese') {
+					if (bisAlphabetJapanese[char]) out.push(bisAlphabetJapanese[char]);
+				} else if (alphabetName === 'korean') {
+					if (bisAlphabetKorean[char]) out.push(bisAlphabetKorean[char]);
+				}
+			} else if (alphabetName === 'chinese') {
+			}
+		}
+
+		return out.join('');
+	});
+
 	const byteToHex = [];
 	for (let i = 0; i < 256; ++i) byteToHex[i] = i.toString(16).padStart(2, '0');
 	const bytes = (window.bytes = (o, l, buf) => {
@@ -2930,17 +3006,24 @@
 
 		addHTML(optionsContainer, '<br>');
 
+		const isRoc = fs.has('/Font/11x11.bin');
+		let defaultFont = 1;
+		if (headers.gamecode === 'CLJJ') defaultFont = isRoc ? 3 : 0;
+		else if (headers.gamecode === 'CLJK') defaultFont = 2;
+
 		const gameFont = dropdown([
-			'Extended ASCII',
+			'Japanese',
+			'Latin',
+			'Korean',
+			'Chinese',
 			'Hex View',
 			...fonts.optionNames.map(x => `Font: ${x}`),
-		], 0, () => updateTable());
+		], defaultFont, () => updateTable());
 		optionsContainer.appendChild(gameFont);
 
 		const textSpacing = dropdown(['Spacing: 1 (Latin)', 'Spacing: 2 (CJK)'], headers.gamecode === 'CLJJ' || headers.gamecode === 'CLJK' ? 1 : 0, () => updateTable());
 		optionsContainer.appendChild(textSpacing);
 
-		const isRoc = fs.has('/Font/11x11.bin');
 		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], isRoc ? 1 : 0, () => updateTable());
 		if (isRoc) optionsContainer.appendChild(rocFont);
 
@@ -3029,10 +3112,12 @@
 					}
 				}
 
+				const canvasScale = [1, 1.5, 2][textboxScale.value];
 				const fontColumnsParsed = new Map();
 				for (const columnId of fontColumns) {
 					const tr = document.createElement('tr');
-					tr.innerHTML = `<th><code>[${columnId}]</code> ${columnNamesWithFonts[columnId]}</th>`;
+					tr.innerHTML = `<th style="text-wrap: nowrap;"><code>[${columnId}]</code>
+						${columnNamesWithFonts[columnId]}</th>`;
 
 					const td = document.createElement('td');
 					tr.appendChild(td);
@@ -3044,7 +3129,7 @@
 					const canvas = document.createElement('canvas');
 					canvas.width = bitmapWidth;
 					canvas.height = bitmapHeight;
-					canvas.style.cssText = `width: ${bitmapWidth * 2}px; height: ${bitmapHeight * 2}px;`;
+					canvas.style.cssText = `width: ${bitmapWidth * canvasScale}px; height: ${bitmapHeight * canvasScale}px;`;
 					td.appendChild(canvas);
 
 					const ctx = canvas.getContext('2d');
@@ -3083,15 +3168,19 @@
 						tr.appendChild(td);
 						if (!text) continue;
 
-						if (gameFont.value === 0) {
-							// Extended ASCII
-							td.innerHTML = readMessage(0, text);
-						} else if (gameFont.value === 1) {
+						if (0 <= gameFont.value && gameFont.value <= 3) {
+							if (type === 'textboxes' || type === 'textboxes+fonts' || type === 'tables+textboxes+fonts' || type === 'fevent') {
+								text = sliceDataView(text, 2, text.byteLength);
+							}
+
+							const alphabet = ['japanese', 'latin', 'korean', 'chinese'][gameFont.value];
+							td.innerHTML = bisUnicode(text, alphabet).replaceAll('\n', '<br>');
+						} else if (gameFont.value === 4) {
 							// Hex View
 							td.innerHTML = `<code>${bytes(0, text.byteLength, text)}</code>`;
 						} else {
 							// Use custom font
-							const font = fonts.optionFonts[gameFont.value - 2];
+							const font = fonts.optionFonts[gameFont.value - 5];
 
 							let width = 0, height = 0;
 							if (type === 'textboxes' || type === 'textboxes+fonts' || type === 'tables+textboxes+fonts' || type === 'fevent') {
@@ -3115,7 +3204,6 @@
 							const { bitmap, bitmapWidth, bitmapHeight, actualWidth } =
 								fonts.textbox(text, font, altFonts, width, height, recycledBitmap, rocFonts, defaultRocFont, [1, 2][textSpacing.value]);
 
-							const canvasScale = [1, 1.5, 2][textboxScale.value];
 							const canvas = document.createElement('canvas');
 							canvas.width = actualWidth;
 							canvas.height = bitmapHeight;
@@ -3157,8 +3245,8 @@
 		for (let i = 0; i < fsext.monsters.length; ++i) {
 			const block = fsext.monsters[i];
 			const nameIndex = block.getUint16(0, true);
-			const maybeScript = block.getUint16(2, true);
-			const maybeSprite = block.getUint32(4, true);
+			const script = block.getUint16(2, true);
+			const sprite = block.getUint32(4, true);
 			const level = block.getUint16(8, true);
 			const hp = block.getUint16(10, true);
 			const pow = block.getUint16(12, true);
@@ -3168,21 +3256,30 @@
 			const exp = block.getUint16(0x16, true);
 			const coins = block.getUint16(0x18, true);
 
-			let script = `script ${str16(maybeScript)}`;
-			if ((maybeScript >> 12) === 2) script = `yo ${maybeScript & 0xfff}`;
-			else if ((maybeScript >> 12) === 4) script = `ji ${maybeScript & 0xfff}`;
-			else if ((maybeScript >> 12) === 7) script = `cf ${maybeScript & 0xfff}`;
+			let scriptName = `script ${str16(script)}`;
+			if ((script >> 12) === 2) scriptName = `yo[${script & 0xfff}]`;
+			else if ((script >> 12) === 4) scriptName = `ji[${script & 0xfff}]`;
+			else if ((script >> 12) === 7) scriptName = `cf[${script & 0xfff}]`;
 
-			const name = monsterNameTable[2][nameIndex] || monsterNameTable[1][nameIndex];
+			let name;
+			if (monsterNameTable[2]?.[nameIndex]) name = bisUnicode(monsterNameTable[2][nameIndex], 'latin');
+			else name = bisUnicode(monsterNameTable[1][nameIndex], 'japanese');
+
+			let spriteName = str32(sprite);
+			if ((sprite >>> 24) === 0xc0) spriteName = `BObjPc[0x${(sprite & 0xffff).toString(16)}]`;
+			if ((sprite >>> 24) === 0xc1) spriteName = `BObjMon[0x${(sprite & 0xffff).toString(16)}]`;
+			if ((sprite >>> 24) === 0xc2) spriteName = `BObjUI[0x${(sprite & 0xffff).toString(16)}]`;
+
 			addHTML(table, `<tr>
 				<th>${i}</th>
-				<td>${readMessage(0, name, true)}</td>
-				<td>${script}</td>
+				<td>${name}</td>
+				<td>${spriteName}</td>
+				<td>${scriptName}</td>
 				<td>HP ${hp} / POW ${pow} / DEF ${def} / SPD ${spd}</td>
 				<td>EXP ${exp} / Coins ${coins}</td>
 			</tr>`);
 
-			monsters.monsters.push({ name: readMessage(0, name, true), script: maybeScript, maybeSprite, level, hp, pow, def, spd, exp, coins });
+			monsters.monsters.push({ name, script, sprite, level, hp, pow, def, spd, exp, coins });
 		}
 
 		return monsters;
@@ -3211,28 +3308,40 @@
 		}
 
 		const options = [
-			['/BAI/BAI_atk_hk.dat', fsext.bai_atk_hk],
-			// this file is not referenced in overlays?
-			['/BAI/BAI_atk_mt.dat', { segments: [fs.get('/BAI/BAI_atk_mt.dat')] }],
-			['/BAI/BAI_atk_nh.dat', fsext.bai_atk_nh],
-			['/BAI/BAI_atk_yy.dat', fsext.bai_atk_yy],
-			['/BAI/BAI_item_ji.dat', fsext.bai_item_ji],
-			['/BAI/BAI_mon_cf.dat', fsext.bai_mon_cf],
-			['/BAI/BAI_mon_ji.dat', fsext.bai_mon_ji],
-			['/BAI/BAI_mon_yo.dat', fsext.bai_mon_yo],
-			['/BAI/BAI_scn_cf.dat', fsext.bai_scn_cf],
-			['/BAI/BAI_scn_ji.dat', fsext.bai_scn_ji],
-			['/BAI/BAI_scn_yo.dat', fsext.bai_scn_yo],
+			['/BAI/BAI_atk_hk.dat', 0xd000, fsext.bai_atk_hk],
+			// this file is not referenced in overlays, and has no IDs assigned to it
+			['/BAI/BAI_atk_mt.dat', undefined, { segments: [fs.get('/BAI/BAI_atk_mt.dat')] }],
+			['/BAI/BAI_atk_nh.dat', 0xa000, fsext.bai_atk_nh],
+			['/BAI/BAI_atk_yy.dat', 0xc000, fsext.bai_atk_yy],
+			['/BAI/BAI_item_ji.dat', 0x5000, fsext.bai_item_ji],
+			['/BAI/BAI_mon_cf.dat', 0x7000, fsext.bai_mon_cf],
+			['/BAI/BAI_mon_ji.dat', 0x4000, fsext.bai_mon_ji],
+			['/BAI/BAI_mon_yo.dat', 0x2000, fsext.bai_mon_yo],
+			['/BAI/BAI_scn_cf.dat', 0x6000, fsext.bai_scn_cf],
+			['/BAI/BAI_scn_ji.dat', 0x3000, fsext.bai_scn_ji],
+			['/BAI/BAI_scn_yo.dat', 0x1000, fsext.bai_scn_yo],
 		];
-		const fileSelect = dropdown(options.map(x => x[0]), 0, () => update());
+		const fileSelect = dropdown(options.map(entry => `<code>${entry[1] ? str16(entry[1]) : '????'}</code> ${entry[0]}`), 0, () => update());
 		section.appendChild(fileSelect);
 
-		const scriptRenderer = dropdown(['Renderer: basic', 'Renderer: jumps only', 'Renderer: colorful + flow'], 2, () => updateScript());
+		const scriptSelectNames = options.map(entry => {
+			if (!entry[2].segments?.length) return ['(?)'];
+			return entry[2].segments.map((x, i) => `${i}. (len 0x${x.byteLength.toString(16)})`);
+		});
+
+		const scriptRenderer = dropdown(['Renderer: simple', 'Renderer: pretty'], 1, () => updateScript());
 		section.appendChild(scriptRenderer);
 
 		let updateScript;
 		let scriptSelect = dropdown([''], 0, () => updateScript());
 		section.appendChild(scriptSelect);
+
+		const refScanButton = button('Scan for References', () => {
+			bai.scan();
+			refScanButton.remove();
+			update();
+		});
+		section.appendChild(refScanButton);
 
 		const preview = document.createElement('div');
 		section.appendChild(preview);
@@ -3268,15 +3377,6 @@
 				if (!command) break;
 				const offsetLeft = o;
 
-				// TODO: get rid of these tags, once the script renderer is better
-				let tag;
-				if (headerU16[1] + 2 === offsetLeft) tag = 'turn1';
-				else if (headerU16[2] + 4 === offsetLeft) tag = 'init';
-				else if (headerU16[3] + 6 === offsetLeft) tag = 'turn2';
-				else if (headerU16[4] + 8 === offsetLeft) tag = 'playerTurn';
-				else if (headerU16[5] + 10 === offsetLeft) tag = 'unknown5';
-				else if (headerU16[6] + 12 === offsetLeft) tag = 'unknown6';
-
 				o += 6;
 
 				let returnTarget;
@@ -3296,13 +3396,163 @@
 					else if (type === 7) (args.push({ type: 'fp2012', x: script.getInt32(o, true) / 4096 }), o += 4);
 				}
 
-				parsed.push({ opcode, returnTarget, args, offsetLeft, offsetRight: o, tag });
+				parsed.push({ opcode, returnTarget, args, offsetLeft, offsetRight: o });
 			}
 
 			if (o < script.byteLength)
 				parsed.push({ opcode: -1, args: [], offsetLeft: o, offsetRight: script.byteLength });
 
 			return parsed;
+		};
+
+		bai.scan = () => {
+			// #1 : discover the monsters using any particular script
+			const scriptToMonsterIds = new Map();
+			for (let i = 0; i < monsters.monsters.length; ++i) {
+				const { script } = monsters.monsters[i];
+				const list = scriptToMonsterIds.get(script);
+				if (list) list.push(i);
+				else scriptToMonsterIds.set(script, [i]);
+			}
+
+			// #2 : scan all scripts for BA_0066 (load attack script) and BA_0065 (create description from monster id)
+			const attackToInvokerReferences = new Map();
+			const monsterToCreatorReferences = new Map();
+			const creatorToMonsterReferences = new Map();
+			for (const [path, scriptSpace, { segments }] of options) {
+				if (scriptSpace === undefined) continue; // BAI_atk_mt cannot be loaded, anyway
+
+				let type;
+				if (path.includes('_atk_')) type = 'atk';
+				else if (path.includes('_mon_')) type = 'mon';
+				else if (path.includes('_scn_')) type = 'scn';
+
+				for (let i = 0; i < segments.length; ++i) {
+					const script = scriptSpace + i;
+					for (const cmd of bai.parse(segments[i])) {
+						if (cmd.opcode === 0x66) {
+							// load attack script
+							if (cmd.args[0].type === 'var') continue;
+
+							const atkScript = cmd.args[0].x;
+							const ref = attackToInvokerReferences.get(atkScript);
+							if (ref) ref[type].add(script);
+							else attackToInvokerReferences.set(atkScript, {
+								atk: new Set(), mon: new Set(), scn: new Set(),
+								[type]: new Set([script]),
+							});
+						} else if (cmd.opcode === 0x65) {
+							// create monster from description id
+							if (cmd.args[1].type === 'var') continue;
+
+							const monsterId = cmd.args[1].x;
+							const ref = monsterToCreatorReferences.get(monsterId);
+							if (ref) ref[type].add(script);
+							else monsterToCreatorReferences.set(monsterId, {
+								atk: new Set(), mon: new Set(), scn: new Set(),
+								[type]: new Set([script]),
+							});
+
+							const ref2 = creatorToMonsterReferences.get(script);
+							if (ref2) ref2.add(monsterId);
+							else creatorToMonsterReferences.set(script, new Set([monsterId]));
+						}
+					}
+				}
+			}
+
+			// #3 : compile dropdown names
+			// only add a number to the end of a monster's name if there are duplicates
+			const monsterNamesSeen = new Set();
+			const monsterNamesSeenTwice = new Set();
+			for (const { name } of monsters.monsters) {
+				if (monsterNamesSeen.has(name)) monsterNamesSeenTwice.add(name);
+				else monsterNamesSeen.add(name);
+			}
+			const monsterNames = [];
+			for (let i = 0; i < monsters.monsters.length; ++i) {
+				const { name } = monsters.monsters[i];
+				if (monsterNamesSeenTwice.has(name)) monsterNames[i] = `${name}(${i})`;
+				else monsterNames[i] = name;
+			}
+			const scriptSpaces = ['', 'yo', 'yo', 'ji', 'ji', 'ji', 'cf', 'cf', '', '', 'nh', 'yy', 'hk', '', ''];
+			const scriptName = id => scriptSpaces[id >> 12] + `[${id & 0xfff}]`;
+
+			for (let i = 0; i < options.length; ++i) {
+				const [path, scriptSpace, { segments }] = options[i];
+				if (scriptSpace === undefined) continue;
+
+				let type;
+				if (path.includes('_atk_')) type = 'atk';
+				else if (path.includes('_mon_')) type = 'mon';
+				else if (path.includes('_scn_')) type = 'scn';
+
+				for (let j = 0; j < segments.length; ++j) {
+					const script = scriptSpace + j;
+					const receiverParts = [];
+					let invokerPart = '';
+
+					// mon scripts are also references by the monsters themselves
+					const atk = new Set();
+					const mon = new Set();
+					const scn = new Set();
+					if (type === 'mon') {
+						const refs = scriptToMonsterIds.get(script);
+						if (refs) {
+							receiverParts.push(refs.map(id => monsterNames[id]).join(', '));
+							for (const monsterId of refs) {
+								const invokers = monsterToCreatorReferences.get(monsterId);
+								if (invokers?.atk.size) {
+									for (const otherScript of invokers.atk) atk.add(scriptName(otherScript));
+								}
+								if (invokers?.mon.size) {
+									for (const otherScript of invokers.mon) {
+										if (script !== otherScript) mon.add(scriptName(otherScript));
+									}
+								}
+								if (invokers?.scn.size) {
+									for (const otherScript of invokers.scn) scn.add(scriptName(otherScript));
+								}
+							}
+						}
+					}
+
+					if (type === 'atk') {
+						const refs = attackToInvokerReferences.get(script);
+						if (refs?.mon.size) {
+							for (const monScript of refs.mon) {
+								const monsterIds = scriptToMonsterIds.get(monScript);
+								if (monsterIds) {
+									for (const id of monsterIds) mon.add(monsterNames[id]);
+								}
+							}
+						}
+						if (refs?.atk.size) {
+							for (const otherScript of refs.atk) atk.add(scriptName(otherScript));
+						}
+						if (refs?.scn.size) {
+							for (const otherScript of refs.scn) scn.add(scriptName(otherScript));
+						}
+					}
+
+					if (atk.size) receiverParts.push('atk: ' + [...atk].join(', '));
+					if (mon.size) receiverParts.push('mon: ' + [...mon].join(', '));
+					if (scn.size) receiverParts.push('scn: ' + [...scn].join(', '));
+
+					let refs = creatorToMonsterReferences.get(script);
+					if (refs) invokerPart = `→ ${[...refs].map(id => monsterNames[id]).join('; ')}`;
+
+					const parts = [`${j}. (len ${segments[j].byteLength}) `];
+					if (receiverParts.length) parts.push('← ' + receiverParts.join('; '));
+					if (receiverParts.length && invokerPart) parts.push('; ');
+					if (invokerPart) parts.push(invokerPart);
+					scriptSelectNames[i][j] = parts.join('');
+				}
+			}
+
+			// ATK: 0. (1234 len) ← Durmite(45), Durmite X(46), Biffdus(47), scn: yo[14]
+			// MON: 1. (2345 len) Durmite(45) ← scn: yo[13], yo[15], atk: cf[3]
+			// SCN: 2. (2345 len) → Durmite(45)
 		};
 
 		// This is for debugging only. It can compile a BAI script from a textual format very similar to what is output,
@@ -3450,6 +3700,7 @@
 				case 36: return 'pow';
 				case 37: return 'def';
 				case 47: return 'invincible';
+				case 63: return 'sprite';
 			}
 		};
 
@@ -3533,7 +3784,7 @@
 				case 3: {
 					const to = offsetRight + args[1].x;
 					if (args[0].x === 1) return fn(functionLabels.get(to)) + '()';
-					else return `${keyword('goto')} ${location(str16(to))} // (${pm(args[1].x)})`;
+					else return `${keyword('goto')} ${location(str16(to))} // (${pm(args[1].x)}) type ${args[0].x}`;
 				}
 				case 4: return builtin('wait') + `(${arg(0)})`;
 				case 5: return builtin('stack_push') + `(${arg(0)})`;
@@ -3682,9 +3933,11 @@
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
-					let value = arg(2);
+					let value;
 					switch (args[1].x) {
 						case 47: value = arg(2, 'bool'); break; // .invincible
+						case 63: value = arg(2, 'hex32'); break; // sprite
+						default: value = arg(2);
 					}
 					return rp + fn('actor_attr_set') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
 				}
@@ -3786,49 +4039,36 @@
 		const update = () => {
 			preview.innerHTML = '';
 
-			const segments = options[fileSelect.value]?.[1]?.segments;
+			const segments = options[fileSelect.value]?.[2]?.segments;
 			if (!segments) {
 				preview.innerHTML = 'No segments/offsets for this file for this game version';
 				scriptSelect.style.display = 'none';
 				return;
 			}
 
-			const segmentNames = [];
-			for (let i = 0; i < segments.length; ++i) {
-				if (segments === fsext.bai_mon_cf.segments || segments === fsext.bai_mon_ji.segments || segments === fsext.bai_mon_yo.segments) {
-					// find monsters that use this script
-					let scriptId = i;
-					if (segments === fsext.bai_mon_cf.segments) scriptId |= 0x7000;
-					else if (segments === fsext.bai_mon_ji.segments) scriptId |= 0x4000;
-					else if (segments === fsext.bai_mon_yo.segments) scriptId |= 0x2000;
-
-					const matched = new Set();
-					for (const monster of monsters.monsters) {
-						if (monster.script === scriptId) matched.add(monster.name);
-					}
-
-					const names = Array.from(matched).join(', ') || '?';
-					segmentNames.push(`Script ${i} (${segments[i].byteLength} len) (${names})`);
-				} else {
-					segmentNames.push(`Script ${i} (${segments[i].byteLength} len)`);
-				}
-			}
+			const segmentNames = scriptSelectNames[fileSelect.value];
 			scriptSelect.replaceWith(scriptSelect = dropdown(segmentNames, 0, () => updateScript()));
+
 			updateScript = () => {
 				const script = segments[scriptSelect.value];
 				preview.innerHTML = '';
 
 				if (scriptRenderer.value === 0) {
-					// Renderer: basic (legacy)
-					addHTML(preview, `<div><code>${bytes(0, 14, script)}</code>`);
-					const headerU16 = bufToU16(script);
+					// Renderer: basic
 					const eventOffsets = new Map();
-					eventOffsets.set(headerU16[1] + 2, '[[[startTurn1]]]');
-					eventOffsets.set(headerU16[2] + 4, '[[[initializer]]]');
-					eventOffsets.set(headerU16[3] + 6, '[[[startTurn2]]]');
-					eventOffsets.set(headerU16[4] + 8, '[[[startPlayerTurn]]]');
-					eventOffsets.set(headerU16[5] + 10, '[[[start5]]]');
-					addHTML(preview, `<div>startTurn1 = ${str16(headerU16[1] + 2)}, initializer = ${str16(headerU16[2] + 4)}, startTurn2 = ${str16(headerU16[3] + 6)}, startPlayerTurn = ${str16(headerU16[4] + 8)}, start5 = ${str16(headerU16[5] + 10)}</div>`);
+					eventOffsets.set(14, 'default_init'); // might be overwritten by a *real* handler
+
+					const names = ['other_monster_turn', 'init', 'monster_turn', 'player_turn', 'unknown5', 'unknown6'];
+					const offsetList = [];
+					for (let i = 0; i < 6; ++i) {
+						const offset = script.getInt16(i * 2 + 2, true);
+						if (!offset) continue;
+						const loc = offset + i * 2 + 2;
+						eventOffsets.set(loc, names[i]);
+						offsetList.push(`<li>${names[i]} @ <code>${str16(loc)}</code></li>`);
+					}
+
+					if (offsetList.length) addHTML(preview, `<ul>${offsetList.join('')}</ul>`);
 
 					const parts = [];
 					let o = 14;
@@ -3841,7 +4081,8 @@
 
 						let prefix = `<span style="color: #666;">${str16(o)}</span> `;
 						const evOffset = eventOffsets.get(o);
-						if (evOffset) prefix += evOffset + ' ';
+						if (evOffset) prefix = `<span style="color: #666;">${str16(o)} ${evOffset}</span> `;
+						else prefix = `<span style="color: #666;">${str16(o)}</span> `;
 						o += 6;
 
 						if (command.returns) {
@@ -3862,168 +4103,23 @@
 							else if (command.args[i] === 5) (args.push(script.getInt32(o, true)), o += 4); // s32
 							else if (command.args[i] === 6) {
 								const x = script.getInt16(o, true);
-								args.push(`fp88(${x / 256})`);
+								args.push(`(fx16)${x / 256}`);
 								o += 2; // fixed-point (8.8?)
 							} else if (command.args[i] === 7) {
 								const x = script.getInt32(o, true);
-								args.push(`fp2012(${x / 4096})`);
+								args.push(`(fx32)${x / 4096}`);
 								o += 4; // fixed-point (20.12)
 							}
 						}
 
-						if (o >= script.byteLength) break;
+						if (o > script.byteLength) break;
 
-						if (cmd === 1) parts.push(`${prefix}return`);
+						if (cmd <= 0x46) parts.push(`${prefix}CM_${str16(cmd)}(${args.join(', ')})`);
 						else parts.push(`${prefix}BA_${str16(cmd)}(${args.join(', ')})`);
 					}
+
 					addHTML(preview, `<div><code>${parts.map(x => `<div>${x}</div>`).join(' ')}</code></div>`);
-					addHTML(preview, `<div><code>${bytes(o, script.byteLength - o, script)}</code></div>`);
 				} else if (scriptRenderer.value === 1) {
-					// Renderer: jumps only (legacy)
-					// #1 : parse commands into a list
-					const parsed = bai.parse(script);
-
-					// #2 : tag function locations, and tag jump locations
-					const functionLocations = new Map();
-					const jumpLocations = new Map();
-
-					const headerU8 = bufToU16(script);
-					if (headerU8[1]) functionLocations.set(headerU8[1] + 2, ['turn1']);
-					if (headerU8[2]) functionLocations.set(headerU8[2] + 4, ['init']);
-					if (headerU8[3]) functionLocations.set(headerU8[3] + 6, ['turn2']);
-					if (headerU8[4]) functionLocations.set(headerU8[4] + 8, ['playerTurn']);
-					if (headerU8[5]) functionLocations.set(headerU8[5] + 10, ['unknown5']);
-
-					let highestJumps = [0, 0, 0, 0, 0];
-
-					for (const { opcode, returnTarget, args, offsetLeft, offsetRight } of parsed) {
-						if (opcode === 2) {
-							if (args[4].type === 'var') console.warn(`jump offset is a variable: BA_0002 at ${str16(offsetLeft)}`);
-							else {
-								const to = offsetRight + args[4].x;
-								const arr = jumpLocations.get(to);
-								if (arr) arr.push(`c-${str16(offsetLeft)}`);
-								else jumpLocations.set(to, [`c-${str16(offsetLeft)}`]);
-
-								highestJumps[0] = Math.max(highestJumps[0], Math.abs(args[4].x));
-							}
-						} else if (opcode === 3) {
-							if (args[0].type === 'var') {
-								console.warn(`jump type is a variable: BA_0003 at ${str16(offsetLeft)}`);
-								continue;
-							}
-							if (args[1].type === 'var') {
-								console.warn(`jump offset is a variable: BA_0003 at ${str16(offsetLeft)}`);
-								continue;
-							}
-
-							const to = offsetRight + args[1].x;
-							if (args[0].x === 1) {
-								// function call, return address is pushed
-								const arr = functionLocations.get(to);
-								if (arr) arr.push(`f-${str16(offsetLeft)}`);
-								else functionLocations.set(to, [`f-${str16(offsetLeft)}`]);
-								highestJumps[2] = Math.max(highestJumps[2], Math.abs(args[1].x));
-							} else {
-								// type 0 or 2, idk the difference yet
-								const arr = jumpLocations.get(to);
-								if (arr) arr.push(`u${args[0].x}-${str16(offsetLeft)}`);
-								else jumpLocations.set(to, [`u${args[0].x}-${str16(offsetLeft)}`]);
-								highestJumps[1 + args[0].x] = Math.max(highestJumps[1 + args[0].x], Math.abs(args[1].x));
-							}
-						} else if (opcode === 7) {
-							if (args[3].type === 'var') {
-								console.warn(`jump type is a variable: BA_0007 at ${str16(offsetLeft)}`);
-								continue;
-							}
-
-							const to = offsetRight + args[3].x;
-							const arr = jumpLocations.get(to);
-							if (arr) arr.push(`s-${str16(offsetLeft)}`);
-							else jumpLocations.set(to, [`s-${str16(offsetLeft)}`]);
-							highestJumps[4] = Math.max(highestJumps[4], Math.abs(args[3].x));
-						} else if (opcode === 0x47) {
-							const to = offsetRight + args[2].x;
-							const arr = functionLocations.get(to);
-							if (arr) arr.push(`t7-${str16(offsetLeft)}`);
-							else functionLocations.set(to, [`t7-${str16(offsetLeft)}`]);
-						} else if (opcode === 0x48) {
-							const to = offsetRight + args[2].x;
-							const arr = functionLocations.get(to);
-							if (arr) arr.push(`t8-${str16(offsetLeft)}`);
-							else functionLocations.set(to, [`t8-${str16(offsetLeft)}`]);
-						} else if (opcode === 0x49) {
-							const to = offsetRight + args[2].x;
-							const arr = functionLocations.get(to);
-							if (arr) arr.push(`t9-${str16(offsetLeft)}`);
-							else functionLocations.set(to, [`t9-${str16(offsetLeft)}`]);
-						}
-					}
-
-					addHTML(preview, `<div>Largest jumps: ${highestJumps.join(', ')}</div>`);
-					const nocode = script.byteLength - parsed[parsed.length - 1].offsetRight;
-					addHTML(preview, `<div>Code: ${parsed[parsed.length - 1].offsetRight} / ${script.byteLength} <span style="color: ${nocode > 500 ? '#f99' : '#999'}">(${nocode} nocode)</span></div>`);
-
-					// #3 : render commands
-					const arg = ({ type, x }) => {
-						if (type === 'var') return `var[0x${str16(x)}]`;
-						else return String(x);
-					};
-					for (const { opcode, returnTarget, args, offsetLeft, offsetRight } of parsed) {
-						const parts = [`<span style="color: #666;">${str16(offsetLeft)}</span>`];
-
-						if (opcode === -1) {
-							addHTML(preview, `<div><code>${bytes(offsetLeft, offsetRight - offsetLeft, script)}</code></div>`);
-							continue;
-						}
-
-						const functions = functionLocations.get(offsetLeft);
-						if (functions) {
-							parts.push(`<span style="color: #76f;">[[[callers: ${functions.join(', ')}]]]</span>`);
-						}
-
-						if (opcode === 8) {
-							parts.push(`var[0x${str16(returnTarget)}] = ${arg(args[0])}`);
-						} else {
-							if (returnTarget !== undefined) parts.push(`var[0x${str16(returnTarget)}] =`);
-
-							if (opcode === 1) parts.push('<span style="color: var(--sapphire);">return()</span>');
-							else if (opcode === 2) {
-								if (args[0].x <= 8) {
-									const op = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^'][args[0].x];
-									parts.push(`if ${args[3].x ? '' : '!'}(${arg(args[1])} ${op} ${arg(args[2])}) goto ${str16(offsetRight + args[4].x)} (+${arg(args[4])})`);
-								} else {
-									const op = ['== 0', '!= -1'][args[0].x - 9];
-									parts.push(`if ${args[3].x ? '' : '!'}(${arg(args[1])} ${op}}) goto ${str16(offsetRight + args[4].x)} (+${arg(args[4])})`);
-								}
-							} else if (opcode === 3) {
-								if (args[0].x === 1) {
-									parts.push(`f${str16(offsetRight + args[1].x)}()`);
-								} else {
-									parts.push(`goto ${str16(offsetRight + args[1].x)} (+${arg(args[1])}) (mode ${args[0].x})`);
-								}
-							} else if (opcode === 0x47) {
-								parts.push(`thread_0047(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2].x)} (+${arg(args[2])})`);
-							} else if (opcode === 0x48) {
-								parts.push(`thread_0048(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2].x)} (+${arg(args[2])})`);
-							} else if (opcode === 0x49) {
-								parts.push(`thread_0049(${arg(args[0])}, ${arg(args[1])}) at ${str16(offsetRight + args[2].x)} (+${arg(args[2])})`);
-							} else {
-								parts.push(`BA_${str16(opcode)}(${args.map(arg).join(', ')})`);
-							}
-						}
-
-						const jumps = jumpLocations.get(offsetLeft);
-						if (jumps) {
-							parts.push(`<span style="color: #666;">// ${jumps.join(', ')}</span>`);
-						}
-
-						addHTML(preview, `<div><code>${parts.join(' ')}</code></div>`);
-					}
-
-					const endOffset = parsed[parsed.length - 1].offsetRight;
-					addHTML(preview, `<div><code>${bytes(endOffset, script.byteLength - endOffset, script)}</code></div>`);
-				} else if (scriptRenderer.value === 2) {
 					// Renderer: colorful + flow
 					const parsed = bai.parse(script);
 
