@@ -976,6 +976,14 @@
 			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
 			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
 
+			// fsext.fdfxtex = varLengthSegments(0x5ca54, fs.overlay(4), fs.get('/FRfx/FDfxTex.dat')); // TODO WRONG ALIGNMENT
+			// TODO: check at 0x4e380, seems like offsets but not varLengthSegments
+			fsext.fdfxpal = varLengthSegments(0x4a82c, fs.overlay(4), fs.get('/FRfx/FDfxPal.dat'));
+			fsext.fdfxtex = varLengthSegments(0x4a628, fs.overlay(4), fs.get('/FRfx/FDfxTex.dat'));
+			fsext.fofxpal = varLengthSegments(0x4a4fc, fs.overlay(4), fs.get('/FRfx/FOfxPal.dat'));
+			fsext.fofxtex = varLengthSegments(0x4a3d0, fs.overlay(4), fs.get('/FRfx/FOfxTex.dat'));
+
+
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
@@ -4311,6 +4319,222 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: FX Alls                                                                                              |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const fxalls = (window.fxalls = createSection('FX Alls', (section) => {
+		const fxalls = {};
+
+		const files = ['/BRfx/BDfxAll.dat', '/BRfx/BDfxGAll.dat', '/BRfx/BOfxAll.dat', '/FRfx/FWfxAll.dat'];
+		const fileSelect = dropdown(files, 0, () => updateFile());
+		section.appendChild(fileSelect);
+
+		let segmentSelect = dropdown([''], 0, () => {});
+		section.appendChild(segmentSelect);
+
+		const preview = document.createElement('div');
+		section.appendChild(preview);
+
+		let updateSegment = () => {};
+
+		const updateFile = () => {
+			const segments = unpackSegmented(fs.get(files[fileSelect.value]));
+			const newDropdown = dropdown(segments.map((x, i) => `${i}. (len ${x.byteLength})`),
+				0, () => updateSegment());
+			segmentSelect.replaceWith(segmentSelect = newDropdown);
+
+			updateSegment = () => {
+				preview.innerHTML = '';
+				const segment = segments[segmentSelect.value];
+
+				const fxs = unpackSegmented16(segment);
+				const ul = document.createElement('ul');
+				for (let i = 0; i < fxs.length; ++i) {
+					const display = [...bufToU16(fxs[i])].map((x, i) => {
+						return `<span style="color: ${i % 2 ? '#666' : '#999'};">${str8(x & 0xff)} ${str8(x >> 8)}</span>`;
+					});
+					addHTML(ul, `<li><code>[${i}] ${display.join(' ')}</li>`);
+				}
+
+				preview.appendChild(ul);
+			};
+			updateSegment();
+		};
+		updateFile();
+
+		return fxalls;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: FX Sprites                                                                                           |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const fxsprites = (window.fxsprites = createSection('FX Sprites', (section) => {
+		const fxsprites = {};
+
+		const files = [
+			{ label: 'BDfx', pals: fsext.bdfxpal?.segments, texs: fsext.bdfxtex?.segments },
+			{ label: 'BLfx', pals: undefined, texs: fsext.blfxtex?.segments },
+			{ label: 'BOfx', pals: fsext.bofxpal?.segments, texs: fsext.bofxtex?.segments },
+			{ label: 'FDfx', pals: fsext.fdfxpal?.segments, texs: fsext.fdfxtex?.segments },
+			{ label: 'FOfx', pals: fsext.fofxpal?.segments, texs: fsext.fofxtex?.segments },
+			{ label: 'MDfx', pals: unpackSegmented(fs.get('/MRfx/MDfxPal.dat')),
+				texs: unpackSegmented(fs.get('/MRfx/MDfxTex.dat')) },
+			{ label: 'MOfx', pals: unpackSegmented(fs.get('/MRfx/MOfxPal.dat')),
+				texs: unpackSegmented(fs.get('/MRfx/MOfxTex.dat')) },
+		];
+		const fileSelect = dropdown(files.map(x => x.label), 0, () => updateFile());
+		section.appendChild(fileSelect);
+
+		let segmentSelect = dropdown([''], 0, () => {});
+		section.appendChild(segmentSelect);
+
+		const metaTop = document.createElement('div');
+		section.appendChild(metaTop);
+
+		const preview = document.createElement('div');
+		preview.style.cssText = 'position: relative; height: calc(20px + 128px);';
+		section.appendChild(preview);
+
+		const paletteHeader = document.createElement('div');
+		paletteHeader.style.cssText = `position: absolute; top: 0; left: 0; height: 20px; width: 128px; text-align: center;`;
+		preview.appendChild(paletteHeader);
+
+		const paletteCanvas = document.createElement('canvas');
+		const paletteCtx = paletteCanvas.getContext('2d');
+		paletteCanvas.style.cssText = `position: absolute; top: 20px; left: 0; height: 128px; width: 128px;`;
+		paletteCanvas.width = 16;
+		paletteCanvas.height = 16;
+		preview.appendChild(paletteCanvas);
+
+		const textureHeader = document.createElement('div');
+		textureHeader.style.cssText = `position: absolute; top: 0; left: 128px; height: 20px; width: 512px;`;
+		preview.appendChild(textureHeader);
+
+		const textureCanvas = document.createElement('canvas');
+		const textureCtx = textureCanvas.getContext('2d');
+		textureCanvas.style.cssText = `position: absolute; top: 20px; left: 128px; height: 256px; width: 192px;`;
+		textureCanvas.width = 256;
+		textureCanvas.height = 192;
+		preview.appendChild(textureCanvas);
+
+		const meta = document.createElement('div');
+		section.appendChild(meta);
+
+		let updateSegment = () => {};
+
+		const updateFile = () => {
+			const { label, pals, texs } = files[fileSelect.value];
+			if (!pals?.length && !texs?.length) {
+				meta.innerHTML = '';
+				preview.style.display = 'none';
+				metaTop.innerHTML = `No palette offsets or texture offsets available`;
+				segmentSelect.replaceWith(segmentSelect = dropdown([''], 0, () => {}));
+				updateSegment = () => {};
+				return;
+			}
+
+			const options = [];
+			for (let i = 0, l = Math.max(pals?.length ?? texs?.length); i < l; ++i) {
+				options.push(`${i}`);
+			}
+			segmentSelect.replaceWith(segmentSelect = dropdown(options, 0, () => updateSegment()));
+
+			updateSegment = () => {
+				metaTop.innerHTML = '';
+				meta.innerHTML = '';
+				let pal = pals?.[segmentSelect.value];
+				const texCompressed = texs?.[segmentSelect.value];
+				const tex = texCompressed?.byteLength ? lzBis(texCompressed) : undefined;
+
+				if (!pal?.byteLength && !tex?.byteLength) {
+					addHTML(metaTop, `<div>This entry has no palette nor texture</div>`);
+					preview.style.display = 'none';
+					return;
+				}
+				preview.style.display = '';
+
+				if (!pal?.byteLength) {
+					addHTML(metaTop, `<div>No palette available, using a custom one instead</div>`);
+
+					const palU16 = new Uint16Array(256 + 2);
+					pal = new DataView(palU16.buffer);
+					pal.setUint32(0, 0x78563412, true);
+
+					for (let row = 0; row < 16; ++row) {
+						palU16.set([
+							0,
+							31 | 0 << 5 | row << 11,
+							31 | 8 << 5 | row << 11,
+							31 | 16 << 5 | row << 11,
+							31 | 24 << 5 | row << 11,
+							31 | 31 << 5 | row << 11,
+							row << 1 | 31 << 5 | 0 << 10,
+							row << 1 | 31 << 5 | 8 << 10,
+							row << 1 | 31 << 5 | 16 << 10,
+							row << 1 | 31 << 5 | 24 << 10,
+							row << 1 | 31 << 5 | 31 << 10,
+							0 | row << 6 | 31 << 10,
+							8 | row << 6 | 31 << 10,
+							16 | row << 6 | 31 << 10,
+							24 | row << 6 | 31 << 10,
+							31 | row << 6 | 31 << 10,
+						], 2 + row * 16);
+					}
+				}
+				if (!tex) addHTML(metaTop, `<div>No texture available</div>`);
+
+				paletteHeader.innerHTML = `<code>${bytes(0, 4, pal)}</code>`;
+
+				const paletteRgb32 = rgb15To32(bufToU16(sliceDataView(pal, 4, 516)));
+				paletteCtx.putImageData(new ImageData(bufToU8Clamped(paletteRgb32), 16, 16), 0, 0);
+
+				if (tex) {
+					const widthTiles = tex.getUint8(0);
+					const heightTiles = tex.getUint8(1);
+					const bitDepth = tex.getUint8(2);
+					const unk4 = tex.getUint8(3);
+					const paletteIndex = tex.getUint32(4, true);
+					textureHeader.innerHTML = `<code>${widthTiles}x${heightTiles} --- ${bitDepth} bit depth --- ${unk4} unk4</code>`;
+
+					textureCanvas.width = widthTiles * 8;
+					textureCanvas.height = heightTiles * 8;
+					textureCanvas.style.width = `${widthTiles * 8}px`;
+					textureCanvas.style.height = `${heightTiles * 8}px`;
+					preview.style.height = `${Math.max(heightTiles * 8, 128) + 20}px`;
+					const bitmapU32 = new Uint32Array(widthTiles * heightTiles * 64);
+					let o = 8;
+					const texU8 = bufToU8(tex);
+					for (let tileY = 0; tileY < heightTiles; ++tileY) {
+						for (let tileX = 0; tileX < widthTiles; ++tileX) {
+							const basePos = (tileY * 8 * widthTiles * 8) + tileX * 8;
+							if (bitDepth === 4) {
+								for (let i = 0; i < 32; ++i) {
+									const pos = basePos + (i >> 2) * widthTiles * 8 + ((i & 3) << 1);
+									const composite = texU8[o++];
+									bitmapU32[pos] = paletteRgb32[composite & 0xf];
+									bitmapU32[pos ^ 1] = paletteRgb32[composite >> 4];
+								}
+							} else if (bitDepth === 8) {
+								for (let i = 0; i < 64; ++i) {
+									const pos = basePos + (i >> 3) * widthTiles * 8 + (i & 7);
+									bitmapU32[pos] = paletteRgb32[texU8[o++]];
+								}
+							}
+						}
+					}
+
+					textureCtx.putImageData(new ImageData(bufToU8Clamped(bitmapU32), widthTiles * 8, heightTiles * 8), 0, 0);
+				}
+			};
+			updateSegment();
+		};
+		updateFile();
+
+		return fxalls;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Disassembler                                                                                         |
 	// +---------------------------------------------------------------------------------------------------------------+
 
@@ -4472,10 +4696,10 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: Fx (very unfinished)                                                                                 |
+	// | Section: Old Fx                                                                                               |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fx = (window.fx = createSection('Fx (very unfinished)', (section) => {
+	const oldfx = (window.oldfx = createSection('Fx (very unfinished)', (section) => {
 		const options = [];
 		for (let i = 0; i < fsext.bdfxtex.segments.length; ++i) {
 			options.push({
