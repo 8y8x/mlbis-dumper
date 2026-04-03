@@ -4332,6 +4332,9 @@
 		let segmentSelect = dropdown([''], 0, () => {});
 		section.appendChild(segmentSelect);
 
+		const prettyPrint = checkbox('Pretty Print', true, () => updateSegment());
+		section.appendChild(prettyPrint);
+
 		const preview = document.createElement('div');
 		section.appendChild(preview);
 
@@ -4361,12 +4364,93 @@
 					const parts = [];
 					parts.push(`(totalLength ${u16[0]})`);
 
-					for (let o = 1; o < u16.length; ++o) {
-						let color = o % 2 ? 'var(--fg-dim)' : 'var(--fg)';
-						if ((u16[o] >> 8) && (u16[o] < 0xf000)) color = '#98f';
-						parts.push(`<span style="color:${color}">${str8(u16[o] & 0xff)} ${str8(u16[o] >> 8)}</span>`);
+					let numKeyframes00;
+					let numKeyframes24;
+					let numKeyframes74;
+					let numKeyframes80;
+					let numKeyframes81;
+					let o = 1;
+					if (prettyPrint.checked) while (o < u16.length) {
+						const composite = u16[o++];
+						const cmd = composite & 0xff;
+						const params = composite >> 8;
+
+						if (cmd === 0x01) { // maybe
+							parts.push(`(cx01<sub>${params}</sub> : ${s16[o++]})`);
+						} else if (cmd === 0x02) { // maybe
+							parts.push(`(cx02<sub>${params}</sub> : ${s16[o++]})`);
+						} else if (cmd === 0x03) { // maybe
+							parts.push(`(cx03<sub>${params}</sub> : ${s16[o++]})`);
+						} else if (cmd === 0x04) { // maybe
+							parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
+						} else if (cmd === 0x08) { // maybe
+							parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
+						} else if (cmd === 0x19) { // pretty sure
+							const nums = [];
+							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+							parts.push(`(x<sub>${params}</sub> : ${nums.join(' ')})`);
+						} else if (cmd === 0x1a) { // pretty sure
+							const nums = [];
+							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+							parts.push(`(y<sub>${params}</sub> : ${nums.join(' ')})`);
+						} else if (cmd === 0x1b) { // pretty sure
+							const nums = [];
+							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+							parts.push(`(z<sub>${params}</sub> : ${nums.join(' ')})`);
+						} else if (cmd === 0x1c) { // pretty sure
+							const nums = [];
+							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+							parts.push(`(red<sub>${params}</sub> : ${nums.join(' ')})`);
+						} else if (cmd === 0x1d) { // pretty sure
+							const nums = [];
+							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+							parts.push(`(green<sub>${params}</sub> : ${nums.join(' ')})`);
+						} else if (cmd === 0x1d) { // pretty sure
+							const nums = [];
+							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+							parts.push(`(blue<sub>${params}</sub> : ${nums.join(' ')})`);
+						} else if (cmd === 0x24) { // pretty sure
+							numKeyframes24 = (params + 2) / 2;
+							const nums = [];
+							for (let i = 0; i < numKeyframes24; ++i) nums.push(s16[o++]);
+							parts.push(`(cx24 : ${nums.join(' ')})`);
+						} else if (cmd === 0x34) { // maybe
+							parts.push(`(cx34 : ${s16[o++]} ${s16[o++]})`);
+						} else if (cmd === 0x35) { // maybe
+							parts.push(`(cx35 : ${s16[o++]} ${s16[o++]})`);
+						} else if (cmd === 0x36) { // maybe
+							parts.push(`(cx36 : ${s16[o++]} ${s16[o++]})`);
+						} else if (cmd === 0x37) { // maybe
+							parts.push(`(cx37 : ${s16[o++]} ${s16[o++]})`);
+						} else if (cmd === 0x74) { // pretty sure
+							numKeyframes74 = (params + 2) / 2;
+							const nums = [];
+							for (let i = 0; i < numKeyframes74; ++i) nums.push(s16[o++]);
+							parts.push(`(cx74 : ${nums.join(' ')})`);
+						} else if (cmd === 0x80) { // pretty sure
+							numKeyframes80 = (params + 2) / 2;
+							const nums = [];
+							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+							parts.push(`(cx80 : ${nums.join(' ')})`);
+						} else if (cmd === 0x81) { // pretty sure
+							numKeyframes81 = (params + 2) / 2;
+							const nums = [];
+							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+							parts.push(`(cx81 : ${nums.join(' ')})`);
+						} else {
+							o--; // unknown command, retry printing in the next loop
+							break;
+						}
 					}
-					addHTML(ul, `<li><code>[${i}] ${parts.join(' ')}</code></li>`);
+
+					for (; o < u16.length; ++o) {
+						let style = '';
+						if ((u16[o] >> 8) && (u16[o] < 0xf000)) style = 'style="color: #98f !important;"';
+						parts.push(`<span ${style}>${str8(u16[o] & 0xff)} ${str8(u16[o] >> 8)}</span>`);
+					}
+
+					const colorized = parts.map((x,i) => i % 2 ? `<span style="color: var(--fg-dim);">${x}</span>` : x);
+					addHTML(ul, `<li><code>[${i}] ${colorized.join(' ')}</code></li>`);
 				}
 
 				preview.appendChild(ul);
