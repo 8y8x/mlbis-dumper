@@ -514,8 +514,8 @@ window.initAlgorithms = () => {
 		(dat.setUint32(o, 0x06054b50, true), (o += 4)); // end of central dir signature
 		(dat.setUint16(o, 0, true), (o += 2)); // number of this disk
 		(dat.setUint16(o, 0, true), (o += 2)); // number of the disk...central directory
-		(dat.setUint16(o, file.length, true), (o += 2)); // total number of entries...on this disk
-		(dat.setUint16(o, file.length, true), (o += 2)); // total number of entries...central dir
+		(dat.setUint16(o, files.length, true), (o += 2)); // total number of entries...on this disk
+		(dat.setUint16(o, files.length, true), (o += 2)); // total number of entries...central dir
 		(dat.setUint32(o, centralDirSize, true), (o += 4)); // size of the central directory
 		(dat.setInt32(o, centralDirOffset, true), (o += 4)); // offset of start of central directory...
 		(dat.setUint32(o, 0, true), (o += 4)); // starting disk number
