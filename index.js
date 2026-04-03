@@ -4350,10 +4350,23 @@
 				const fxs = unpackSegmented16(segment);
 				const ul = document.createElement('ul');
 				for (let i = 0; i < fxs.length; ++i) {
-					const display = [...bufToU16(fxs[i])].map((x, i) => {
-						return `<span style="color: ${i % 2 ? '#666' : '#999'};">${str8(x & 0xff)} ${str8(x >> 8)}</span>`;
-					});
-					addHTML(ul, `<li><code>[${i}] ${display.join(' ')}</li>`);
+					const u16 = bufToU16(fxs[i]);
+					const s16 = bufToS16(fxs[i]);
+
+					if (u16.length <= 1) {
+						addHTML(ul, `<li><code>[${i}] ${bytes(0, fxs[i].byteLength, fxs[i])}</li>`);
+						continue;
+					}
+
+					const parts = [];
+					parts.push(`(totalLength ${u16[0]})`);
+
+					for (let o = 1; o < u16.length; ++o) {
+						let color = o % 2 ? '#666' : '#999';
+						if ((u16[o] >> 8) && (u16[o] < 0xf000)) color = '#98f';
+						parts.push(`<span style="color:${color}">${str8(u16[o] & 0xff)} ${str8(u16[o] >> 8)}</span>`);
+					}
+					addHTML(ul, `<li><code>[${i}] ${parts.join(' ')}</code></li>`);
 				}
 
 				preview.appendChild(ul);
