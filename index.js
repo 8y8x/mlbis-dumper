@@ -4087,10 +4087,10 @@
 						const command = commands[cmd];
 						if (!command) break;
 
-						let prefix = `<span style="color: #666;">${str16(o)}</span> `;
+						let prefix = `<span style="color: var(--fg-dim);">${str16(o)}</span> `;
 						const evOffset = eventOffsets.get(o);
-						if (evOffset) prefix = `<span style="color: #666;">${str16(o)} ${evOffset}</span> `;
-						else prefix = `<span style="color: #666;">${str16(o)}</span> `;
+						if (evOffset) prefix = `<span style="color: var(--fg-dim);">${str16(o)} ${evOffset}</span> `;
+						else prefix = `<span style="color: var(--fg-dim);">${str16(o)}</span> `;
 						o += 6;
 
 						if (command.returns) {
@@ -4362,7 +4362,7 @@
 					parts.push(`(totalLength ${u16[0]})`);
 
 					for (let o = 1; o < u16.length; ++o) {
-						let color = o % 2 ? '#666' : '#999';
+						let color = o % 2 ? 'var(--fg-dim)' : 'var(--fg)';
 						if ((u16[o] >> 8) && (u16[o] < 0xf000)) color = '#98f';
 						parts.push(`<span style="color:${color}">${str8(u16[o] & 0xff)} ${str8(u16[o] >> 8)}</span>`);
 					}

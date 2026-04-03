@@ -16,30 +16,6 @@
 			}
 
 			:root {
-				--bg: #11111b;
-				--fg: #999;
-				--fg-dim: #777;
-				--fg-strong: #ccc;
-				--line: #666;
-				--red: #f99;
-
-				--button-fg: hsl(204, 100%, 50%);
-				--button-bg: hsl(204, 100%, 5%);
-				--button-fg-hover: hsl(204, 100%, 75%);
-
-				--dropdown-fg: hsl(247, 100%, 70%);
-				--dropdown-bg: hsl(247, 100%, 7%);
-				--dropdown-fg-hover: hsl(247, 100%, 85%);
-				--dropdown-opt-fg: hsl(247, 20%, 60%);
-				--dropdown-opt-bg: hsl(247, 20%, 7%);
-				--dropdown-opt-fg-hover: hsl(247, 20%, 80%);
-
-				--checkbox-fg: hsl(150, 100%, 60%);
-				--checkbox-bg: hsl(150, 100%, 6%);
-				--checkbox-fg-hover: hsl(150, 100%, 80%);
-				--checkbox-not-fg: hsl(150, 100%, 30%);
-				--checkbox-not-fg-hover: hsl(150, 100%, 60%);
-
 				/*--bg: #ededed;
 				--fg: #212121;
 				--fg-dim: #646464;
@@ -64,21 +40,50 @@
 				--checkbox-not-fg: #22cc22;
 				--checkbox-not-fg-hover: #33ff33;*/
 
-				/* for code highlighting only; https://catppuccin.com/palette/ we use the 'mocha' variant */
-				--mauve: #cba6f7;
-				/*--red: #f38ba8;*/
-				--maroon: #eba0ac;
-				--peach: #fab387;
-				--yellow: #f9e2af;
-				--green: #a6e3a1;
-				--teal: #94e2d5;
-				--sky: #89dceb;
-				--sapphire: #74c7ec;
-				--blue: #89b4fa;
-				--lavender: #b4befe;
-				--text: #cdd6f4;
-				--subtext0: #a6adc8;
-				--overlay2: #9399b2;
+				/* Catppuccin Mocha, mapped from Display-P3 to sRGB (gives colors a little kick) */
+				--mauve: #d2a4fd;
+				--red: #ff84a8;
+				--maroon: #f89cab;
+				--peach: #ffa77f;
+				--yellow: #fee1ab;
+				--green: #94e59a;
+				--teal: #79e5d5;
+				--sky: #6adfed;
+				--sapphire: #52caf0;
+				--blue: #7db6ff;
+				--lavender: #b2beff;
+				--text: #cbd6f7;
+				--subtext1: #b8c2e1;
+				--subtext0: #a4adca;
+				--overlay2: #9299b4;
+				--overlay1: #7e849e;
+				--overlay0: #6b7088;
+				--surface2: #575b72;
+				--surface1: #45475c;
+				--surface0: #313245;
+
+				--bg: #11111b;
+				--fg: var(--subtext0);
+				--fg-dim: var(--overlay0);
+				--fg-strong: #e4eafc;
+				--line: var(--surface0);
+
+				--button-fg: #1d9ff5;
+				--button-bg: #0d131e;
+				--button-fg-hover: #71e8fe;
+
+				--dropdown-fg: #8b6cff;
+				--dropdown-bg: #120e25;
+				--dropdown-fg-hover: #dcbbff;
+				--dropdown-opt-fg: #8681a2;
+				--dropdown-opt-bg: #120f1f;
+				--dropdown-opt-fg-hover: #dedaef;
+
+				--checkbox-fg: #4eee8b;
+				--checkbox-bg: #0b170e;
+				--checkbox-fg-hover: #beffd0;
+				--checkbox-not-fg: #1f924e;
+				--checkbox-not-fg-hover: #00e475;
 			}
 
 			* { box-sizing: border-box; margin: 0; }
@@ -91,8 +96,8 @@
 
 			canvas { display: block; image-rendering: pixelated; }
 
-			section { border-bottom: 1px solid var(--fg-dim); position: relative; width: 100vw; }
-			section .reveal { line-height: 32px; user-select: none; padding: 0 5px; }
+			section { border-bottom: 1px solid var(--line); position: relative; width: 100vw; }
+			section .reveal { line-height: 31px; user-select: none; padding: 0 5px; }
 			section .reveal:hover { color: var(--fg-strong); }
 			section .content { width: calc(100% - 32px); padding: 20px; padding-left: 52px; }
 
@@ -125,7 +130,7 @@
 			.checkbox.checked:hover * { color: var(--checkbox-fg-hover); }
 
 			table.bordered { border-collapse: collapse; }
-			table.bordered td, table.bordered th { border: 1px solid var(--fg-dim); padding: 5px; }
+			table.bordered td, table.bordered th { border: 1px solid var(--line); padding: 5px; }
 
 			summary { cursor: default; }
 			summary:hover { color: var(--fg-strong); }

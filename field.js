@@ -45,7 +45,7 @@ window.initField = () => {
 		const optionRows = [0, 1].map(() => document.createElement('div'));
 		for (const row of optionRows) section.appendChild(row);
 
-		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: var(--bg); margin-bottom: 1px;';
+		optionRows[0].style.cssText = 'position: sticky; top: 0; z-index: 5; background: var(--bg);';
 
 		options.roomDropdown = dropdown(
 			field.rooms.map((_, i) => `Room 0x${i.toString(16)}`),

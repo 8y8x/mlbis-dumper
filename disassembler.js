@@ -1977,7 +1977,7 @@ window.initDisassembler = () => {
 				`<div style="white-space: pre;"><code>${instructions
 					.map((x, i) => {
 						const loc = str16(i * instSize);
-						return `${loc.length === 4 ? '&nbsp;' + loc : loc} <span style="color: #666; padding: 0 32px;">${bytes(i * instSize, instSize, binary)}</span> ${x}`;
+						return `${loc.length === 4 ? '&nbsp;' + loc : loc} <span style="color: var(--fg-dim); padding: 0 32px;">${bytes(i * instSize, instSize, binary)}</span> ${x}`;
 					})
 					.join('\r\n')}</code></div>`,
 			);
