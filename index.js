@@ -126,12 +126,12 @@
 			if (box.width <= 0) return;
 			clearInterval(interval);
 
-			selection.style.width = `calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '3em'})`;
+			selection.style.width = `calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '2em - 12px'})`;
 		});
 
 		if (hideArrows) {
 			left.style.display = right.style.display = 'none';
-			options.style.padding = '0 2em 0 0.5em';
+			options.style.padding = '0 calc(1.5em + 6px) 0 0.5em';
 			vee.style.display = 'inline-block';
 		}
 
@@ -146,15 +146,15 @@
 			if (box.y > innerHeight / 2) {
 				// top side has more space
 				options.style.top = '';
-				options.style.bottom = 'calc(1.4em - 1px)';
+				options.style.bottom = 'calc(1em + 8px - 2px)';
 				height = box.y - 32;
 				options.style.maxHeight = `${height}px`;
 			} else {
 				// bottom side has more space
-				options.style.top = 'calc(1.4em - 1px)';
+				options.style.top = 'calc(1em + 8px - 2px)';
 				options.style.bottom = '';
 				height = innerHeight - box.y - 32;
-				options.style.maxHeight = `calc(${height}px - 1.4em)`;
+				options.style.maxHeight = `calc(${height}px - 12px)`;
 			}
 			options.style.visibility = '';
 			open = true;
