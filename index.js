@@ -578,6 +578,11 @@
 		headers.ov7Size = file.getUint32(0x5c, true);
 		fields.push(['ARM7 Overlays', `0x${str32(headers.ov7Offset)}, len 0x${headers.ov7Size.toString(16)}`]);
 
+		headers.arm9HooksList = file.getUint32(0x70, true);
+		fields.push(['ARM9 Hooks List', `0x${str32(headers.arm9HooksList)}`]);
+		headers.arm7HooksList = file.getUint32(0x74, true);
+		fields.push(['ARM7 Hooks List', `0x${str32(headers.arm7HooksList)}`]);
+
 		for (const [name, value] of fields) {
 			addHTML(section, `<div><code>${name}: ${value}</code></div>`);
 		}
