@@ -370,6 +370,7 @@
 
 	const str8 = (window.str8 = (x) => x.toString(16).padStart(2, '0'));
 	const str16 = (window.str16 = (x) => x.toString(16).padStart(4, '0'));
+	const str24 = (window.str24 = (x) => x.toString(16).padStart(6, '0'));
 	const str32 = (window.str32 = (x) => x.toString(16).padStart(8, '0'));
 
 	// +---------------------------------------------------------------------------------------------------------------+
@@ -901,6 +902,320 @@
 		for (let o = 0; o < headers.ov7Size; o += 0x20) ovtEntry(o);
 
 		return fs;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Overlay Table                                                                                        |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const ovt = (window.ovt = createSection('Overlay Table', (section) => {
+		const ovt = {};
+
+		/*
+			For addresses, don't show the 0x02 prefix, it's not useful. You can instead show "base address:" at the top.
+			For the visualizer:
+			- Show RX RAM range
+			- Show RW RAM range too (BSS)
+			- Allow resizing the view region (also allow putting in your own custom bounds)
+			For everything else:
+			- Show overlay ID and RAM start/end + BSS
+			- Show a list of info about the selected overlay at the top
+				- RAM size, static initializer + size, BSS size
+				- Compression attributes
+			Render everything in SVG.
+
+			But I also want to be able to show what classes it has and files it references.
+
+			One way is to show the names in dim text under the boxes. But that feels evil.
+			Alternatively, there can be a dropdown at the top that lets you select what to see:
+			- RAM Visualizer
+			- Verbose RAM + BSS + Both (start, end, size) shower, + static (start, end, size) + compression attributes
+			- File ID
+			- Names found
+
+			Thing is, the "names found" output should be copyable.
+			So, no svg left/right. But if I don't do left/right, then you won't be able to zoom in. Well you could but it might be laggy. Maybe it wouldn't be, actually. I think it'll be fine.
+		*/
+
+		const mode = dropdown(['RAM Arrangement', 'Overlay Entries', 'String Search'], 0, () => update(),
+			undefined, true);
+		section.appendChild(mode);
+
+		const baseAddress = 0x02000000;
+		addHTML(section, `<span style="margin-left: 5px;">Base address: <code>0x${str32(baseAddress)}</code></span>`);
+
+		const preview = document.createElement('div');
+		preview.style.cssText = 'position: relative';
+		section.appendChild(preview);
+
+		const updateRamArrangement = () => {
+			let contentHeight = 20;
+			const entries = [];
+
+			const updateBoxes = () => {
+				for (const entry of entries) {
+					const range = regionRightValue - regionLeftValue;
+					entry.boxExecutable.style.left = `${(entry.leftAddress - regionLeftValue) / range * 100}%`;
+					entry.boxExecutable.style.width = `${entry.size / range * 100}%`;
+					entry.boxStatic.style.left = `${(entry.leftAddress + entry.size - regionLeftValue) / range * 100}%`;
+					entry.boxStatic.style.width = `${entry.bss / range * 100}%`;
+				}
+			};
+
+			const regionContainer = document.createElement('div');
+			regionContainer.style.cssText = `position: sticky; top: 0; left: 0; height: 20px; width: calc(100vw - 104px); background: var(--bg); z-index: 5;`;
+
+			const regionLeft = document.createElement('input');
+			regionLeft.style.cssText = `background: transparent; position: absolute; top: 0; left: 0; height: 20px; width: 100px; text-align: center; font: 1em "Red Hat Mono"; border: 1px solid var(--surface0); outline: none; color: inherit;`;
+			regionLeft.value = `02000000`;
+			regionContainer.appendChild(regionLeft);
+
+			let regionLeftValue = 0x02000000;
+			let regionRightValue = 0x02400000;
+			regionLeft.addEventListener('change', () => {
+				const match = regionLeft.value.match(/^(?:0x)?([0-9A-Fa-f]+)$/);
+				if (!match) {
+					regionLeft.value = str32(regionLeftValue);
+					return;
+				}
+
+				const newValue = Math.min(Math.max(parseInt(match[1], 16), 0x02000000), 0x023ffff0);
+				regionLeftValue = newValue;
+				if (regionRightValue < regionLeftValue) {
+					regionRightValue = regionLeftValue + 1;
+					regionRight.value = str32(regionRightValue);
+				}
+
+				regionDragger.style.left = `${(regionLeftValue - baseAddress) / 0x400000 * 100}%`;
+				regionDragger.style.width = `${(regionRightValue - regionLeftValue) / 0x400000 * 100}%`;
+				updateBoxes();
+			});
+
+			const regionRight = document.createElement('input');
+			regionRight.style.cssText = `background: transparent; position: absolute; top: 0; right: 0; height: 20px; width: 100px; text-align: center; font: 1em "Red Hat Mono"; border: 1px solid var(--surface0); outline: none; color: inherit;`;
+			regionRight.value = `02400000`;
+			regionContainer.appendChild(regionRight);
+
+			regionRight.addEventListener('change', () => {
+				const match = regionRight.value.match(/^(?:0x)?([0-9A-Fa-f]+)$/);
+				if (!match) {
+					regionRight.value = str32(regionRightValue);
+					return;
+				}
+
+				const newValue = Math.min(Math.max(parseInt(match[1], 16), 0x02000010), 0x02400000);
+				regionRightValue = newValue;
+				if (regionRightValue < regionLeftValue) {
+					regionLeftValue = regionRightValue - 1;
+					regionLeft.value = str32(regionLeftValue);
+				}
+
+				regionDragger.style.left = `${(regionLeftValue - baseAddress) / 0x400000 * 100}%`;
+				regionDragger.style.width = `${(regionRightValue - regionLeftValue) / 0x400000 * 100}%`;
+				updateBoxes();
+			});
+
+			const regionDragContainer = document.createElement('div');
+			regionDragContainer.style.cssText = `background: var(--surface0); position: absolute; top: 0; left: 100px; height: 20px; width: calc(100% - 200px); cursor: grab; padding: 1px;`;
+			regionContainer.appendChild(regionDragContainer);
+
+			const regionDragger = document.createElement('div');
+			regionDragger.style.cssText = `background: var(--mauve); position: absolute; top: 0; left: 0; height: 20px; width: 100%;`;
+			regionDragContainer.appendChild(regionDragger);
+
+			let dragging = false;
+			regionDragger.addEventListener('mousedown', ev => {
+				if (dragging) return;
+				dragging = true;
+
+				const { clientX: startX, clientY: startY } = ev;
+				const pxWidth = regionDragContainer.getBoundingClientRect().width;
+				const startRegionLeft = regionLeftValue;
+				const startRegionRight = regionRightValue;
+				const regionWidth = startRegionRight - startRegionLeft;
+				const controller = new AbortController();
+				
+				addEventListener('mousemove', ev => {
+					let newLeft = startRegionLeft + (ev.clientX - startX) / pxWidth * 0x400000;
+					if (newLeft < 0x02000000) newLeft = 0x02000000;
+					if (newLeft + regionWidth > 0x02400000) newLeft = 0x02400000 - regionWidth;
+					newLeft &= ~0xf; // cast to int, round to 0x10 increments
+
+					regionLeftValue = newLeft;
+					regionRightValue = newLeft + regionWidth;
+					regionLeft.value = str32(regionLeftValue);
+					regionRight.value = str32(regionRightValue);
+					regionDragger.style.left = `${(newLeft - baseAddress) / 0x400000 * 100}%`;
+
+					updateBoxes();
+				}, { signal: controller.signal });
+				addEventListener('mouseup', () => {
+					dragging = false;
+					controller.abort();
+				}, { signal: controller.signal });
+				addEventListener('blur', () => {
+					dragging = false;
+					controller.abort();
+				}, { signal: controller.signal });
+			});
+
+			addHTML(regionDragger, `<svg viewbox="0 0 16 16" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); height: 16px; width: 16px;">
+				<path stroke="#11111b" stroke-width="1" fill="none" d="M3,2 L3,14 M8,2 L8,14 M13,2 L13,14"></path>
+			</svg>`);
+
+			const regionDraggerLeft = document.createElement('div');
+			regionDraggerLeft.style.cssText = `position: absolute; top: 0; left: -5px; height: 20px; width: 10px; cursor: col-resize`;
+			regionDragger.appendChild(regionDraggerLeft);
+
+			regionDraggerLeft.addEventListener('mousedown', ev => {
+				if (dragging) return;
+				dragging = true;
+
+				const { clientX: startX, clientY: startY } = ev;
+				const pxWidth = regionDragContainer.getBoundingClientRect().width;
+				const startRegionLeft = regionLeftValue;
+				const regionWidth = regionRightValue - regionLeftValue;
+				const controller = new AbortController();
+				
+				addEventListener('mousemove', ev => {
+					let newLeft = startRegionLeft + (ev.clientX - startX) / pxWidth * 0x400000;
+					if (newLeft < 0x02000000) newLeft = 0x02000000;
+					if (newLeft > regionRightValue - 0x2000) newLeft = regionRightValue - 0x2000;
+					newLeft &= ~0xf; // cast to int, round to 0x10 increments
+
+					regionLeftValue = newLeft;
+					regionLeft.value = str32(regionLeftValue);
+
+					regionDragger.style.left = `${(newLeft - baseAddress) / 0x400000 * 100}%`;
+					regionDragger.style.width = `${(regionRightValue - newLeft) / 0x400000 * 100}%`;
+					updateBoxes();
+				}, { signal: controller.signal });
+				addEventListener('mouseup', () => {
+					dragging = false;
+					controller.abort();
+				}, { signal: controller.signal });
+				addEventListener('blur', () => {
+					dragging = false;
+					controller.abort();
+				}, { signal: controller.signal });
+			});
+
+			const regionDraggerRight = document.createElement('div');
+			regionDraggerRight.style.cssText = `position: absolute; top: 0; right: -5px; height: 20px; width: 10px; cursor: col-resize`;
+			regionDragger.appendChild(regionDraggerRight);
+
+			regionDraggerRight.addEventListener('mousedown', ev => {
+				if (dragging) return;
+				dragging = true;
+
+				const { clientX: startX, clientY: startY } = ev;
+				const pxWidth = regionDragContainer.getBoundingClientRect().width;
+				const startRegionRight = regionRightValue;
+				const regionWidth = startRegionRight - regionLeftValue;
+				const controller = new AbortController();
+				
+				addEventListener('mousemove', ev => {
+					let newRight = startRegionRight + (ev.clientX - startX) / pxWidth * 0x400000;
+					if (newRight < regionLeftValue + 0x2000) newRight = regionLeftValue + 0x2000;
+					if (newRight > 0x02400000) newRight = 0x02400000;
+					newRight &= ~0xf; // cast to int, round to 0x10 increments
+
+					regionRightValue = newRight;
+					regionRight.value = str32(regionRightValue);
+
+					regionDragger.style.width = `${(newRight - regionLeftValue) / 0x400000 * 100}%`;
+					updateBoxes();
+				}, { signal: controller.signal });
+				addEventListener('mouseup', () => {
+					dragging = false;
+					controller.abort();
+				}, { signal: controller.signal });
+				addEventListener('blur', () => {
+					dragging = false;
+					controller.abort();
+				}, { signal: controller.signal });
+			});
+
+			preview.appendChild(regionContainer);
+
+			const addEntry = (label, leftAddress, size, bss, overlayU32) => {
+				const left = document.createElement('div');
+				left.style.cssText = `position: absolute; top: ${contentHeight}px; left: 0px; height: 20px; width: 300px; font: 16px "Red Hat Mono"; ${entries.length % 2 ? '' : 'color: var(--fg-dim);'}`;
+				left.innerHTML = `${'&nbsp;'.repeat(4 - label.length)}${label}.
+					${str24(leftAddress - baseAddress)}-${str24(leftAddress + size - baseAddress)}
+				${bss ? '+ 0x' + bss.toString(16) : ''}`;
+				preview.appendChild(left);
+
+				const right = document.createElement('div');
+				right.style.cssText = `${entries.length % 2 ? 'background: var(--surface0);' : ''} position: absolute; top: ${contentHeight}px; left: 300px; height: 20px; width: calc(100% - 300px); overflow: hidden;`;
+				preview.appendChild(right);
+
+				const boxExecutable = document.createElement('div');
+				boxExecutable.style.cssText = `background: var(--overlay2); position: absolute; top: 0; left: 0; height: 20px; width: 60%;`;
+				right.appendChild(boxExecutable);
+
+				const boxStatic = document.createElement('div');
+				boxStatic.style.cssText = `background: var(--surface2); border: 1px solid var(--overlay2); border-left: none; position: absolute; top: 0; left: 60%; height: 20px; width: 10%;`;
+				right.appendChild(boxStatic);
+
+				entries.push({
+					label, leftAddress, size, bss, overlayU32,
+					boxExecutable, boxStatic,
+				});
+
+				contentHeight += 20;
+			};
+
+			addEntry('ARM9', headers.arm9ram, fs.arm9.byteLength, 0, undefined);
+			addEntry('ARM7', headers.arm7ram, fs.arm7.byteLength, 0, undefined);
+			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+				const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
+				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3], overlayU32);
+			}
+			for (let i = 0, o = headers.ov7Offset; o < headers.ov7Offset + headers.ov7Size; ++i, o += 0x20) {
+				const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
+				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3], overlayU32);
+			}
+
+			updateBoxes();
+			preview.style.height = `${contentHeight}px`;
+		};
+
+		const updateOverlayEntries = () => {
+			const ul = document.createElement('ul');
+			preview.appendChild(ul);
+
+			const printEntry = dat => {
+				const str24 = x => x.toString(16).padStart(6, '0');
+
+				const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, attributes] = bufToU32(dat);
+				addHTML(ul, `<li><code>
+					${String(id).padStart(3, '0')}
+					| ram ${str24(ramStart - baseAddress)}-${str24(ramStart - baseAddress + ramSize)}
+					| static ${str24(staticStart - baseAddress)}-${str24(staticEnd - baseAddress)}
+					| bss ${str16(bssSize)} | attributes ${str32(attributes)} | size ${str32(ramSize)}
+				</code></li>`);
+			};
+
+			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+				printEntry(sliceDataView(file, o, o + 0x20));
+			}
+		};
+
+		const updateStringSearch = () => {
+		};
+
+		const update = () => {
+			preview.innerHTML = '';
+			preview.style.height = '';
+
+			if (mode.value === 0) updateRamArrangement();
+			else if (mode.value === 1) updateOverlayEntries();
+			else if (mode.value === 2) updateStringSearch();
+		};
+		update();
+
+		return ovt;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
