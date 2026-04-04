@@ -131,6 +131,28 @@
 
 			table.bordered { border-collapse: collapse; }
 			table.bordered td, table.bordered th { border: 1px solid var(--line); padding: 5px; }
+
+			.clicky {
+				--clicky-text: var(--fg); --clicky-bg: transparent; --clicky-box: var(--overlay2);
+				--clicky-fill: var(--surface1);
+			}
+			.clicky:nth-child(even) { --clicky-text: var(--fg-dim); }
+			.clicky:nth-child(odd) { --clicky-bg: var(--surface0); }
+			.clicky:hover { --clicky-text: var(--fg-strong); --clicky-box: var(--text); }
+
+			.clicky.red {
+				--clicky-text: var(--red); --clicky-bg: transparent; --clicky-box: var(--red);
+				--clicky-fill: #ff84a833;
+			}
+			.clicky.red:hover { --clicky-text: #ffc5d3; --clicky-box: #ffc5d3; }
+
+			.clicky.green {
+				--clicky-text: var(--green); --clicky-bg: transparent; --clicky-box: var(--green);
+				--clicky-fill: #94e59a33;
+			}
+			.clicky.green:hover { --clicky-text: #c7ffcb; --clicky-box: #c7ffcb; }
+
+			.clicky.active { --clicky-text: var(--fg-strong); --clicky-box: var(--text); --clicky-bg: var(--surface1); }
 		</style>
 	</head>
 	<body>

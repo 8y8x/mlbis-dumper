@@ -795,112 +795,6 @@
 		};
 		update();
 
-		addHTML(section, '<br>');
-		addHTML(section, '<div>Overlays in RAM:</div>');
-
-		const overlayContainer = document.createElement('div');
-		overlayContainer.style.cssText = 'overflow-x: auto; overflow-y: hidden;';
-		section.appendChild(overlayContainer);
-
-		let hovering = undefined;
-		let selected = undefined;
-		const overlayLines = [];
-		const overlayEntry = (start, length, labelHtml) => {
-			const line = document.createElement('div');
-			line.style.cssText = 'height: 1.25em; position: relative;';
-			overlayContainer.appendChild(line);
-
-			const showOverlaps = () => {
-				for (let i = 0; i < overlayLines.length; ++i) {
-					const other = overlayLines[i];
-					if (i === thisIndex) {
-						other.block.style.background = '#333';
-						other.block.style.borderColor = '#fff';
-					} else if (start < other.start + other.length && other.start < start + length) {
-						// check if ranges overlap (excluding the case when one starts where the other ends)
-						other.block.style.background = '#311';
-						other.block.style.borderColor = '#f66';
-					} else {
-						other.block.style.background = '#131';
-						other.block.style.borderColor = '#6f6';
-					}
-				}
-			};
-
-			const hideOverlaps = () => {
-				for (const { block } of overlayLines) {
-					block.style.background = '#222';
-					block.style.borderColor = '#ccc';
-				}
-			};
-
-			const thisIndex = overlayLines.length;
-			line.addEventListener('mouseenter', () => {
-				if (selected !== thisIndex) line.style.background = '#fff2';
-			});
-			line.addEventListener('mouseleave', () => {
-				if (selected !== thisIndex) line.style.background = '';
-			});
-			line.addEventListener('mousedown', () => {
-				if (selected === thisIndex) {
-					selected = undefined;
-					line.style.background = '#fff2';
-
-					if (hovering !== undefined) showOverlaps();
-					else hideOverlaps();
-				} else {
-					if (selected !== undefined) overlayLines[selected].line.style.background = '';
-					selected = thisIndex;
-					line.style.background = '#fff4';
-					showOverlaps();
-				}
-			});
-
-			const label = document.createElement('div');
-			label.style.cssText = 'position: absolute;';
-			label.innerHTML = labelHtml;
-			line.appendChild(label);
-
-			const block = document.createElement('div');
-			block.style.cssText = `background: #222; border: 1px solid #ccc; position: absolute;
-				left: calc(20em + ${Math.ceil(((start - 0x2000000) / 0x400000) * 800)}px);
-				width: ${Math.ceil((length / 0x400000) * 800)}px; height: 100%;`;
-			line.appendChild(block);
-
-			overlayLines.push({ line, block, label, start, length });
-			if (overlayLines.length % 4 === 0) {
-				addHTML(overlayContainer, `<div style="height: 1px; width: 100%; background: #333;"></div>`);
-			}
-		};
-		overlayEntry(
-			headers.arm9ram,
-			fs.arm9.byteLength,
-			`<code>ARM9. 0x${str32(headers.arm9ram)} - 0x${str32(headers.arm9ram + fs.arm9.byteLength)}</code>`,
-		);
-		overlayEntry(
-			headers.arm7ram,
-			fs.arm7.byteLength,
-			`<code>ARM7. 0x${str32(headers.arm7ram)} - 0x${str32(headers.arm7ram + fs.arm7.byteLength)}</code>`,
-		);
-		const ovtEntry = (o) => {
-			const id = file.getUint32(o, true);
-			const ramStart = file.getUint32(o + 4, true);
-			const ramSize = file.getUint32(o + 8, true);
-			const bssSize = file.getUint32(o + 12, true);
-			const staticStart = file.getUint32(o + 16, true);
-			const staticEnd = file.getUint32(o + 20, true);
-			const fileId = file.getUint32(o + 24, true);
-			const attributes = file.getUint32(o + 28, true);
-
-			overlayEntry(
-				ramStart,
-				ramSize,
-				`<code>${id.toString().padStart(4, '0')}. 0x${str32(ramStart)} - 0x${str32(ramStart + ramSize)}</code>`,
-			);
-		};
-		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) ovtEntry(o);
-		for (let o = 0; o < headers.ov7Size; o += 0x20) ovtEntry(o);
-
 		return fs;
 	}));
 
@@ -911,256 +805,105 @@
 	const ovt = (window.ovt = createSection('Overlay Table', (section) => {
 		const ovt = {};
 
-		/*
-			For addresses, don't show the 0x02 prefix, it's not useful. You can instead show "base address:" at the top.
-			For the visualizer:
-			- Show RX RAM range
-			- Show RW RAM range too (BSS)
-			- Allow resizing the view region (also allow putting in your own custom bounds)
-			For everything else:
-			- Show overlay ID and RAM start/end + BSS
-			- Show a list of info about the selected overlay at the top
-				- RAM size, static initializer + size, BSS size
-				- Compression attributes
-			Render everything in SVG.
-
-			But I also want to be able to show what classes it has and files it references.
-
-			One way is to show the names in dim text under the boxes. But that feels evil.
-			Alternatively, there can be a dropdown at the top that lets you select what to see:
-			- RAM Visualizer
-			- Verbose RAM + BSS + Both (start, end, size) shower, + static (start, end, size) + compression attributes
-			- File ID
-			- Names found
-
-			Thing is, the "names found" output should be copyable.
-			So, no svg left/right. But if I don't do left/right, then you won't be able to zoom in. Well you could but it might be laggy. Maybe it wouldn't be, actually. I think it'll be fine.
-		*/
-
-		const mode = dropdown(['RAM Arrangement', 'Overlay Entries', 'String Search'], 0, () => update(),
-			undefined, true);
+		const mode = dropdown(['RAM Arrangement', 'Overlay Entries', 'String Search'], 0, () => update());
 		section.appendChild(mode);
 
-		const baseAddress = 0x02000000;
-		addHTML(section, `<span style="margin-left: 5px;">Base address: <code>0x${str32(baseAddress)}</code></span>`);
+		addHTML(section, `<span style="margin: 0 5px;">Base address: <code>0x02000000</code>, min string length 6</span>`);
+
+		let downloadCallback = () => {};
+		const downloadButton = button('Download', () => downloadCallback());
+		downloadButton.style.display = 'none';
+		section.appendChild(downloadButton);
 
 		const preview = document.createElement('div');
 		preview.style.cssText = 'position: relative';
 		section.appendChild(preview);
 
 		const updateRamArrangement = () => {
-			let contentHeight = 20;
+			let contentHeight = 0;
 			const entries = [];
 
-			const updateBoxes = () => {
-				for (const entry of entries) {
-					const range = regionRightValue - regionLeftValue;
-					entry.boxExecutable.style.left = `${(entry.leftAddress - regionLeftValue) / range * 100}%`;
-					entry.boxExecutable.style.width = `${entry.size / range * 100}%`;
-					entry.boxStatic.style.left = `${(entry.leftAddress + entry.size - regionLeftValue) / range * 100}%`;
-					entry.boxStatic.style.width = `${entry.bss / range * 100}%`;
+			let selected;
+			const updateColors = () => {
+				if (selected) {
+					const sl = selected.leftAddress;
+					const sr = selected.leftAddress + selected.size + selected.bss;
+					for (const entry of entries) {
+						const l = entry.leftAddress;
+						const r = entry.leftAddress + entry.size + entry.bss;
+						// start < other.start + other.length && other.start < start + length
+						if (entry === selected) {
+							entry.row.classList.remove('red');
+							entry.row.classList.remove('green');
+						} else if (l < sr && sl < r) {
+							// the two entries intersect, so they can't possibly be loaded together
+							entry.row.classList.add('red');
+							entry.row.classList.remove('green');
+						} else {
+							entry.row.classList.remove('red');
+							entry.row.classList.add('green');
+						}
+					}
+				} else {
+					for (const { row } of entries) {
+						row.classList.remove('red');
+						row.classList.remove('green');
+					}
 				}
 			};
 
-			const regionContainer = document.createElement('div');
-			regionContainer.style.cssText = `position: sticky; top: 0; left: 0; height: 20px; width: calc(100vw - 104px); background: var(--bg); z-index: 5;`;
-
-			const regionLeft = document.createElement('input');
-			regionLeft.style.cssText = `background: transparent; position: absolute; top: 0; left: 0; height: 20px; width: 100px; text-align: center; font: 1em "Red Hat Mono"; border: 1px solid var(--surface0); outline: none; color: inherit;`;
-			regionLeft.value = `02000000`;
-			regionContainer.appendChild(regionLeft);
-
-			let regionLeftValue = 0x02000000;
-			let regionRightValue = 0x02400000;
-			regionLeft.addEventListener('change', () => {
-				const match = regionLeft.value.match(/^(?:0x)?([0-9A-Fa-f]+)$/);
-				if (!match) {
-					regionLeft.value = str32(regionLeftValue);
-					return;
-				}
-
-				const newValue = Math.min(Math.max(parseInt(match[1], 16), 0x02000000), 0x023ffff0);
-				regionLeftValue = newValue;
-				if (regionRightValue < regionLeftValue) {
-					regionRightValue = regionLeftValue + 1;
-					regionRight.value = str32(regionRightValue);
-				}
-
-				regionDragger.style.left = `${(regionLeftValue - baseAddress) / 0x400000 * 100}%`;
-				regionDragger.style.width = `${(regionRightValue - regionLeftValue) / 0x400000 * 100}%`;
-				updateBoxes();
-			});
-
-			const regionRight = document.createElement('input');
-			regionRight.style.cssText = `background: transparent; position: absolute; top: 0; right: 0; height: 20px; width: 100px; text-align: center; font: 1em "Red Hat Mono"; border: 1px solid var(--surface0); outline: none; color: inherit;`;
-			regionRight.value = `02400000`;
-			regionContainer.appendChild(regionRight);
-
-			regionRight.addEventListener('change', () => {
-				const match = regionRight.value.match(/^(?:0x)?([0-9A-Fa-f]+)$/);
-				if (!match) {
-					regionRight.value = str32(regionRightValue);
-					return;
-				}
-
-				const newValue = Math.min(Math.max(parseInt(match[1], 16), 0x02000010), 0x02400000);
-				regionRightValue = newValue;
-				if (regionRightValue < regionLeftValue) {
-					regionLeftValue = regionRightValue - 1;
-					regionLeft.value = str32(regionLeftValue);
-				}
-
-				regionDragger.style.left = `${(regionLeftValue - baseAddress) / 0x400000 * 100}%`;
-				regionDragger.style.width = `${(regionRightValue - regionLeftValue) / 0x400000 * 100}%`;
-				updateBoxes();
-			});
-
-			const regionDragContainer = document.createElement('div');
-			regionDragContainer.style.cssText = `background: var(--surface0); position: absolute; top: 0; left: 100px; height: 20px; width: calc(100% - 200px); cursor: grab; padding: 1px;`;
-			regionContainer.appendChild(regionDragContainer);
-
-			const regionDragger = document.createElement('div');
-			regionDragger.style.cssText = `background: var(--mauve); position: absolute; top: 0; left: 0; height: 20px; width: 100%;`;
-			regionDragContainer.appendChild(regionDragger);
-
-			let dragging = false;
-			regionDragger.addEventListener('mousedown', ev => {
-				if (dragging) return;
-				dragging = true;
-
-				const { clientX: startX, clientY: startY } = ev;
-				const pxWidth = regionDragContainer.getBoundingClientRect().width;
-				const startRegionLeft = regionLeftValue;
-				const startRegionRight = regionRightValue;
-				const regionWidth = startRegionRight - startRegionLeft;
-				const controller = new AbortController();
-				
-				addEventListener('mousemove', ev => {
-					let newLeft = startRegionLeft + (ev.clientX - startX) / pxWidth * 0x400000;
-					if (newLeft < 0x02000000) newLeft = 0x02000000;
-					if (newLeft + regionWidth > 0x02400000) newLeft = 0x02400000 - regionWidth;
-					newLeft &= ~0xf; // cast to int, round to 0x10 increments
-
-					regionLeftValue = newLeft;
-					regionRightValue = newLeft + regionWidth;
-					regionLeft.value = str32(regionLeftValue);
-					regionRight.value = str32(regionRightValue);
-					regionDragger.style.left = `${(newLeft - baseAddress) / 0x400000 * 100}%`;
-
-					updateBoxes();
-				}, { signal: controller.signal });
-				addEventListener('mouseup', () => {
-					dragging = false;
-					controller.abort();
-				}, { signal: controller.signal });
-				addEventListener('blur', () => {
-					dragging = false;
-					controller.abort();
-				}, { signal: controller.signal });
-			});
-
-			addHTML(regionDragger, `<svg viewbox="0 0 16 16" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); height: 16px; width: 16px;">
-				<path stroke="#11111b" stroke-width="1" fill="none" d="M3,2 L3,14 M8,2 L8,14 M13,2 L13,14"></path>
-			</svg>`);
-
-			const regionDraggerLeft = document.createElement('div');
-			regionDraggerLeft.style.cssText = `position: absolute; top: 0; left: -5px; height: 20px; width: 10px; cursor: col-resize`;
-			regionDragger.appendChild(regionDraggerLeft);
-
-			regionDraggerLeft.addEventListener('mousedown', ev => {
-				if (dragging) return;
-				dragging = true;
-
-				const { clientX: startX, clientY: startY } = ev;
-				const pxWidth = regionDragContainer.getBoundingClientRect().width;
-				const startRegionLeft = regionLeftValue;
-				const regionWidth = regionRightValue - regionLeftValue;
-				const controller = new AbortController();
-				
-				addEventListener('mousemove', ev => {
-					let newLeft = startRegionLeft + (ev.clientX - startX) / pxWidth * 0x400000;
-					if (newLeft < 0x02000000) newLeft = 0x02000000;
-					if (newLeft > regionRightValue - 0x2000) newLeft = regionRightValue - 0x2000;
-					newLeft &= ~0xf; // cast to int, round to 0x10 increments
-
-					regionLeftValue = newLeft;
-					regionLeft.value = str32(regionLeftValue);
-
-					regionDragger.style.left = `${(newLeft - baseAddress) / 0x400000 * 100}%`;
-					regionDragger.style.width = `${(regionRightValue - newLeft) / 0x400000 * 100}%`;
-					updateBoxes();
-				}, { signal: controller.signal });
-				addEventListener('mouseup', () => {
-					dragging = false;
-					controller.abort();
-				}, { signal: controller.signal });
-				addEventListener('blur', () => {
-					dragging = false;
-					controller.abort();
-				}, { signal: controller.signal });
-			});
-
-			const regionDraggerRight = document.createElement('div');
-			regionDraggerRight.style.cssText = `position: absolute; top: 0; right: -5px; height: 20px; width: 10px; cursor: col-resize`;
-			regionDragger.appendChild(regionDraggerRight);
-
-			regionDraggerRight.addEventListener('mousedown', ev => {
-				if (dragging) return;
-				dragging = true;
-
-				const { clientX: startX, clientY: startY } = ev;
-				const pxWidth = regionDragContainer.getBoundingClientRect().width;
-				const startRegionRight = regionRightValue;
-				const regionWidth = startRegionRight - regionLeftValue;
-				const controller = new AbortController();
-				
-				addEventListener('mousemove', ev => {
-					let newRight = startRegionRight + (ev.clientX - startX) / pxWidth * 0x400000;
-					if (newRight < regionLeftValue + 0x2000) newRight = regionLeftValue + 0x2000;
-					if (newRight > 0x02400000) newRight = 0x02400000;
-					newRight &= ~0xf; // cast to int, round to 0x10 increments
-
-					regionRightValue = newRight;
-					regionRight.value = str32(regionRightValue);
-
-					regionDragger.style.width = `${(newRight - regionLeftValue) / 0x400000 * 100}%`;
-					updateBoxes();
-				}, { signal: controller.signal });
-				addEventListener('mouseup', () => {
-					dragging = false;
-					controller.abort();
-				}, { signal: controller.signal });
-				addEventListener('blur', () => {
-					dragging = false;
-					controller.abort();
-				}, { signal: controller.signal });
-			});
-
-			preview.appendChild(regionContainer);
-
 			const addEntry = (label, leftAddress, size, bss, overlayU32) => {
+				const row = document.createElement('div');
+				row.style.cssText = `position: absolute; top: ${contentHeight}px; left: 0px; height: 20px; width: 100%; color: var(--clicky-text);`;
+				row.className = 'clicky';
+				preview.appendChild(row);
+
 				const left = document.createElement('div');
-				left.style.cssText = `position: absolute; top: ${contentHeight}px; left: 0px; height: 20px; width: 300px; font: 16px "Red Hat Mono"; ${entries.length % 2 ? '' : 'color: var(--fg-dim);'}`;
+				left.style.cssText = `position: absolute; top: 0; left: 0; height: 20px; width: 200px; font: 16px "Red Hat Mono";`;
 				left.innerHTML = `${'&nbsp;'.repeat(4 - label.length)}${label}.
-					${str24(leftAddress - baseAddress)}-${str24(leftAddress + size - baseAddress)}
-				${bss ? '+ 0x' + bss.toString(16) : ''}`;
-				preview.appendChild(left);
+					${str24(leftAddress - 0x02000000)}-${str24(leftAddress + size - 0x02000000)}`;
+				row.appendChild(left);
 
 				const right = document.createElement('div');
-				right.style.cssText = `${entries.length % 2 ? 'background: var(--surface0);' : ''} position: absolute; top: ${contentHeight}px; left: 300px; height: 20px; width: calc(100% - 300px); overflow: hidden;`;
-				preview.appendChild(right);
+				right.style.cssText = `background: var(--clicky-bg); position: absolute; top: 0; left: 200px; height: 20px; width: calc(100% - 200px);`;
+				row.appendChild(right);
 
 				const boxExecutable = document.createElement('div');
-				boxExecutable.style.cssText = `background: var(--overlay2); position: absolute; top: 0; left: 0; height: 20px; width: 60%;`;
+				boxExecutable.style.cssText = `background: var(--clicky-fill); border: 1px solid var(--clicky-box); position: absolute; top: 0; height: 20px;`;
+				boxExecutable.style.left = `${(leftAddress - 0x02000000) / 0x400000 * 100}%`;
+				boxExecutable.style.width = `${size / 0x400000 * 100}%`;
 				right.appendChild(boxExecutable);
 
 				const boxStatic = document.createElement('div');
-				boxStatic.style.cssText = `background: var(--surface2); border: 1px solid var(--overlay2); border-left: none; position: absolute; top: 0; left: 60%; height: 20px; width: 10%;`;
+				boxStatic.style.cssText = `background: var(--clicky-fill); position: absolute; top: 0; height: 20px;`;
+				boxStatic.style.left = `${(leftAddress + size - 0x02000000) / 0x400000 * 100}%`;
+				boxStatic.style.width = `${bss / 0x400000 * 100}%`;
 				right.appendChild(boxStatic);
 
-				entries.push({
-					label, leftAddress, size, bss, overlayU32,
-					boxExecutable, boxStatic,
+				let bssLabel;
+				if (bss) {
+					bssLabel = document.createElement('div');
+					bssLabel.style.cssText = `position: absolute; top: 0; height: 20px; font: 1em "Red Hat Mono"`;
+					bssLabel.style.left = `calc(${(leftAddress + size + bss - 0x02000000) / 0x400000 * 100}% + 10px)`;
+					bssLabel.textContent = `(BSS 0x${bss.toString(16)})`;
+					right.appendChild(bssLabel);
+				}
+
+				const entry = { label, leftAddress, size, bss, row };
+				entries.push(entry);
+				row.addEventListener('mousedown', () => {
+					if (selected) {
+						selected.row.classList.remove('active');
+						if (selected === entry) {
+							selected = undefined;
+							updateColors();
+							return;
+						}
+					}
+
+					selected = entry;
+					row.classList.add('active');
+					updateColors();
 				});
 
 				contentHeight += 20;
@@ -1177,37 +920,70 @@
 				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3], overlayU32);
 			}
 
-			updateBoxes();
 			preview.style.height = `${contentHeight}px`;
 		};
 
 		const updateOverlayEntries = () => {
-			const ul = document.createElement('ul');
-			preview.appendChild(ul);
+			const str24 = x => x.toString(16).padStart(6, '0');
+			const lines = [];
 
-			const printEntry = dat => {
+			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+				const dat = sliceDataView(file, o, o + 0x20);
 				const str24 = x => x.toString(16).padStart(6, '0');
 
 				const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, attributes] = bufToU32(dat);
-				addHTML(ul, `<li><code>
-					${String(id).padStart(3, '0')}
-					| ram ${str24(ramStart - baseAddress)}-${str24(ramStart - baseAddress + ramSize)}
-					| static ${str24(staticStart - baseAddress)}-${str24(staticEnd - baseAddress)}
-					| bss ${str16(bssSize)} | attributes ${str32(attributes)} | size ${str32(ramSize)}
-				</code></li>`);
-			};
-
-			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
-				printEntry(sliceDataView(file, o, o + 0x20));
+				lines.push(`${String(id).padStart(4, '0')}`
+					+ ` | ram ${str24(ramStart - 0x02000000)}-${str24(ramStart - 0x02000000 + ramSize)}`
+					+ ` | static ${str24(staticStart - 0x02000000)}-${str24(staticEnd - 0x02000000)}`
+					+ ` | bss ${str16(bssSize)} | attributes ${str32(attributes)} | size ${str32(ramSize)}`);
 			}
+
+			const downloadContent = lines.join('\n');
+			downloadButton.style.display = '';
+			downloadCallback = () => download(`${headers.gamecode}-overlays.txt`, downloadContent);
+
+			preview.innerHTML = `<ul style="font-family: 'Red Hat Mono'">${lines.map(x => `<li>${x}</li>`).join('')}</ul>`;
 		};
 
 		const updateStringSearch = () => {
+			const lines = [];
+			const search = (label, dat) => {
+				const found = [];
+				const u8 = bufToU8(dat);
+
+				let lastInvalid = -1;
+				for (let o = 0; o < u8.length; ++o) {
+					// valid characters: A-Z a-z 0-9 - _ . , /
+					const byte = u8[o];
+					const valid = (0x41 <= byte && byte <= 0x5a) || (0x61 <= byte && byte <= 0x7a)
+						|| (0x30 <= byte && byte <= 0x39) || byte === 0x2d || byte === 0x5f || byte === 0x2e
+						|| byte === 0x2c || byte === 0x2f || byte === 0x20;
+					if (!valid) {
+						const length = o - (lastInvalid + 1);
+						if (length >= 6) found.push(latin1(lastInvalid + 1, length, dat));
+						lastInvalid = o;
+					}
+				}
+
+				lines.push(`${label}. ${found.join(', ')}`);
+			};
+
+			search('ARM9', fs.arm9);
+			search('ARM7', fs.arm7);
+
+			for (let i = 0; i * 0x20 < headers.ov9Size; ++i) search(String(i).padStart(4, '0'), fs.overlay(i, true));
+
+			const downloadContent = lines.join('\n');
+			downloadButton.style.display = '';
+			downloadCallback = () => download(`${headers.gamecode}-strings.txt`, downloadContent);
+
+			preview.innerHTML = `<ul style="font-family: 'Red Hat Mono'">${lines.map(x => `<li>${x}</li>`).join('')}</ul>`;
 		};
 
 		const update = () => {
 			preview.innerHTML = '';
 			preview.style.height = '';
+			downloadButton.style.display = 'none';
 
 			if (mode.value === 0) updateRamArrangement();
 			else if (mode.value === 1) updateOverlayEntries();
