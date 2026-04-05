@@ -932,6 +932,59 @@
 			const str24 = x => x.toString(16).padStart(6, '0');
 			const lines = [];
 
+			const table = document.createElement('table');
+			table.className = 'bordered';
+
+			addHTML(table, `<tr>
+				<th>ID</th>
+				<th>RAM Region</th>
+				<th>BSS Region</th>
+				<th>Static Initializers</th>
+				<th>Compressed?</th>
+			</tr>`);
+
+			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+				const dat = sliceDataView(file, o, o + 0x20);
+				const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression] = bufToU32(dat);
+
+				let overlayDat;
+				try {
+					// maybe it is compressed using a different algorithm (for non-MLBIS games)
+					overlayDat = fs.overlay(i, true);
+				} catch (_) {}
+
+				const columns = [];
+				columns.push(`${i} (0x${i.toString(16)})`);
+				columns.push(`${str32(ramStart)} - ${str32(ramStart + ramSize)}<br>len 0x${ramSize.toString(16)}`);
+
+				if (bssSize) {
+					columns.push(`${str32(ramStart + ramSize)} - ${str32(ramStart + ramSize + bssSize)}
+						<br>len 0x${bssSize.toString(16)}`);
+				} else {
+					columns.push('-');
+				}
+
+				const staticInitializers = [];
+				for (let o2 = staticStart; o2 < staticEnd; o2 += 4) {
+					const pointed = overlayDat?.getUint32(o2 - ramStart, true);
+					let note = '→ NULL';
+					if (pointed) note = `→ FUN_${str32(pointed)}`;
+					staticInitializers.push(`${str32(o2)} ${note}`);
+				}
+				columns.push(staticInitializers.join('<br>'));
+
+				if (compression) {
+					const compressionType = [, 'BLZ'][compression >> 24] ?? '?';
+					columns.push(`${compression >> 24} (${compressionType})<br>len 0x${(compression & 0xffffff).toString(16)}`);
+				} else {
+					columns.push('-');
+				}
+
+				addHTML(table, `<tr style="font-family: Red Hat Mono; text-align: center;">${columns.map(x => '<td>' + x + '</td>').join('')}</tr>`);
+			}
+
+			preview.appendChild(table);
+
 			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
 				const dat = sliceDataView(file, o, o + 0x20);
 				const str24 = x => x.toString(16).padStart(6, '0');
@@ -946,8 +999,6 @@
 			const downloadContent = lines.join('\n');
 			downloadButton.style.display = '';
 			downloadCallback = () => download(`${headers.gamecode}-overlays.txt`, downloadContent);
-
-			preview.innerHTML = `<ul style="font-family: 'Red Hat Mono'">${lines.map(x => `<li>${x}</li>`).join('')}</ul>`;
 		};
 
 		const updateStringSearch = () => {
