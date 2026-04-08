@@ -36,9 +36,11 @@ These sections are useful for everyone:
 
 These sections are useful for reverse engineers:
 - **ROM Headers:** just some offsets for the tool to function
-- **File System:** Lists ROM files and overlays, extract individual files or
+- **File System:** lists ROM files and overlays, extract individual files or
   decompressed overlays, or everything as a .zip
-- **Overlay Table:** Shows the NDS memory regions each overlay occupies,
+- **File System (Extended):** hidden section, accessed via `fsext` in code,
+  contains hardcoded offsets into many files across all known releases
+- **Overlay Table:** shows the NDS memory regions each overlay occupies,
   highlghts overlapping/incompatible overlays, shows overlay initializers, finds
   strings (class and file names specifically)
 - **Monsters:** shows all enemies' name, sprite, and script id, also some basic
