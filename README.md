@@ -1,3 +1,4 @@
+# mlbis-dumper
 This work-in-progress tool displays data from Mario & Luigi: Bowser's Inside
 Story. It runs completely offline in the browser. Try it out at
 https://8y8x.github.io/mlbis-dumper/!
@@ -16,7 +17,7 @@ significantly altered the game's code.
 
 Join us on the M&L Modding Server: https://discord.gg/VQAGjEVEvr
 
-# Sections
+## Sections
 These sections are useful for everyone:
 - **Field Maps:** near-complete field map config support, including: tilemaps,
   layer blending, tile and palette animations, a 3d collision viewer, loading
@@ -62,7 +63,7 @@ These sections aren't too useful:
 - **Sound:** shows some music names but that's about it
 - **Object Palette Animations:** not really useful
 
-# Developing
+## Developing
 1. Download the repository
 2. Edit any .js file
 3. Open index.html in your browser
@@ -93,7 +94,7 @@ download('mlbis_patched.nds', file);
 will change the right loading zone in the final save room to bring you to the
 Tunnel.
 
-# Thank Yous
+## Thank Yous
 - [GBATEK](https://problemkaputt.de/gbatek.htm)
 - [Yoshi Magic](https://www.tapatalk.com/groups/lighthouse_of_yoshi/)
 - ThePurpleAnon
