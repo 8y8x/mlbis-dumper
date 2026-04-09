@@ -815,6 +815,13 @@
 
 		addHTML(section, `<span style="margin: 0 5px;">Base address: <code>0x02000000</code>, min string length 6</span>`);
 
+		ovt.overlays = [];
+		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+			const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
+			const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression] = overlayU32;
+			ovt.overlays.push({ id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression });
+		}
+
 		let downloadCallback = () => {};
 		const downloadButton = button('Download', () => downloadCallback());
 		downloadButton.style.display = 'none';
@@ -4814,6 +4821,486 @@
 
 	if (!window.initDisassembler) await waitFor(() => window.initDisassembler);
 	window.initDisassembler();
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: VTable Scanner                                                                                       |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const vtables = (window.vtables = createSection('VTables', (section) => {
+		const vtables = {};
+
+		const picked = new Set();
+
+		const overlapDisplay = document.createElement('div');
+		overlapDisplay.style.cssText = `height: 20px; width: 100%; background: var(--surface0); position: relative;`;
+		section.appendChild(overlapDisplay);
+
+		const scanStatus = document.createElement('div');
+		scanStatus.textContent = '0 overlays selected';
+		section.appendChild(scanStatus);
+
+		const overlapping = new Set();
+		const highlightOverlap = () => {
+			overlapping.clear();
+
+			for (const ov1 of picked) {
+				for (const ov2 of picked) {
+					if (ov1.id >= ov2.id) continue;
+					if (ov1.ramStart < ov2.ramStart + ov2.ramSize && ov2.ramStart < ov1.ramStart + ov1.ramSize) {
+						overlapping.add(ov1);
+						overlapping.add(ov2);
+					}
+				}
+			}
+
+			for (const ov of picked) {
+				const bad = overlapping.has(ov);
+				ov.overlapBox.style.background = bad ? '#ff84a833' : 'var(--surface1)';
+				ov.overlapBox.style.borderColor = bad ? 'var(--red)' : 'var(--overlay2)';
+			}
+
+			if (overlapping.size) {
+				scanStatus.style.color = 'var(--red)';
+				scanStatus.textContent = `${overlapping.size} overlapping: ${[...overlapping].map(x => x.name).join(', ')}`;
+			} else {
+				scanStatus.style.color = '';
+				scanStatus.textContent = `No overlaps, ${picked.size} picked`;
+			}
+		};
+
+		const addEntry = (name, id, bufProvider, ramStart, ramSize) => {
+			const overlapBox = document.createElement('div');
+			overlapBox.style.cssText = `position: absolute; top: 0; left: ${(ramStart - 0x02000000) / 0x400000 * 100}%;
+				width: ${ramSize / 0x400000 * 100}%; height: 20px; background: var(--surface1); border: 1px solid var(--overlay2); display: none; z-index: 2; opacity: 0.333;`;
+			overlapDisplay.appendChild(overlapBox);
+
+			const container = { overlapBox, name, id, bufProvider, ramStart, ramSize };
+
+			const check = checkbox(name, false, checked => {
+				overlapBox.style.opacity = checked ? '1' : '0.333';
+				overlapBox.style.zIndex = checked ? '0' : '2';
+
+				if (checked) picked.add(container);
+				else {
+					picked.delete(container);
+					overlapBox.style.background = 'var(--surface1)';
+					overlapBox.style.borderColor = 'var(--overlay2)';
+				}
+
+				highlightOverlap();
+			});
+			section.appendChild(check);
+
+			check.addEventListener('mouseover', () => {
+				if (check.checked) return;
+				overlapBox.style.display = '';
+			});
+			check.addEventListener('mouseout', () => {
+				if (check.checked) return;
+				overlapBox.style.display = 'none';
+			});
+		};
+		addEntry('ARM9&nbsp;', -2, () => fs.arm9, headers.arm9ram, fs.arm9.byteLength);
+		addEntry('ARM7&nbsp;', -1, () => fs.arm7, headers.arm7ram, fs.arm7.byteLength);
+		for (const ov of ovt.overlays) {
+			addEntry(`ov${String(ov.id).padStart(3, '0')}`, ov.id, () => fs.overlay(ov.id, true), ov.ramStart, ov.ramSize);
+		}
+
+		section.appendChild(button('Scan', () => {
+			scanPreview.innerHTML = '';
+
+			// MLBIS's RTTI info seems to follow this structure:
+			// https://itanium-cxx-abi.github.io/cxx-abi/abi.html#rtti
+			// - MLBIS only uses abi::__class_type_info, abi::__si_class_type_info, and abi::__vmi_class_type_info, not
+			//   the other derived types of std::type_info
+			// - Mangled names do not start with "_Z"
+
+			const errors = [];
+			const checkErrors = () => {
+				if (!errors.length) return;
+
+				addHTML(scanPreview, `Errors: <ul>${errors.map(x => '<li>' + x + '</li>').join('')}</ul>`);
+				for (let i = 0; i < errors.length - 1; ++i) console.error(errors[i]);
+				throw errors[errors.length - 1];
+			};
+
+			// #1 : copy all overlays into a temporary buffer (it's "rebased")
+			const dat = new DataView(new ArrayBuffer(0x400000));
+			const u8 = bufToU8(dat);
+			const s32 = bufToS32(dat);
+			for (const ov of picked) {
+				bufToS32(dat).set(bufToS32(ov.bufProvider()), (ov.ramStart - 0x02000000) / 4);
+			}
+
+			// #2 : search for mangled names, and demangle them
+			const offsetToDemangled = new Map();
+			const demangledToOffsets = new Map();
+			let lastInvalid = -1;
+			for (let o = 0; o < 0x400000; ++o) {
+				const byte = u8[o];
+				if ((0x41 <= byte && byte <= 0x5a)/* A-Z */ || (0x61 <= byte && byte <= 0x7a)/* a-z */
+					|| (0x30 <= byte && byte <= 0x39)/* 0-9 */ || byte === 0x5f/* _ */) continue;
+
+				const start = lastInvalid + 1;
+				const end = o;
+				lastInvalid = o;
+
+				const length = end - start;
+				if (length < 4) continue; // classes can be as short as "clFS"
+				if (byte !== 0) continue; // string must be null-terminated
+
+				// these are examples of mangled names:
+				// - 10clYanaAnim, 5clPaf, St9type_info, 10inYanaUnit
+				// - N8nsObjSys11clCellAnimeE, N10__cxxabiv117__class_type_infoE
+				// note the "cl", "ns", and "in" prefixes are part of the original names, in fact, the developers break
+				// the convention with "N11clBtlObjCsr15clBtlObjCsrCopyE"
+
+				let o2 = start;
+				const readUnqualifiedName = () => {
+					let len = 0;
+					for (let i = 0; i < 3 && o2 < end; ++i, ++o2) {
+						if (!(0x30 <= u8[o2] && u8[o2] <= 0x39)/* 0-9 */) break;
+						len *= 10;
+						len += u8[o2] - 0x30;
+					}
+
+					if (len > end - o2) return undefined;
+					const str = latin1(o2, len, dat);
+					o2 += len;
+					return str;
+				};
+
+				const readUnscopedName = () => {
+					let prefix = '';
+					if (u8[o2] === 0x53 /* S */ && u8[o2 + 1] === 0x74 /* t */) {
+						prefix = 'std::';
+						o2 += 2;
+					}
+
+					return prefix + readUnqualifiedName();
+				};
+
+				// readName
+				let demangled;
+				if (u8[o2] === 0x4e /* N */) {
+					// namespace
+					++o2;
+					// assume no CV-qualifiers or ref-qualifiers
+					const prefix = readUnqualifiedName();
+					const name = readUnqualifiedName();
+					if (!prefix || !name) continue;
+
+					if (u8[o2++] !== 0x45 /* E */) continue;
+					if (o2 !== end || u8[o2] !== 0) continue;
+
+					demangled = prefix + '::' + name;
+				} else {
+					demangled = readUnscopedName();
+					if (o2 !== end || u8[o2] !== 0) continue;
+				}
+
+				const offsets = demangledToOffsets.get(demangled);
+				if (offsets) offsets.push(start);
+				else demangledToOffsets.set(demangled, [start]);
+
+				offsetToDemangled.set(start, demangled);
+			}
+
+			// #3 : find pointers to those strings
+			const demangledToReferences = new Map();
+			for (let o = 0; o < 0x400000; o += 4) {
+				const value = dat.getUint32(o, true);
+				// rule out mostly anything that isn't a pointer
+				if (!(0x02000000 <= value && value < 0x02400000)) continue;
+
+				const demangled = offsetToDemangled.get(value - 0x02000000);
+				if (!demangled) continue;
+
+				// value is a const char* pointing to this mangled string
+				// but it might not be a type_info struct ("clTask" has the unfortunately simple address 02050000)
+				// so, assuming this would be a type_info struct, ensure the above u32 points to some vtable
+				const previousValue = dat.getUint32(o - 4, true);
+				if (!(0x02000000 <= previousValue && previousValue <= 0x02400000)) continue;
+				const potentialVtableFirstFunction = dat.getUint32(previousValue - 0x02000000, true);
+				if (!(0x02000000 <= potentialVtableFirstFunction && potentialVtableFirstFunction <= 0x02400000))
+					continue;
+
+				// this is probably a real reference
+				const refs = demangledToReferences.get(demangled);
+				if (refs) refs.push({ from: o, to: value - 0x02000000 });
+				else demangledToReferences.set(demangled, [{ from: o, to: value - 0x02000000 }]);
+			}
+
+			// #4 : validate that the name references are 1-1
+			for (const [demangled, offsets] of demangledToOffsets) {
+				const refs = demangledToReferences.get(demangled);
+				if (refs?.length !== offsets.length) {
+					errors.push(`${demangled} is defined at ${offsets.length} places ` +
+						`(${offsets.map(x => str32(x + 0x02000000)).join(', ')}) but referenced at ` +
+						`${refs?.length ?? 0} places instead ` +
+						`${refs ? '(' + refs.map(x => str32(x.from + 0x02000000)).join(', ')  + ')' : ''}`);
+					continue;
+				}
+
+				const usedOffsets = new Set();
+				for (const { from, to } of refs) {
+					if (usedOffsets.has(to)) {
+						errors.push(`${demangled} @ ${str32(from + 0x02000000)} is referenced more than once, ` +
+							`references: ${refs.filter(ref => ref.to === to).map(x => str32(x.from + 0x02000000)).join(', ')}`);
+					}
+
+					usedOffsets.add(to);
+				}
+			}
+			checkErrors();
+
+			// #5 : from the name references, build out type_info-derived structs
+			const demangledToTypeInfos = new Map();
+			const offsetToTypeInfo = new Map();
+			for (const [demangled, refs] of demangledToReferences) {
+				const typeInfos = [];
+				demangledToTypeInfos.set(demangled, typeInfos);
+				for (const ref of refs) {
+					// this is also the reference to the implied vtable of the base class
+					// (__class_type_info, __si_class_type_info, __vmi_class_type_info)
+					const typeInfoOffset = ref.from - 4;
+					// TODO: validate these pointers on the way
+					const baseVtablePtr = dat.getUint32(typeInfoOffset, true) - 0x02000000;
+					const baseTypeInfoOffset = dat.getUint32(baseVtablePtr - 4, true) - 0x02000000;
+					const baseTypeInfoNamePtr = dat.getUint32(baseTypeInfoOffset + 4, true) - 0x02000000;
+					const baseTypeInfoName = offsetToDemangled.get(baseTypeInfoNamePtr);
+
+					let typeInfo;
+					if (baseTypeInfoName === '__cxxabiv1::__class_type_info') {
+						// no base class
+						typeInfo = {
+							offset: typeInfoOffset,
+							name: demangled,
+							type: baseTypeInfoName,
+							baseTypeInfoOffsets: [],
+							dat: sliceDataView(dat, typeInfoOffset, typeInfoOffset + 8),
+						};
+					} else if (baseTypeInfoName === '__cxxabiv1::__si_class_type_info') {
+						// single, public, non-virtual base class
+						typeInfo = {
+							offset: typeInfoOffset,
+							name: demangled,
+							type: baseTypeInfoName,
+							baseTypeInfoOffsets: [{
+								at: dat.getUint32(typeInfoOffset + 8, true) - 0x02000000,
+								vptrFieldOffset: 0,
+								virtual: false,
+								public: true,
+							}],
+							dat: sliceDataView(dat, typeInfoOffset, typeInfoOffset + 12),
+						};
+					} else if (baseTypeInfoName === '__cxxabiv1::__vmi_class_type_info') {
+						const classFlags = dat.getUint32(typeInfoOffset + 8, true);
+						const baseCount = dat.getUint32(typeInfoOffset + 12, true);
+						const baseTypeInfoOffsets = [];
+						for (let i = 0, o = typeInfoOffset + 16; i < baseCount; ++i, o += 8) {
+							const baseTypeInfoOffset = dat.getUint32(o, true) - 0x02000000;
+							const offsetFlags = dat.getInt32(o + 4, true);
+							baseTypeInfoOffsets.push({
+								at: baseTypeInfoOffset,
+								vptrFieldOffset: Math.abs(offsetFlags >> 8),
+								virtual: !!(offsetFlags & 1),
+								public: !!(offsetFlags & 2),
+							});
+						}
+
+						typeInfo = {
+							offset: typeInfoOffset,
+							name: demangled,
+							type: baseTypeInfoName,
+							baseTypeInfoOffsets,
+							dat: sliceDataView(dat, typeInfoOffset, typeInfoOffset + 16 + baseCount * 8),
+						};
+					} else {
+						errors.push(`${demangled}'s type_info struct @ ${str32(typeInfoOffset + 0x02000000)} inherits `+
+							`from unhandled type_info derivative ${baseTypeInfoName}`);
+						continue;
+					}
+
+					typeInfos.push(typeInfo);
+					offsetToTypeInfo.set(typeInfoOffset, typeInfo);
+				}
+			}
+			checkErrors();
+
+			// #6 : make sure that the duplicate type_infos found exactly match
+			for (const [demangled, typeInfos] of demangledToTypeInfos) {
+				if (typeInfos.length < 2) continue;
+				const u8First = bufToU32(typeInfos[0].dat);
+
+				for (let i = 1; i < typeInfos.length; ++i) {
+					const u8Second = bufToU32(typeInfos[i].dat);
+
+					let equivalent = u8First.length === u8Second.length;
+					for (let o = 0; o < u8First.length && equivalent; ++o) {
+						equivalent ||= u8First[o] === u8Second[o];
+					}
+
+					if (equivalent) continue; // ok
+					errors.push(`${demangled} has duplicate type_infos that aren't equivalent @ ` +
+						`${str32(typeInfos[0].offset + 0x02000000)} and ${str32(typeInfos[i].offset + 0x02000000)}`);
+				}
+			}
+			checkErrors();
+
+			// #7 : make sure that type_infos reference real base type_infos
+			for (const [demangled, typeInfos] of demangledToTypeInfos) {
+				const typeInfo = typeInfos[0];
+				for (const baseTypeInfoOffset of typeInfo.baseTypeInfoOffsets) { 
+					if (offsetToTypeInfo.has(baseTypeInfoOffset.at)) continue;
+
+					errors.push(`${demangled}'s type_info @ ${str32(typeInfo.offset + 0x02000000)} references a base ` +
+						`type_info @ ${str32(baseTypeInfoOffset.at + 0x02000000)}, but it doesn't exist`);
+				}
+			}
+			checkErrors();
+
+			// #8 : find the vtables associated with each class's type_info
+			const typeInfoToVtablePtrs = new Map();
+			for (let o = 0; o < 0x400000; o += 4) {
+				const value = dat.getUint32(o, true);
+				if (!(0x02000000 <= value && value <= 0x02400000)) continue;
+
+				const typeInfo = offsetToTypeInfo.get(value - 0x02000000);
+				if (!typeInfo) continue;
+
+				const vtableOffset = o + 4;
+
+				// make sure this really is a vtable, by checking that at least the first member is also a pointer
+				const firstVtableMember = dat.getUint32(vtableOffset, true);
+				if (!(0x02000000 <= firstVtableMember && firstVtableMember <= 0x02400000)) continue;
+
+				// also check that vptrFieldOffset is not absurdly huge
+				const vptrFieldOffset = -dat.getInt32(o - 4, true);
+				if (!(-65536 <= vptrFieldOffset && vptrFieldOffset <= 65536)) continue;
+
+				console.log(`found vtable for ${typeInfo.name} at ${str32(vtableOffset + 0x02000000)}`);
+
+				if (typeInfo.type === '__cxxabiv1::__class_type_info') {
+					// no base class, but this class still has a vtable
+					const previousVtablePtrs = typeInfoToVtablePtrs.get(typeInfo);
+					if (previousVtablePtrs) {
+						const [prevVptrFieldOffset, at] = previousVtablePtrs.entries().next().value;
+						errors.push(`Base class ${typeInfo.name}'s type_info @ ` +
+							`${str32(typeInfo.offset + 0x02000000)} already has an associated vtable at ` +
+							`${str32(at + 0x02000000)} (vptr at field_0x${prevVptrFieldOffset.toString(16)}), ` +
+							`but a new one was found at ${str32(vtableOffset + 0x02000000)} (vptr at ` +
+							`field_0x${vptrFieldOffset.toString(16)})`);
+						continue;
+					}
+
+					typeInfoToVtablePtrs.set(typeInfo, new Map([[vptrFieldOffset, [vtableOffset]]]));
+				} else {
+					const vtablePtrs = typeInfoToVtablePtrs.get(typeInfo);
+					if (vtablePtrs) {
+						// make sure this vptr field hasn't already been assigned a vtable
+						const prevVtablePtrs = vtablePtrs.get(vptrFieldOffset);
+						if (prevVtablePtrs) prevVtablePtrs.push(vtableOffset);
+						else vtablePtrs.set(vptrFieldOffset, [vtableOffset]);
+					} else {
+						typeInfoToVtablePtrs.set(typeInfo, new Map([[vptrFieldOffset, [vtableOffset]]]));
+					}
+				}
+			}
+			checkErrors();
+
+			// #9 : propagate public/virtual info about base classes from a type_info to its base's type_info
+			const typeInfoToClassAttr = new Map();
+			for (const [demangled, typeInfos] of demangledToTypeInfos) {
+				for (const baseTypeInfoOffset of typeInfos[0].baseTypeInfoOffsets) {
+					const baseTypeInfo = offsetToTypeInfo.get(baseTypeInfoOffset.at); // must be valid, by #7
+					const previousAttr = typeInfoToClassAttr.get(baseTypeInfo);
+					if (previousAttr) {
+						// make sure the info is not mismatched (a base class can't be public/virtual in one place but
+						// not in another)
+						if (previousAttr.public === baseTypeInfoOffset.public
+							|| previousAttr.virtual === baseTypeInfoOffset.virtual) continue;
+
+						errors.push(`${demangled}'s type_info @ ${str32(typeInfos[0].offset + 0x02000000)} ` +
+							`marks base class ${baseTypeInfo.name} as public=${baseTypeInfoOffset.public} & ` +
+							`virtual=${baseTypeInfoOffset.virtual}, but it was previously marked as ` +
+							`public=${previousAttr.public} & virtual=${previousAttr.virtual} by ` +
+							`${previousAttr.blame}`);
+					} else {
+						typeInfoToClassAttr.set(baseTypeInfo, {
+							public: baseTypeInfoOffset.public,
+							virtual: baseTypeInfoOffset.virtual,
+							blame: `${demangled} (type_info @ ${str32(typeInfos[0].offset + 0x02000000)})`,
+						});
+					}
+				}
+			}
+
+			// #10 : display info
+			const table = document.createElement('table');
+			table.className = 'bordered';
+			addHTML(table, `<tr>
+				<th>Name</th>
+				<th>Base Classes</th>
+				<th>VTables</th>
+				<th>type_infos</th>
+			</tr>`);
+
+			for (const [demangled, typeInfos] of demangledToTypeInfos) {
+				const typeInfo = typeInfos[0];
+				const classAttr = typeInfoToClassAttr.get(typeInfo);
+
+				let nameField = demangled;
+				if (classAttr) {
+					if (classAttr.virtual && !classAttr.public) nameField += '<br>(virtual, private)';
+					else if (classAttr.virtual) nameField += '<br>(virtual)';
+					else if (!classAttr.public) nameField += '<br>(private)';
+				} else {
+					nameField += '<br>(no known subclasses)';
+				}
+
+				const baseClassesField = [...typeInfo.baseTypeInfoOffsets]
+					.sort((a,b) => a.vptrFieldOffset - b.vptrFieldOffset)
+					// must be valid, by #7
+					.map(x => `field_0x${x.vptrFieldOffset.toString(16)} - ${offsetToTypeInfo.get(x.at).name}`)
+					.join('<br>');
+
+				const vtablePtrs = [];
+				for (const otherTypeInfo of typeInfos) {
+					const thisVtablePtrs = typeInfoToVtablePtrs.get(otherTypeInfo);
+					if (thisVtablePtrs) vtablePtrs.push(...thisVtablePtrs);
+				}
+
+				let vtablesField = '';
+				if (vtablePtrs.length) {
+					vtablesField = vtablePtrs.sort((a,b) => a[0] - b[0])
+						.map(([vptrFieldOffset, vtableOffsets]) => {
+							const prefix = `field_0x${vptrFieldOffset.toString(16)} - `;
+							return vtableOffsets.map((y, i) => {
+								if (!i) return prefix + str32(y + 0x02000000);
+								else return '&nbsp;'.repeat(prefix.length) + str32(y + 0x02000000);
+							}).join('<br>')
+						})
+						.join('<br>');
+				}
+
+				const typeInfosField = typeInfos.map(x => str32(x.offset + 0x02000000)).join('<br>');
+
+				addHTML(table, `<tr style="font-family: 'Red Hat Mono'; text-align: center;">
+					<td>${nameField || '-'}</td>
+					<td>${baseClassesField || '-'}</td>
+					<td>${vtablesField || '-'}</td>
+					<td>${typeInfosField}</td>
+				</tr>`);
+			}
+			scanPreview.appendChild(table);
+		}));
+
+		const scanPreview = document.createElement('div');
+		section.appendChild(scanPreview);
+
+		return vtables;
+	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Sound Data (very unfinished)                                                                         |
