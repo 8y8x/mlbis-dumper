@@ -1953,9 +1953,17 @@ window.initDisassembler = () => {
 			display.innerHTML = '';
 			if (select.value === 0) return;
 			let binary;
-			if (select.value === 1) binary = fs.arm9;
-			else if (select.value === 2) binary = fs.arm7;
-			else binary = fs.overlay(select.value - 3);
+			let ramStart;
+			if (select.value === 1) {
+				binary = fs.arm9;
+				ramStart = headers.arm9ram;
+			} else if (select.value === 2) {
+				binary = fs.arm7;
+				ramStart = headers.arm7ram;
+			} else {
+				binary = fs.overlay(select.value - 3);
+				ramStart = ovt.overlays[select.value - 3].ramStart;
+			}
 
 			const instSize = setSelect.value === 2 || setSelect.value === 3 ? 2 : 4;
 
@@ -1976,8 +1984,8 @@ window.initDisassembler = () => {
 				display,
 				`<div style="white-space: pre;"><code>${instructions
 					.map((x, i) => {
-						const loc = str16(i * instSize);
-						return `${loc.length === 4 ? '&nbsp;' + loc : loc} <span style="color: var(--fg-dim); padding: 0 32px;">${bytes(i * instSize, instSize, binary)}</span> ${x}`;
+						const loc = str32(ramStart + i * instSize);
+						return `${loc} <span style="color: var(--fg-dim); padding: 0 32px;">${bytes(i * instSize, instSize, binary)}</span> ${x}`;
 					})
 					.join('\r\n')}</code></div>`,
 			);
