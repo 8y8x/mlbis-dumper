@@ -1,8 +1,8 @@
 'use strict';
 
 (async () => {
-	const waitFor = (cb) =>
-		new Promise((r) => {
+	const waitFor = cb =>
+		new Promise(r => {
 			let interval;
 			interval = setInterval(() => {
 				if (!cb()) return;
@@ -25,15 +25,15 @@
 		});
 	}
 
-	const fileBlob = await new Promise((resolve) => {
+	const fileBlob = await new Promise(resolve => {
 		const input = document.querySelector('#file-input');
-		input.addEventListener('input', (e) => resolve(input.files[0]));
+		input.addEventListener('input', () => resolve(input.files[0]));
 	});
 
 	const fileLoadingStart = performance.now();
 
 	const file = (window.file = new DataView(
-		await new Promise((resolve) => {
+		await new Promise(resolve => {
 			const reader = new FileReader();
 			reader.addEventListener('load', () => resolve(reader.result));
 			reader.readAsArrayBuffer(fileBlob);
@@ -135,7 +135,7 @@
 			vee.style.display = 'inline-block';
 		}
 
-		selection.addEventListener('mousedown', (e) => {
+		selection.addEventListener('mousedown', e => {
 			if (open) {
 				hide();
 				return;
@@ -165,7 +165,7 @@
 			);
 
 			if (docListener) return;
-			docListener = (e) => {
+			docListener = e => {
 				if (options.contains(e.target)) return;
 				hide();
 			};
@@ -208,22 +208,6 @@
 		return button;
 	});
 
-	const hovery = (window.hovery = (html, onhover) => {
-		const span = document.createElement('span');
-		span.style.cssText =
-			'background: #333; border: 1px solid #fff; color: #ccc; cursor: default; font-size: 0.9rem; padding: 0 3px;';
-		span.innerHTML = html;
-		span.addEventListener('mouseenter', () => {
-			span.style.background = '#666';
-			onhover(true);
-		});
-		span.addEventListener('mouseleave', () => {
-			span.style.background = '#333';
-			onhover(false);
-		});
-		return span;
-	});
-
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Quick Data Display                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
@@ -256,73 +240,82 @@
 	});
 
 	// barebones text, without any formatting or replacement characters
-	const bisAlphabetJapanese = [
-		'', 'ガ', 'ギ', 'グ', 'ゲ', 'ゴ', 'ザ', 'ジ', 'ズ', 'ゼ', 'ゾ', 'ダ', '×', 'ヅ', 'デ', 'ド',
-		'バ', 'ビ', 'ブ', 'べ', 'ボ', 'が', 'ぎ', 'ぐ', 'げ', 'ご', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ', 'ゃ',
-		'', '！', 'ゅ', 'ょ', 'っ', '%', '&', '\'', '(', ')', '・', '+', ',', '-', '.', '/',
-		'０', '１', '２', '３', '４', '５', '６', '７', '８', '９', ':', ';', '。', '=', '、', '？',
-		'一', 'Ａ', 'Ｂ', 'Ｃ', 'Ｄ', 'Ｅ', 'Ｆ', 'Ｇ', 'Ｈ', 'Ｉ', 'Ｊ', 'Ｋ', 'Ｌ', 'Ｍ', 'Ｎ', 'Ｏ',
-		'Ｐ', 'Ｑ', 'Ｒ', 'Ｓ', 'Ｔ', 'Ｕ', 'Ｖ', 'Ｗ', 'Ｘ', 'Ｙ', 'Ｚ', '[', '¥', ']', 'わ', 'を',
-		'ん', 'ａ', 'ｂ', 'ｃ', 'ｄ', 'ｅ', 'ｆ', 'ｇ', 'ｈ', 'ｉ', 'ｊ', 'ｋ', 'ｌ', 'ｍ', 'ｎ', 'ｏ',
-		'ｐ', 'ｑ', 'ｒ', 'ｓ', 'ｔ', 'ｕ', 'ｖ', 'ｗ', 'ｘ', 'ｙ', 'ｚ', 'ば', 'び', 'ぶ', '〜', 'べ',
-		'ぼ', 'ぱ', 'ぴ', 'ぷ', 'ぺ', '…', 'ぽ', 'だ', 'ぢ', 'づ', 'で', 'ど', 'ぁ', 'ぃ', 'ぅ', 'ぇ',
-		'ぉ', 'あ', 'い', 'う', 'え', 'お', 'か', 'き', 'く', 'け', 'こ', 'さ', 'し', 'す', 'せ', 'そ',
-		'「', '」', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ャ', 'ュ', 'ョ', 'ッ', 'ア', 'イ', 'ウ', 'エ', 'オ',
-		'カ', 'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'ス', 'セ', 'ソ', 'タ', 'チ', 'ッ', 'テ', 'ト', 'ナ',
-		'ニ', 'ヌ', 'ネ', 'ノ', 'ハ', 'ヒ', 'フ', 'ヘ', 'ホ', 'マ', 'ミ', 'ム', 'メ', 'モ', 'ヤ', 'ユ',
-		'ヨ', 'ラ', 'リ', 'ル', 'レ', 'ロ', 'ワ', 'ン', 'パ', 'ピ', 'プ', 'ペ', 'ポ', 'た', 'ち', 'つ',
-		'て', 'と', 'な', 'に', 'ぬ', 'ね', 'の', 'は', 'ひ', 'ふ', 'へ', 'ほ', 'ま', 'み', 'む', 'め',
-		'も', 'や', 'ゆ', 'よ', 'ら', 'り', 'る', 'れ', 'ろ',
-	];
-	const bisAlphabetLatin = [
-		'', '⬆︎', '⮕', '⬇︎', '⬅︎', 'Ⓧ', '', 'Ⓨ', '', '♥︎', '♪', '★', '×', 'ᵉ', 'ᵉʳ', 'ʳᵉ',
-		'↑', '', '↓', '', '←', '', '→', '', 'Ⓛ', '', 'Ⓡ', '', 'Ⓐ', '', 'Ⓑ', '',
-		' ', '!', '˝', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/',
-		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '', '=', '', '?',
-		'˵', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-		'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '', '_',
-		'`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 
-		'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '', '}', '~', '',
-		'©', '', ',', '', '„', '…', '●', '', '▲', '', '■', '', 'Œ', '', '', '',
-		'', '‘', '’', '“', '”', '•', '', '-', '', '', '', '', 'œ', '', '', '',
-		'', '¡', '', '', '', '¥', '', '', '', '', 'ª', '«', '', '', '', '',
-		'°', '', '', '', '', '', '', '', '', '', 'º', '»', '', '', '', '¿', // TODO: which is masculine ordinal indicator?
-		'À', 'Á', 'Â', '', 'Ä', 'Å', '', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï',
-		'', 'Ñ', 'Ò', 'Ó', 'Ô', '', 'Ö', '', '', 'Ù', 'Ú', 'Û', 'Ü', '', '', 'ẞ',
-		'à', 'á', 'â', '', 'ä', 'å', '', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
-		'', 'ñ', 'ò', 'ó', 'ô', '', 'ö', '', '', 'ù', 'ú', 'û', 'ü',
-	];
-	const bisAlphabetKorean = [];
-	const bisAlphabetChinese = [];
+	const alphabetJP = [];
+	alphabetJP.push('', 'ガ', 'ギ', 'グ', 'ゲ', 'ゴ', 'ザ', 'ジ', 'ズ', 'ゼ', 'ゾ', 'ダ', '×', 'ヅ', 'デ', 'ド');
+	alphabetJP.push('バ', 'ビ', 'ブ', 'べ', 'ボ', 'が', 'ぎ', 'ぐ', 'げ', 'ご', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ', 'ゃ');
+	alphabetJP.push('', '！', 'ゅ', 'ょ', 'っ', '%', '&', "'", '(', ')', '・', '+', ',', '-', '.', '/');
+	alphabetJP.push('０', '１', '２', '３', '４', '５', '６', '７', '８', '９', ':', ';', '。', '=', '、', '？');
+	alphabetJP.push('一', 'Ａ', 'Ｂ', 'Ｃ', 'Ｄ', 'Ｅ', 'Ｆ', 'Ｇ', 'Ｈ', 'Ｉ', 'Ｊ', 'Ｋ', 'Ｌ', 'Ｍ', 'Ｎ', 'Ｏ');
+	alphabetJP.push('Ｐ', 'Ｑ', 'Ｒ', 'Ｓ', 'Ｔ', 'Ｕ', 'Ｖ', 'Ｗ', 'Ｘ', 'Ｙ', 'Ｚ', '[', '¥', ']', 'わ', 'を');
+	alphabetJP.push('ん', 'ａ', 'ｂ', 'ｃ', 'ｄ', 'ｅ', 'ｆ', 'ｇ', 'ｈ', 'ｉ', 'ｊ', 'ｋ', 'ｌ', 'ｍ', 'ｎ', 'ｏ');
+	alphabetJP.push('ｐ', 'ｑ', 'ｒ', 'ｓ', 'ｔ', 'ｕ', 'ｖ', 'ｗ', 'ｘ', 'ｙ', 'ｚ', 'ば', 'び', 'ぶ', '〜', 'べ');
+	alphabetJP.push('ぼ', 'ぱ', 'ぴ', 'ぷ', 'ぺ', '…', 'ぽ', 'だ', 'ぢ', 'づ', 'で', 'ど', 'ぁ', 'ぃ', 'ぅ', 'ぇ');
+	alphabetJP.push('ぉ', 'あ', 'い', 'う', 'え', 'お', 'か', 'き', 'く', 'け', 'こ', 'さ', 'し', 'す', 'せ', 'そ');
+	alphabetJP.push('「', '」', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ャ', 'ュ', 'ョ', 'ッ', 'ア', 'イ', 'ウ', 'エ', 'オ');
+	alphabetJP.push('カ', 'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'ス', 'セ', 'ソ', 'タ', 'チ', 'ッ', 'テ', 'ト', 'ナ');
+	alphabetJP.push('ニ', 'ヌ', 'ネ', 'ノ', 'ハ', 'ヒ', 'フ', 'ヘ', 'ホ', 'マ', 'ミ', 'ム', 'メ', 'モ', 'ヤ', 'ユ');
+	alphabetJP.push('ヨ', 'ラ', 'リ', 'ル', 'レ', 'ロ', 'ワ', 'ン', 'パ', 'ピ', 'プ', 'ペ', 'ポ', 'た', 'ち', 'つ');
+	alphabetJP.push('て', 'と', 'な', 'に', 'ぬ', 'ね', 'の', 'は', 'ひ', 'ふ', 'へ', 'ほ', 'ま', 'み', 'む', 'め');
+	alphabetJP.push('も', 'や', 'ゆ', 'よ', 'ら', 'り', 'る', 'れ', 'ろ');
+
+	// TODO: which is masculine ordinal indicator?
+	const alphabetLatin = [];
+	alphabetLatin.push('', '⬆︎', '⮕', '⬇︎', '⬅︎', 'Ⓧ', '', 'Ⓨ', '', '♥︎', '♪', '★', '×', 'ᵉ', 'ᵉʳ', 'ʳᵉ');
+	alphabetLatin.push('↑', '', '↓', '', '←', '', '→', '', 'Ⓛ', '', 'Ⓡ', '', 'Ⓐ', '', 'Ⓑ', '');
+	alphabetLatin.push(' ', '!', '˝', '#', '$', '%', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/');
+	alphabetLatin.push('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '', '=', '', '?');
+	alphabetLatin.push('˵', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O');
+	alphabetLatin.push('P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '', '_');
+	alphabetLatin.push('`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o');
+	alphabetLatin.push('p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '', '}', '~', '');
+	alphabetLatin.push('©', '', ',', '', '„', '…', '●', '', '▲', '', '■', '', 'Œ', '', '', '');
+	alphabetLatin.push('', '‘', '’', '“', '”', '•', '', '-', '', '', '', '', 'œ', '', '', '');
+	alphabetLatin.push('', '¡', '', '', '', '¥', '', '', '', '', 'ª', '«', '', '', '', '');
+	alphabetLatin.push('°', '', '', '', '', '', '', '', '', '', 'º', '»', '', '', '', '¿');
+	alphabetLatin.push('À', 'Á', 'Â', '', 'Ä', 'Å', '', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï');
+	alphabetLatin.push('', 'Ñ', 'Ò', 'Ó', 'Ô', '', 'Ö', '', '', 'Ù', 'Ú', 'Û', 'Ü', '', '', 'ẞ');
+	alphabetLatin.push('à', 'á', 'â', '', 'ä', 'å', '', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î');
+	alphabetLatin.push('ï', '', 'ñ', 'ò', 'ó', 'ô', '', 'ö', '', '', 'ù', 'ú', 'û', 'ü');
+
+	const alphabetKO = [];
+	const alphabetChinese = [];
 	const bisUnicode = (window.bisUnicode = (dat, alphabetName) => {
 		const u8 = bufToU8(dat);
 		const out = [];
 
-		for (let o = 0; o < u8.length;) {
+		for (let o = 0; o < u8.length; ) {
 			const char = u8[o++];
 			if (char === 0xff) {
 				// formatting
 				const control = u8[o++];
-				if (control === 0) out.push(' '); // newline; ignore it here
-				else if (control === 1) { out.push('\n'); ++o; } // reset text
-				else if (control === 0x0a) ++o; // close textbox
-				else if (control === 0x0b) ++o; // new textbox page
-				else if (control === 0x0c) ++o; // wait
-				else if (control === 0x0f) o += 2; // variable display
+				if (control === 0)
+					out.push(' '); // newline; ignore it here
+				else if (control === 1) {
+					// reset text
+					out.push('\n');
+					++o;
+				} else if (control === 0x0a)
+					++o; // close textbox
+				else if (control === 0x0b)
+					++o; // new textbox page
+				else if (control === 0x0c)
+					++o; // wait
+				else if (control === 0x0f)
+					o += 2; // variable display
 				else if (control === 0x11) ++o;
 				continue;
 			}
 
 			if (alphabetName === 'latin') {
-				if (bisAlphabetLatin[char]) out.push(bisAlphabetLatin[char]);
+				if (alphabetLatin[char]) out.push(alphabetLatin[char]);
 			} else if (alphabetName === 'japanese' || alphabetName === 'korean') {
 				if (char >= 0xf9) {
 					out.push('?');
 					++o;
 				} else if (alphabetName === 'japanese') {
-					if (bisAlphabetJapanese[char]) out.push(bisAlphabetJapanese[char]);
+					if (alphabetJP[char]) out.push(alphabetJP[char]);
 				} else if (alphabetName === 'korean') {
-					if (bisAlphabetKorean[char]) out.push(bisAlphabetKorean[char]);
+					if (alphabetKO[char]) out.push(alphabetKO[char]);
 				}
 			} else if (alphabetName === 'chinese') {
 			}
@@ -345,11 +338,11 @@
 	const bits = (window.bits = (o, l, buf) => {
 		const slice = buf.buffer.slice(buf.byteOffset + o, buf.byteOffset + o + l);
 		return Array.from(new Uint8Array(slice))
-			.map((x) => x.toString(2).padStart(8, '0'))
+			.map(x => x.toString(2).padStart(8, '0'))
 			.join(' ');
 	});
 
-	const sanitize = (window.sanitize = (s) => s.replaceAll('<', '&lt;').replaceAll('>', '&gt;'));
+	const sanitize = (window.sanitize = s => s.replaceAll('<', '&lt;').replaceAll('>', '&gt;'));
 
 	const addHTML = (window.addHTML = (el, html) => {
 		const container = document.createElement(el.tagName); // tables do a *lot* of weird stuff without this
@@ -368,10 +361,10 @@
 		bitmap[pixel * 4 + 3] = 255;
 	});
 
-	const str8 = (window.str8 = (x) => x.toString(16).padStart(2, '0'));
-	const str16 = (window.str16 = (x) => x.toString(16).padStart(4, '0'));
-	const str24 = (window.str24 = (x) => x.toString(16).padStart(6, '0'));
-	const str32 = (window.str32 = (x) => x.toString(16).padStart(8, '0'));
+	const str8 = (window.str8 = x => x.toString(16).padStart(2, '0'));
+	const str16 = (window.str16 = x => x.toString(16).padStart(4, '0'));
+	const str24 = (window.str24 = x => x.toString(16).padStart(6, '0'));
+	const str32 = (window.str32 = x => x.toString(16).padStart(8, '0'));
 
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Algorithms                                                                                                    |
@@ -384,7 +377,7 @@
 	// | Misc                                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const unpackSegmented = (window.unpackSegmented = (dat) => {
+	const unpackSegmented = (window.unpackSegmented = dat => {
 		if (dat.byteLength < 4) return [];
 		const offsetsEnd = dat.getUint32(0, true);
 		let lastSplit = offsetsEnd;
@@ -400,7 +393,7 @@
 		return segments;
 	});
 
-	const unpackSegmented16 = (window.unpackSegmented16 = (dat) => {
+	const unpackSegmented16 = (window.unpackSegmented16 = dat => {
 		if (dat.byteLength < 2) return [];
 		const offsetsEnd = dat.getUint16(0, true);
 		let lastSplit = offsetsEnd;
@@ -497,7 +490,7 @@
 		section.appendChild(content);
 
 		let visible = true;
-		const toggleVisible = (newVisible) => {
+		const toggleVisible = newVisible => {
 			if (newVisible === visible) return;
 			visible = newVisible;
 			settings[`section.${title}.visible`] = visible;
@@ -508,7 +501,7 @@
 
 			section.style.height = visible ? '' : '32px';
 		};
-		reveal.addEventListener('mousedown', (e) => {
+		reveal.addEventListener('mousedown', e => {
 			if (e.button === 0) toggleVisible(!visible);
 		});
 		toggleVisible(settings[`section.${title}.visible`] ?? true);
@@ -533,7 +526,7 @@
 	// | Section: ROM Headers                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const headers = (window.headers = createSection('ROM Headers', (section) => {
+	const headers = (window.headers = createSection('ROM Headers', section => {
 		const fields = [];
 		const headers = {};
 
@@ -594,14 +587,15 @@
 	// | Section: File System                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fs = (window.fs = createSection('File System', (section) => {
+	const fs = (window.fs = createSection('File System', section => {
 		const fs = new Map();
 
 		fs.arm9 = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
 		fs.arm7 = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
 
 		// NA, EU, and KO versions compress initial arm9/arm7; no idea what in the header controls that
-		let arm7Compressed = false, arm9Compressed = false;
+		let arm7Compressed = false;
+		let arm9Compressed = false;
 		if (['CLJE', 'CLJP', 'CLJK'].includes(headers.gamecode)) {
 			// NA, EU, and KO versions completely compress initial arm9/arm7
 			fs.arm9 = blz(fs.arm9);
@@ -716,13 +710,19 @@
 			if (singleSelect.value === 0) {
 				singleOutput.textContent = '';
 				if (singleDecompression.value === 0) {
-					download('arm9.bin', sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size));
+					download(
+						'arm9.bin',
+						sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size),
+					);
 				} else download('arm9.bin', fs.arm9);
 				return;
 			} else if (singleSelect.value === 1) {
 				singleOutput.textContent = '';
 				if (singleDecompression.value === 0) {
-					download('arm7.bin', sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size));
+					download(
+						'arm7.bin',
+						sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size),
+					);
 				} else download('arm7.bin', fs.arm7);
 				return;
 			}
@@ -807,13 +807,16 @@
 	// | Section: Overlay Table                                                                                        |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const ovt = (window.ovt = createSection('Overlay Table', (section) => {
+	const ovt = (window.ovt = createSection('Overlay Table', section => {
 		const ovt = {};
 
 		const mode = dropdown(['RAM Arrangement', 'Overlay Entries', 'String Search'], 0, () => update());
 		section.appendChild(mode);
 
-		addHTML(section, `<span style="margin: 0 5px;">Base address: <code>0x02000000</code>, min string length 6</span>`);
+		addHTML(
+			section,
+			`<span style="margin: 0 5px;">Base address: <code>0x02000000</code>, min string length 6</span>`,
+		);
 
 		ovt.overlays = [];
 		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
@@ -882,21 +885,21 @@
 
 				const boxExecutable = document.createElement('div');
 				boxExecutable.style.cssText = `background: var(--clicky-fill); border: 1px solid var(--clicky-box); position: absolute; top: 0; height: 20px;`;
-				boxExecutable.style.left = `${(leftAddress - 0x02000000) / 0x400000 * 100}%`;
-				boxExecutable.style.width = `${size / 0x400000 * 100}%`;
+				boxExecutable.style.left = `${((leftAddress - 0x02000000) / 0x400000) * 100}%`;
+				boxExecutable.style.width = `${(size / 0x400000) * 100}%`;
 				right.appendChild(boxExecutable);
 
 				const boxStatic = document.createElement('div');
 				boxStatic.style.cssText = `background: var(--clicky-fill); position: absolute; top: 0; height: 20px;`;
-				boxStatic.style.left = `${(leftAddress + size - 0x02000000) / 0x400000 * 100}%`;
-				boxStatic.style.width = `${bss / 0x400000 * 100}%`;
+				boxStatic.style.left = `${((leftAddress + size - 0x02000000) / 0x400000) * 100}%`;
+				boxStatic.style.width = `${(bss / 0x400000) * 100}%`;
 				right.appendChild(boxStatic);
 
 				let bssLabel;
 				if (bss) {
 					bssLabel = document.createElement('div');
 					bssLabel.style.cssText = `position: absolute; top: 0; height: 20px; font: 1em "Red Hat Mono"`;
-					bssLabel.style.left = `calc(${(leftAddress + size + bss - 0x02000000) / 0x400000 * 100}% + 10px)`;
+					bssLabel.style.left = `calc(${((leftAddress + size + bss - 0x02000000) / 0x400000) * 100}% + 10px)`;
 					bssLabel.textContent = `(BSS 0x${bss.toString(16)})`;
 					right.appendChild(bssLabel);
 				}
@@ -942,13 +945,16 @@
 			const table = document.createElement('table');
 			table.className = 'bordered';
 
-			addHTML(table, `<tr>
-				<th>ID</th>
-				<th>RAM Region</th>
-				<th>BSS Region</th>
-				<th>Static Initializers</th>
-				<th>Compressed?</th>
-			</tr>`);
+			addHTML(
+				table,
+				`<tr>
+					<th>ID</th>
+					<th>RAM Region</th>
+					<th>BSS Region</th>
+					<th>Static Initializers</th>
+					<th>Compressed?</th>
+				</tr>`,
+			);
 
 			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
 				const dat = sliceDataView(file, o, o + 0x20);
@@ -982,12 +988,19 @@
 
 				if (compression) {
 					const compressionType = [, 'BLZ'][compression >> 24] ?? '?';
-					columns.push(`${compression >> 24} (${compressionType})<br>len 0x${(compression & 0xffffff).toString(16)}`);
+					columns.push(
+						`${compression >> 24} (${compressionType})<br>len 0x${(compression & 0xffffff).toString(16)}`,
+					);
 				} else {
 					columns.push('-');
 				}
 
-				addHTML(table, `<tr style="font-family: Red Hat Mono; text-align: center;">${columns.map(x => '<td>' + x + '</td>').join('')}</tr>`);
+				addHTML(
+					table,
+					'<tr style="font-family: Red Hat Mono; text-align: center;">' +
+						columns.map(x => '<td>' + x + '</td>').join('') +
+						'</tr>',
+				);
 			}
 
 			preview.appendChild(table);
@@ -997,10 +1010,12 @@
 				const str24 = x => x.toString(16).padStart(6, '0');
 
 				const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, attributes] = bufToU32(dat);
-				lines.push(`${String(id).padStart(4, '0')}`
-					+ ` | ram ${str24(ramStart - 0x02000000)}-${str24(ramStart - 0x02000000 + ramSize)}`
-					+ ` | static ${str24(staticStart - 0x02000000)}-${str24(staticEnd - 0x02000000)}`
-					+ ` | bss ${str16(bssSize)} | attributes ${str32(attributes)} | size ${str32(ramSize)}`);
+				lines.push(
+					`${String(id).padStart(4, '0')}` +
+						` | ram ${str24(ramStart - 0x02000000)}-${str24(ramStart - 0x02000000 + ramSize)}` +
+						` | static ${str24(staticStart - 0x02000000)}-${str24(staticEnd - 0x02000000)}` +
+						` | bss ${str16(bssSize)} | attributes ${str32(attributes)} | size ${str32(ramSize)}`,
+				);
 			}
 
 			const downloadContent = lines.join('\n');
@@ -1018,9 +1033,16 @@
 				for (let o = 0; o < u8.length; ++o) {
 					// valid characters: A-Z a-z 0-9 - _ . , /
 					const byte = u8[o];
-					const valid = (0x41 <= byte && byte <= 0x5a) || (0x61 <= byte && byte <= 0x7a)
-						|| (0x30 <= byte && byte <= 0x39) || byte === 0x2d || byte === 0x5f || byte === 0x2e
-						|| byte === 0x2c || byte === 0x2f || byte === 0x20;
+					const valid =
+						(0x41 <= byte && byte <= 0x5a) ||
+						(0x61 <= byte && byte <= 0x7a) ||
+						(0x30 <= byte && byte <= 0x39) ||
+						byte === 0x2d ||
+						byte === 0x5f ||
+						byte === 0x2e ||
+						byte === 0x2c ||
+						byte === 0x2f ||
+						byte === 0x20;
 					if (!valid) {
 						const length = o - (lastInvalid + 1);
 						if (length >= 6) found.push(latin1(lastInvalid + 1, length, dat));
@@ -1061,7 +1083,7 @@
 	// | Section: File System (Extended)                                                                               |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fsext = (window.fsext = createSection('File System (Extended)', (section) => {
+	const fsext = (window.fsext = createSection('File System (Extended)', section => {
 		const fsext = {};
 
 		const varLengthSegments = (fsext.varLengthSegments = (start, dat, segmentsDat) => {
@@ -1136,7 +1158,6 @@
 			fsext.fdfxtex = varLengthSegments(0x4a628, fs.overlay(4), fs.get('/FRfx/FDfxTex.dat'));
 			fsext.fofxpal = varLengthSegments(0x4a4fc, fs.overlay(4), fs.get('/FRfx/FOfxPal.dat'));
 			fsext.fofxtex = varLengthSegments(0x4a3d0, fs.overlay(4), fs.get('/FRfx/FOfxTex.dat'));
-
 
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
@@ -1338,7 +1359,7 @@
 	// | Section: Field Palette Animations                                                                             |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fpaf = (window.fpaf = createSection('Field Palette Animations', (section) => {
+	const fpaf = (window.fpaf = createSection('Field Palette Animations', section => {
 		const fpaf = {};
 
 		const table = document.createElement('table');
@@ -1482,7 +1503,7 @@
 			}
 		};
 
-		fpaf.stringify = (segments) => {
+		fpaf.stringify = segments => {
 			if (!segments.length) return [];
 			const segment = bufToU16(segments[0]);
 			let o = 0;
@@ -1543,7 +1564,9 @@
 				}
 
 				strings.push(
-					parts.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`).join(' '),
+					parts
+						.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`)
+						.join(' '),
 				);
 			}
 
@@ -1555,12 +1578,12 @@
 			addHTML(
 				table,
 				`<tr style="${i < fsext.fpaf.segments.length - 2 ? 'border-bottom: 1px solid var(--line);' : ''}">
-			<td><code>${i}</code></td>
-			<td style="padding: 10px 0;"><ul>${fpaf
-				.stringify(s)
-				.map((x) => '<li><code>' + x + '</code></li>')
-				.join('')}</ul></td>
-		</tr>`,
+					<td><code>${i}</code></td>
+					<td style="padding: 10px 0;"><ul>${fpaf
+						.stringify(s)
+						.map(x => '<li><code>' + x + '</code></li>')
+						.join('')}</ul></td>
+				</tr>`,
 			);
 		}
 
@@ -1578,7 +1601,7 @@
 	// | Section: FMapData Tile Viewer                                                                                 |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fmapdataTiles = (window.fmapdataTiles = createSection('FMapData Tile Viewer', (section) => {
+	const fmapdataTiles = (window.fmapdataTiles = createSection('FMapData Tile Viewer', section => {
 		const fmapdataTiles = {};
 		const fieldFile = fs.get('/FMap/FMapData.dat');
 
@@ -1699,7 +1722,7 @@
 						paletteSelectPlaceholder = span;
 					} else {
 						const select = dropdown(
-							paletteOptions.map((x) => `Palette for Room 0x${x.toString(16)}`),
+							paletteOptions.map(x => `Palette for Room 0x${x.toString(16)}`),
 							0,
 							() => render(),
 						);
@@ -1806,7 +1829,7 @@
 	// | Section: Battle Maps                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const battle = (window.battle = createSection('Battle Maps', (section) => {
+	const battle = (window.battle = createSection('Battle Maps', section => {
 		const battle = {};
 
 		const bmapFile = fs.get('/BMap/BMap.dat');
@@ -1920,7 +1943,7 @@
 			battle.room = room = {
 				tileset: rawRoom.tileset?.byteLength ? bufToU8(lzBis(rawRoom.tileset)) : undefined,
 				palette: rawRoom.palette?.byteLength ? rgb15To32(bufToU16(rawRoom.palette)) : undefined,
-				tilemaps: rawRoom.tilemaps.map((x) => (x?.byteLength ? bufToU16(x) : undefined)),
+				tilemaps: rawRoom.tilemaps.map(x => (x?.byteLength ? bufToU16(x) : undefined)),
 				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength
 					? bufToU8(lzBis(rawRoom.tilesetAnimated))
 					: undefined,
@@ -1987,7 +2010,11 @@
 
 			// metadata below
 			metaPreview.innerHTML = '';
-			if (room.tileset) addHTML(metaPreview, `<div><code>[0]</code> tileset: 0x${Math.ceil(room.tileset.length / 32).toString(16)} tiles</div>`);
+			if (room.tileset)
+				addHTML(
+					metaPreview,
+					`<div><code>[0]</code> tileset: 0x${Math.ceil(room.tileset.length / 32).toString(16)} tiles</div>`,
+				);
 			else addHTML(metaPreview, '<div><code>[0]</code> tileset: none</div>');
 
 			addHTML(metaPreview, `<div><code>[1]</code> palette: ${room.palette ? 'exists' : ''}</div>`);
@@ -1999,37 +2026,54 @@
 				const tilemap = room.tilemaps[layer];
 				if (tilemap?.byteLength) {
 					const tilemapContainer = document.createElement('div');
-					tilemapContainer.style.cssText = 'border: 1px solid var(--line); padding: 5px; display: none; overflow-x: scroll;';
-					container.appendChild(checkbox('Tilemap', false, checked => {
-						if (checked) {
-							const lines = [];
-							for (let y = 0, o = 0; y < 32; ++y) {
-								const line = [];
-								for (let x = 0; x < 64; ++x, ++o) {
-									line.push(tilemap[o] ? str16(tilemap[o]) : '----');
+					tilemapContainer.style.cssText =
+						'border: 1px solid var(--line); padding: 5px; display: none; overflow-x: scroll;';
+					container.appendChild(
+						checkbox('Tilemap', false, checked => {
+							if (checked) {
+								const lines = [];
+								for (let y = 0, o = 0; y < 32; ++y) {
+									const line = [];
+									for (let x = 0; x < 64; ++x, ++o) {
+										line.push(tilemap[o] ? str16(tilemap[o]) : '----');
+									}
+									lines.push(line.join(' '));
 								}
-								lines.push(line.join(' '));
+								tilemapContainer.style.display = '';
+								tilemapContainer.innerHTML = `<code style="white-space: pre;">${lines.join('\n')}</code>`;
+							} else {
+								tilemapContainer.style.display = 'none';
+								tilemapContainer.innerHTML = '';
 							}
-							tilemapContainer.style.display = '';
-							tilemapContainer.innerHTML = `<code style="white-space: pre;">${lines.join('\n')}</code>`;
-						} else {
-							tilemapContainer.style.display = 'none';
-							tilemapContainer.innerHTML = '';
-						}
-					}));
+						}),
+					);
 					container.appendChild(tilemapContainer);
 				}
 				metaPreview.appendChild(container);
 			}
 
 			const palAnimLines = fpaf.stringify(room.paletteAnimations);
-			addHTML(metaPreview, `<div><code>[5]</code> paletteAnimations: <ul>${palAnimLines.map((x) => '<li><code>' + x + '</code></li>').join('')}</ul></div>`);
+			addHTML(
+				metaPreview,
+				'<div><code>[5]</code> paletteAnimations: <ul>' +
+					palAnimLines.map(x => '<li><code>' + x + '</code></li>').join('') +
+					'</ul></div>',
+			);
 
-			addHTML(metaPreview, `<div><code>[6]</code> tileAnimations: <ul>${room.tileAnimations.map((x) => {
-				return ('<li><code>' +
-					x.parts.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`).join(' ') +
-					'</code></li>');
-			}).join('')}</ul></div>`);
+			addHTML(
+				metaPreview,
+				`<div><code>[6]</code> tileAnimations: <ul>${room.tileAnimations
+					.map(x => {
+						return (
+							'<li><code>' +
+							x.parts
+								.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`)
+								.join(' ') +
+							'</code></li>'
+						);
+					})
+					.join('')}</ul></div>`,
+			);
 
 			if (room.tilesetAnimated) {
 				let tilesEnd = 0;
@@ -2192,7 +2236,7 @@
 			const rawRoom = battle.bmaps[roomId];
 			const tileset = bufToU8(lzBis(rawRoom.tileset));
 			const palette = rgb15To32(bufToU16(rawRoom.palette));
-			const tilemaps = rawRoom.tilemaps.map((x) => (x?.byteLength ? bufToU16(x) : undefined));
+			const tilemaps = rawRoom.tilemaps.map(x => (x?.byteLength ? bufToU16(x) : undefined));
 
 			const inset = margins ? 0 : 4;
 
@@ -2231,7 +2275,7 @@
 	// | Section: Giant Battle Maps                                                                                    |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const battleGiant = (window.battleGiant = createSection('Giant Battle Maps', (section) => {
+	const battleGiant = (window.battleGiant = createSection('Giant Battle Maps', section => {
 		const battleGiant = {};
 
 		if (!fs.has('/BMapG/BMapG.dat')) {
@@ -2278,7 +2322,7 @@
 			const room = unpackSegmented(lzBis(fsext.bmapg.segments[bmapgSelect.value]));
 			const palette = room[0]?.byteLength && rgb15To32(bufToU16(room[0]));
 			const tileset = room[1]?.byteLength && bufToU8(room[1]);
-			const tilemaps = [2, 3].map((index) => room[index]?.byteLength && bufToU16(room[index]));
+			const tilemaps = [2, 3].map(index => room[index]?.byteLength && bufToU16(room[index]));
 			const unknown4 = room[4];
 			const unknown5 = room[5];
 			const unknown6 = room[6];
@@ -2360,7 +2404,7 @@
 	// | Section: Menu Maps                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const menu = (window.menu = createSection('Menu Maps', (section) => {
+	const menu = (window.menu = createSection('Menu Maps', section => {
 		const menu = {};
 
 		const menuFile = fs.get('/MMap/MMap.dat');
@@ -2379,19 +2423,19 @@
 		}
 
 		const tilesetSelect = dropdown(
-			tilesetOptions.map((x) => x[0]),
+			tilesetOptions.map(x => x[0]),
 			0,
 			() => render(),
 		);
 		section.appendChild(tilesetSelect);
 		const tilemapSelect = dropdown(
-			tilemapOptions.map((x) => x[0]),
+			tilemapOptions.map(x => x[0]),
 			0,
 			() => render(),
 		);
 		section.appendChild(tilemapSelect);
 		const paletteSelect = dropdown(
-			paletteOptions.map((x) => x[0]),
+			paletteOptions.map(x => x[0]),
 			0,
 			() => render(),
 		);
@@ -2554,7 +2598,7 @@
 	// | Section: Fonts                                                                                                |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fonts = (window.fonts = createSection('Fonts', (section) => {
+	const fonts = (window.fonts = createSection('Fonts', section => {
 		const fonts = {};
 
 		fonts.glyphs1Bit = (dat, dataWidth, dataHeight, glyphWidth, glyphHeight) => {
@@ -2563,7 +2607,7 @@
 
 			const glyphY = glyphHeight - dataHeight - 3;
 
-			const byteSkip = Math.ceil(dataWidth * dataHeight / 8);
+			const byteSkip = Math.ceil((dataWidth * dataHeight) / 8);
 			for (let o = 0; o < u8.length; o += byteSkip) {
 				const bitmap = new Uint8Array(glyphWidth * glyphHeight);
 				for (let y = 0, bitOffset = 0; y < dataHeight; ++y) {
@@ -2588,7 +2632,7 @@
 			const u8 = bufToU8(dat);
 			const glyphs = [];
 
-			for (let o = 0; o < u8.length;) {
+			for (let o = 0; o < u8.length; ) {
 				const bitmap = new Uint8Array(width * height);
 				const startO = o;
 				for (let baseX = 0; baseX < width; baseX += 8) {
@@ -2601,7 +2645,7 @@
 							for (let y = 0; y < 4; ++y, ++bitOffset) {
 								const alpha = u8[alphaO + (bitOffset >> 3)] & (1 << (bitOffset & 7));
 								const shade = u8[shadeO + (bitOffset >> 3)] & (1 << (bitOffset & 7));
-								bitmap[(baseY + y) * width + baseX + x] = alpha ? shade ? 1 : 2 : 0;
+								bitmap[(baseY + y) * width + baseX + x] = alpha ? (shade ? 1 : 2) : 0;
 							}
 						}
 					}
@@ -2613,7 +2657,7 @@
 			return glyphs;
 		};
 
-		fonts.standard = (dat) => {
+		fonts.standard = dat => {
 			const chars = new Map();
 			const charMapSize = dat.getUint32(0, true);
 			const segments = unpackSegmentedUnsorted(dat, 4);
@@ -2639,9 +2683,13 @@
 					}
 				}
 
-				const glyphs = fonts.glyphs2Bit(sliceDataView(glyphTable, o, glyphTable.byteLength), glyphWidth, glyphHeight);
+				const glyphs = fonts.glyphs2Bit(
+					sliceDataView(glyphTable, o, glyphTable.byteLength),
+					glyphWidth,
+					glyphHeight,
+				);
 				for (let j = 0; j < glyphs.length; ++j) {
-					byGlyph.set(i << 8 | j, {
+					byGlyph.set((i << 8) | j, {
 						actualWidth: actualWidths[j] + 1,
 						bitmap: glyphs[j],
 						height: glyphHeight,
@@ -2712,7 +2760,9 @@
 					for (let x = 0; x < width; ++x) {
 						const color = glyphBitmap[y * width + x];
 						// +1 on each component for padding
-						if (color) bitmap[(baseY + y + 1) * bitmapWidth + baseX + x + 1] = color === 1 ? 0xffdee6ef : 0xff314263;
+						if (color)
+							bitmap[(baseY + y + 1) * bitmapWidth + baseX + x + 1] =
+								color === 1 ? 0xffdee6ef : 0xff314263;
 					}
 				}
 
@@ -2727,65 +2777,65 @@
 		};
 
 		const errorGlyph = {
-			bitmap: new Uint32Array([
-				3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
-				3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3, // padding
-				3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
-			]),
+			bitmap: new Uint32Array(16 * 11),
 			width: 16,
 			height: 11,
 			actualWidth: 16,
 		};
+		errorGlyph.bitmap.set([3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], 0);
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16); // padding
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 2); // padding
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 3);
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 4);
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 5);
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 6);
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 7);
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 8); // padding
+		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 9); // padding
+		errorGlyph.bitmap.set([3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], 16 * 10);
+
 		const variableGlyph = {
-			bitmap: new Uint32Array([
-				4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, //
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, // padding
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, // padding
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,
-				4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4, // padding
-				4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
-			]),
+			bitmap: new Uint32Array(16 * 16),
 			width: 16,
 			height: 16,
 			actualWidth: 16,
 		};
-		const customGlyphChars = [
-			[0,1,0, 1,0,1, 1,0,1, 1,0,1, 0,1,0], // 0
-			[0,1,0, 1,1,0, 0,1,0, 0,1,0, 1,1,1], // 1
-			[0,1,0, 1,0,1, 0,0,1, 0,1,0, 1,1,1], // 2
-			[1,1,0, 0,0,1, 1,1,0, 0,0,1, 1,1,0], // 3
-			[1,0,1, 1,0,1, 1,1,1, 0,0,1, 0,0,1], // 4
-			[1,1,1, 1,0,0, 1,1,0, 0,0,1, 1,1,0], // 5
-			[0,1,1, 1,0,0, 1,1,1, 1,0,1, 0,1,0], // 6
-			[1,1,1, 0,0,1, 0,0,1, 0,1,0, 0,1,0], // 7
-			[0,1,0, 1,0,1, 0,1,0, 1,0,1, 0,1,0], // 8
-			[0,1,0, 1,0,1, 0,1,1, 0,0,1, 1,1,0], // 9
-			[0,1,0, 1,0,1, 1,1,1, 1,0,1, 1,0,1], // A
-			[1,1,0, 1,0,1, 1,1,0, 1,0,1, 1,1,0], // B
-			[0,1,1, 1,0,0, 1,0,0, 1,0,0, 0,1,1], // C
-			[1,1,0, 1,0,1, 1,0,1, 1,0,1, 1,1,0], // D
-			[1,1,1, 1,0,0, 1,1,1, 1,0,0, 1,1,1], // E
-			[1,1,1, 1,0,0, 1,1,1, 1,0,0, 1,0,0], // F
-			[0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0], // (empty)
-		];
+		variableGlyph.bitmap.set([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4], 0);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 1); // padding
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 2);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 3);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 4);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 5);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 6);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 7); // padding
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 8); // padding
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 9);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 10);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 11);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 12);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 13);
+		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 14); // padding
+		variableGlyph.bitmap.set([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4], 16 * 15);
+
+		const customGlyphChars = [];
+		customGlyphChars.push([0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0]); // 0
+		customGlyphChars.push([0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1]); // 1
+		customGlyphChars.push([0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1]); // 2
+		customGlyphChars.push([1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0]); // 3
+		customGlyphChars.push([1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1]); // 4
+		customGlyphChars.push([1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0]); // 5
+		customGlyphChars.push([0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0]); // 6
+		customGlyphChars.push([1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0]); // 7
+		customGlyphChars.push([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]); // 8
+		customGlyphChars.push([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 0]); // 9
+		customGlyphChars.push([0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1]); // A
+		customGlyphChars.push([1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0]); // B
+		customGlyphChars.push([0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1]); // C
+		customGlyphChars.push([1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0]); // D
+		customGlyphChars.push([1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1]); // E
+		customGlyphChars.push([1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0]); // F
+		customGlyphChars.push([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // (empty)
+
 		const drawCustomChar = (destGlyphBitmap, i, baseX, baseY, color) => {
 			const charBitmap = customGlyphChars[i];
 			for (let y = 0; y < 5; ++y) {
@@ -2824,7 +2874,7 @@
 			let textWritten = false;
 
 			const u8 = bufToU8(message);
-			for (let o = 0; o < u8.length;) {
+			for (let o = 0; o < u8.length; ) {
 				let glyph;
 				const char = u8[o++];
 				if (char === 0xff) {
@@ -2851,7 +2901,8 @@
 							resize();
 							textWritten = false;
 						}
-					} else if (control === 0x0a) ++o; // close textbox
+					} else if (control === 0x0a)
+						++o; // close textbox
 					else if (control === 0x0b) {
 						// new textbox page (may scroll down) TODO doesn't BIS have scrolling textboxes???
 						++o; // ?
@@ -2868,7 +2919,8 @@
 							resize();
 							textWritten = false;
 						}
-					} else if (control === 0x0c) ++o; // wait TODO display some placeholder here
+					} else if (control === 0x0c)
+						++o; // wait TODO display some placeholder here
 					else if (control === 0x0f) {
 						// variable display, generate a glyph
 						const fine = u8[o++];
@@ -2878,23 +2930,40 @@
 						drawCustomChar(variableGlyph.bitmap, broad >> 4, 4, 9, 4);
 						drawCustomChar(variableGlyph.bitmap, broad & 0xf, 9, 9, 4);
 						glyph = variableGlyph;
-					} else if (control === 0x11) ++o; // button prompt TODO show this
-					else if (control === 0x20) [darkColor, shadowColor] = [0xff314263, 0xffdee6ef]; // default
-					else if (control === 0x21) [darkColor, shadowColor] = [0xffdee6ef, 0xff3a4252]; // (239,230,222) (82,66,58)
-					else if (control === 0x22) [darkColor, shadowColor] = [0xff3a4252, 0xff6ba5c5]; // (82,66,58) (197,165,107)
-					else if (control === 0x23) [darkColor, shadowColor] = [0xff6ba5c5, 0xffa5cee6]; // (197,165,107) (230,206,165)
-					else if (control === 0x24) [darkColor, shadowColor] = [0xffa5cee6, 0xffd6f7ff]; // (230,206,165) (255,247,214)
-					else if (control === 0x25) [darkColor, shadowColor] = [0xffd6f7ff, 0xffffffff]; // (255,247,214) (255,255,255)
-					else if (control === 0x26) [darkColor, shadowColor] = [0xffffffff, 0xff00c500]; // (255,255,255) (0,197,0)
-					else if (control === 0x27) [darkColor, shadowColor] = [0xff00c500, 0xffdeffe6]; // (0,197,0) (230,255,222)
-					else if (control === 0x28) [darkColor, shadowColor] = [0xffdeff17, 0xff007bff]; // (230,255,222) (255,123,0)
-					else if (control === 0x29) [darkColor, shadowColor] = [0xff007bff, 0xffc5e6ff]; // (255,123,0) (255,230,197)
-					else if (control === 0x2a) [darkColor, shadowColor] = [0xffc5e6ff, 0xffff5a31]; // (255,230,197) (49,90,255)
-					else if (control === 0x2b) [darkColor, shadowColor] = [0xffff5a31, 0xfff7f7e6]; // (49,90,255) (230,247,247)
-					else if (control === 0x2c) [darkColor, shadowColor] = [0xfff7f7e6, 0xff0000ff]; // (230,247,247) (255,0,0)
-					else if (control === 0x2d) [darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
-					else if (control === 0x2e) [darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
-					else if (control === 0x2f) [darkColor, shadowColor] = [0x00000000, 0xff314263]; // transparent (99,66,49)
+					} else if (control === 0x11)
+						++o; // button prompt TODO show this
+					else if (control === 0x20)
+						[darkColor, shadowColor] = [0xff314263, 0xffdee6ef]; // default
+					else if (control === 0x21)
+						[darkColor, shadowColor] = [0xffdee6ef, 0xff3a4252]; // (239,230,222) (82,66,58)
+					else if (control === 0x22)
+						[darkColor, shadowColor] = [0xff3a4252, 0xff6ba5c5]; // (82,66,58) (197,165,107)
+					else if (control === 0x23)
+						[darkColor, shadowColor] = [0xff6ba5c5, 0xffa5cee6]; // (197,165,107) (230,206,165)
+					else if (control === 0x24)
+						[darkColor, shadowColor] = [0xffa5cee6, 0xffd6f7ff]; // (230,206,165) (255,247,214)
+					else if (control === 0x25)
+						[darkColor, shadowColor] = [0xffd6f7ff, 0xffffffff]; // (255,247,214) (255,255,255)
+					else if (control === 0x26)
+						[darkColor, shadowColor] = [0xffffffff, 0xff00c500]; // (255,255,255) (0,197,0)
+					else if (control === 0x27)
+						[darkColor, shadowColor] = [0xff00c500, 0xffdeffe6]; // (0,197,0) (230,255,222)
+					else if (control === 0x28)
+						[darkColor, shadowColor] = [0xffdeff17, 0xff007bff]; // (230,255,222) (255,123,0)
+					else if (control === 0x29)
+						[darkColor, shadowColor] = [0xff007bff, 0xffc5e6ff]; // (255,123,0) (255,230,197)
+					else if (control === 0x2a)
+						[darkColor, shadowColor] = [0xffc5e6ff, 0xffff5a31]; // (255,230,197) (49,90,255)
+					else if (control === 0x2b)
+						[darkColor, shadowColor] = [0xffff5a31, 0xfff7f7e6]; // (49,90,255) (230,247,247)
+					else if (control === 0x2c)
+						[darkColor, shadowColor] = [0xfff7f7e6, 0xff0000ff]; // (230,247,247) (255,0,0)
+					else if (control === 0x2d)
+						[darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
+					else if (control === 0x2e)
+						[darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
+					else if (control === 0x2f)
+						[darkColor, shadowColor] = [0x00000000, 0xff314263]; // transparent (99,66,49)
 					else if (control === 0x40) {
 						// normal font
 						[currentFont, currentReplacementFont, rocFont] = [font, altFonts[0], defaultRocFont];
@@ -2913,7 +2982,7 @@
 						glyph = variableGlyph;
 					} else if (control === 0xe8) noLetterSpacing = true;
 					else if (control === 0xef) noLetterSpacing = false;
-					
+
 					if (!glyph) continue; // some control characters are drawn
 				}
 
@@ -2985,7 +3054,8 @@
 						const pixel = glyph.bitmap[y * glyph.width + x];
 						if (pixel === 1) bitmap[pos] = shadowColor;
 						else if (pixel === 2) bitmap[pos] = darkColor;
-						else if (pixel === 3) bitmap[pos] = 0xff0000ff; // debug red
+						else if (pixel === 3)
+							bitmap[pos] = 0xff0000ff; // debug red
 						else if (pixel === 4) bitmap[pos] = 0xffff9900; // debug blue
 					}
 				}
@@ -2996,9 +3066,10 @@
 			return { bitmap, bitmapWidth, bitmapHeight, actualWidth: contentWidth + 8 };
 		};
 
-		const optionFonts = fonts.optionFonts = [];
-		const optionNames = fonts.optionNames = [];
-		if (fsext.font) { // not available in JP/ROC
+		const optionFonts = (fonts.optionFonts = []);
+		const optionNames = (fonts.optionNames = []);
+		if (fsext.font) {
+			// not available in JP/ROC
 			optionFonts.push(fonts.standard(fsext.font));
 			optionNames.push('ARM9 Font');
 		}
@@ -3016,7 +3087,8 @@
 			}
 		}
 
-		if (fs.has('/Font/11x11.bin')) { // ROC only
+		if (fs.has('/Font/11x11.bin')) {
+			// ROC only
 			optionNames.push('11x11', '12x12', '20x20');
 			optionFonts.push(
 				fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, 12, 16, false),
@@ -3040,7 +3112,11 @@
 
 		const update = () => {
 			const font = optionFonts[select.value];
-			const { bitmap, bitmapWidth, bitmapHeight } = fonts.preview(alignCharCode.checked ? font.byCode : font.byGlyph, 32, showGlyphWidth.checked);
+			const { bitmap, bitmapWidth, bitmapHeight } = fonts.preview(
+				alignCharCode.checked ? font.byCode : font.byGlyph,
+				32,
+				showGlyphWidth.checked,
+			);
 
 			list.innerHTML = '';
 
@@ -3063,62 +3139,59 @@
 	// | Section: Messages                                                                                             |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const messages = (window.messages = createSection('Messages', (section) => {
+	const messages = (window.messages = createSection('Messages', section => {
 		const messages = {};
 
-		const columnNamesWithFonts = [
-			, // 0
-			'CJK replacements', // 1
-			'CJK small', // 2
-			'CJK small replacements', // 3
-			'CJK big', // 4
-			'CJK big replacements', // 5
-			'English (?)', // 6
-			'English small', // 7
-			'English (?)', // 8
-			'English big', // 9
-			'English (?)', // 10
-			'French (?)', // 11
-			'French small', // 12
-			'French (?)', // 13
-			'French big', // 14
-			'French (?)', // 15
-			'German (?)', // 16
-			'German small', // 17
-			'German (?)', // 18
-			'German big', // 19
-			'German (?)', // 20
-			'Italian (?)', // 21
-			'Italian small', // 22
-			'Italian (?)', // 23
-			'Italian big', // 24
-			'Italian (?)', // 25
-			'Spanish (?)', // 26
-			'Spanish small', // 27
-			'Spanish (?)', // 28
-			'Spanish big', // 29
-			'Spanish (?)', // 30
-			,,,,,,,,,, // 31-40
-			,,,,,,,,,, // 41-50
-			,,,,,,,,,, // 51-60
-			,,,,,, // 61-66
-			'CJK', // 67
-			'English', // 68
-			'French', // 69
-			'German', // 70
-			'Italian', // 71
-			'Spanish', // 72
-		];
+		const columnNamesWithFonts = (c => {
+			c[1] = 'CJK replacements';
+			c[2] = 'CJK small';
+			c[3] = 'CJK small replacements';
+			c[4] = 'CJK big';
+			c[5] = 'CJK big replacements';
+			c[6] = 'English (?)';
+			c[7] = 'English small';
+			c[8] = 'English (?)';
+			c[9] = 'English big';
+			c[10] = 'English (?)';
+			c[11] = 'French (?)';
+			c[12] = 'French small';
+			c[13] = 'French (?)';
+			c[14] = 'French big';
+			c[15] = 'French (?)';
+			c[16] = 'German (?)';
+			c[17] = 'German small';
+			c[18] = 'German (?)';
+			c[19] = 'German big';
+			c[20] = 'German (?)';
+			c[21] = 'Italian (?)';
+			c[22] = 'Italian small';
+			c[23] = 'Italian (?)';
+			c[24] = 'Italian big';
+			c[25] = 'Italian (?)';
+			c[26] = 'Spanish (?)';
+			c[27] = 'Spanish small';
+			c[28] = 'Spanish (?)';
+			c[29] = 'Spanish big';
+			c[30] = 'Spanish (?)';
 
-		const columnNamesWithoutFonts = [
-			, // 0
-			'CJK', // 1
-			'English', // 2
-			'French', // 3
-			'German', // 4
-			'Italian', // 5
-			'Spanish', // 6
-		];
+			c[67] = 'CJK';
+			c[68] = 'English';
+			c[69] = 'French';
+			c[70] = 'German';
+			c[71] = 'Italian';
+			c[72] = 'Spanish';
+			return c;
+		})([]);
+
+		const columnNamesWithoutFonts = (c => {
+			c[1] = 'CJK';
+			c[2] = 'English';
+			c[3] = 'French';
+			c[4] = 'German';
+			c[5] = 'Italian';
+			c[6] = 'Spanish';
+			return c;
+		})([]);
 
 		const options = [
 			['/FEvent/FEvent.dat', 'fevent'],
@@ -3156,10 +3229,15 @@
 		];
 
 		const optionsContainer = document.createElement('div');
-		optionsContainer.style.cssText = 'position: sticky; top: 0; z-index: 5; background: var(--bg); margin-bottom: 1px;';
+		optionsContainer.style.cssText =
+			'position: sticky; top: 0; z-index: 5; background: var(--bg); margin-bottom: 1px;';
 		section.appendChild(optionsContainer);
 
-		const fileSelect = dropdown(options.map(([name]) => name), 0, () => updateFile());
+		const fileSelect = dropdown(
+			options.map(([name]) => name),
+			0,
+			() => updateFile(),
+		);
 		optionsContainer.appendChild(fileSelect);
 
 		let tableSelect = dropdown([''], 0, () => updateTable());
@@ -3173,20 +3251,23 @@
 		if (headers.gamecode === 'CLJJ') defaultFont = isRoc ? 3 : 0;
 		else if (headers.gamecode === 'CLJK') defaultFont = 2;
 
-		const gameFont = dropdown([
-			'Japanese',
-			'Latin',
-			'Korean',
-			'Chinese',
-			'Hex View',
-			...fonts.optionNames.map(x => `Font: ${x}`),
-		], defaultFont, () => updateTable());
+		const gameFont = dropdown(
+			['Japanese', 'Latin', 'Korean', 'Chinese', 'Hex View', ...fonts.optionNames.map(x => `Font: ${x}`)],
+			defaultFont,
+			() => updateTable(),
+		);
 		optionsContainer.appendChild(gameFont);
 
-		const textSpacing = dropdown(['Spacing: 1 (Latin)', 'Spacing: 2 (CJK)'], headers.gamecode === 'CLJJ' || headers.gamecode === 'CLJK' ? 1 : 0, () => updateTable());
+		const textSpacing = dropdown(
+			['Spacing: 1 (Latin)', 'Spacing: 2 (CJK)'],
+			headers.gamecode === 'CLJJ' || headers.gamecode === 'CLJK' ? 1 : 0,
+			() => updateTable(),
+		);
 		optionsContainer.appendChild(textSpacing);
 
-		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], isRoc ? 1 : 0, () => updateTable());
+		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], isRoc ? 1 : 0, () =>
+			updateTable(),
+		);
 		if (isRoc) optionsContainer.appendChild(rocFont);
 
 		const textboxScale = dropdown(['Scale: 1x', 'Scale: 1.5x', 'Scale: 2x'], 2, () => updateTable());
@@ -3241,7 +3322,9 @@
 				tables.push(container); // treat the entire file as one table
 			}
 
-			tableSelect.replaceWith((tableSelect = dropdown(showTableOptions ? tableOptions : [''], 0, () => updateTable())));
+			tableSelect.replaceWith(
+				(tableSelect = dropdown(showTableOptions ? tableOptions : [''], 0, () => updateTable())),
+			);
 			tableSelect.style.display = tableOptions.length ? 'inline-block' : 'none';
 
 			updateTable = () => {
@@ -3250,7 +3333,7 @@
 
 				const isSimple = type === 'plain' || type === 'textboxes';
 
-				const columns = messages.columns = unpackSegmented(tables[tableSelect.value]);
+				const columns = (messages.columns = unpackSegmented(tables[tableSelect.value]));
 				const fontColumns = [];
 				const textColumns = [];
 				for (let i = 0; i < columns.length; ++i) {
@@ -3296,7 +3379,7 @@
 
 					const ctx = canvas.getContext('2d');
 					ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), bitmapWidth, bitmapHeight), 0, 0);
-					
+
 					fontTable.appendChild(tr);
 				}
 
@@ -3313,7 +3396,8 @@
 				const headerTr = document.createElement('tr');
 				headerTr.innerHTML = '<th></th>';
 				for (const columnId of textColumns) {
-					addHTML(headerTr, `<th><code>[${columnId}]</code> ${isSimple ? columnNamesWithoutFonts[columnId] : columnNamesWithFonts[columnId]}</th>`);
+					const title = isSimple ? columnNamesWithoutFonts[columnId] : columnNamesWithFonts[columnId];
+					addHTML(headerTr, `<th><code>[${columnId}]</code> ${title}</th>`);
 				}
 				textTable.appendChild(headerTr);
 
@@ -3331,7 +3415,12 @@
 						if (!text) continue;
 
 						if (0 <= gameFont.value && gameFont.value <= 3) {
-							if (type === 'textboxes' || type === 'textboxes+fonts' || type === 'tables+textboxes+fonts' || type === 'fevent') {
+							if (
+								type === 'textboxes' ||
+								type === 'textboxes+fonts' ||
+								type === 'tables+textboxes+fonts' ||
+								type === 'fevent'
+							) {
 								text = sliceDataView(text, 2, text.byteLength);
 							}
 
@@ -3344,10 +3433,16 @@
 							// Use custom font
 							const font = fonts.optionFonts[gameFont.value - 5];
 
-							let width = 0, height = 0;
-							if (type === 'textboxes' || type === 'textboxes+fonts' || type === 'tables+textboxes+fonts' || type === 'fevent') {
+							let width = 0,
+								height = 0;
+							if (
+								type === 'textboxes' ||
+								type === 'textboxes+fonts' ||
+								type === 'tables+textboxes+fonts' ||
+								type === 'fevent'
+							) {
 								width = text.getUint8(0) * 8;
-								height = (text.getUint8(1) - 1) / 2 * 8;
+								height = ((text.getUint8(1) - 1) / 2) * 8;
 								text = sliceDataView(text, 2, text.byteLength);
 							}
 
@@ -3363,8 +3458,17 @@
 								altFonts = altFonts.map(columnId => fontColumnsParsed.get(columnId));
 							}
 
-							const { bitmap, bitmapWidth, bitmapHeight, actualWidth } =
-								fonts.textbox(text, font, altFonts, width, height, recycledBitmap, rocFonts, defaultRocFont, [1, 2][textSpacing.value]);
+							const { bitmap, bitmapWidth, bitmapHeight, actualWidth } = fonts.textbox(
+								text,
+								font,
+								altFonts,
+								width,
+								height,
+								recycledBitmap,
+								rocFonts,
+								defaultRocFont,
+								[1, 2][textSpacing.value],
+							);
 
 							const canvas = document.createElement('canvas');
 							canvas.width = actualWidth;
@@ -3372,7 +3476,15 @@
 							canvas.style.cssText = `width: ${actualWidth * canvasScale}px; height: ${bitmapHeight * canvasScale}px;`;
 
 							const ctx = canvas.getContext('2d');
-							ctx.putImageData(new ImageData(bufToU8Clamped(bitmap.slice(0, bitmapWidth * bitmapHeight)), bitmapWidth, bitmapHeight), 0, 0);
+							ctx.putImageData(
+								new ImageData(
+									bufToU8Clamped(bitmap.slice(0, bitmapWidth * bitmapHeight)),
+									bitmapWidth,
+									bitmapHeight,
+								),
+								0,
+								0,
+							);
 							td.appendChild(canvas);
 
 							recycledBitmap = bitmap;
@@ -3393,7 +3505,7 @@
 	// | Section: Monsters                                                                                             |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const monsters = (window.monsters = createSection('Monsters', (section) => {
+	const monsters = (window.monsters = createSection('Monsters', section => {
 		const monsters = {};
 
 		// basically a rip straight from Yoshi Magic
@@ -3419,27 +3531,30 @@
 			const coins = block.getUint16(0x18, true);
 
 			let scriptName = `script ${str16(script)}`;
-			if ((script >> 12) === 2) scriptName = `yo[${script & 0xfff}]`;
-			else if ((script >> 12) === 4) scriptName = `ji[${script & 0xfff}]`;
-			else if ((script >> 12) === 7) scriptName = `cf[${script & 0xfff}]`;
+			if (script >> 12 === 2) scriptName = `yo[${script & 0xfff}]`;
+			else if (script >> 12 === 4) scriptName = `ji[${script & 0xfff}]`;
+			else if (script >> 12 === 7) scriptName = `cf[${script & 0xfff}]`;
 
 			let name;
 			if (monsterNameTable[2]?.[nameIndex]) name = bisUnicode(monsterNameTable[2][nameIndex], 'latin');
 			else name = bisUnicode(monsterNameTable[1][nameIndex], 'japanese');
 
 			let spriteName = str32(sprite);
-			if ((sprite >>> 24) === 0xc0) spriteName = `BObjPc[0x${(sprite & 0xffff).toString(16)}]`;
-			if ((sprite >>> 24) === 0xc1) spriteName = `BObjMon[0x${(sprite & 0xffff).toString(16)}]`;
-			if ((sprite >>> 24) === 0xc2) spriteName = `BObjUI[0x${(sprite & 0xffff).toString(16)}]`;
+			if (sprite >>> 24 === 0xc0) spriteName = `BObjPc[0x${(sprite & 0xffff).toString(16)}]`;
+			else if (sprite >>> 24 === 0xc1) spriteName = `BObjMon[0x${(sprite & 0xffff).toString(16)}]`;
+			else if (sprite >>> 24 === 0xc2) spriteName = `BObjUI[0x${(sprite & 0xffff).toString(16)}]`;
 
-			addHTML(table, `<tr>
-				<th>${i}</th>
-				<td>${name}</td>
-				<td>${spriteName}</td>
-				<td>${scriptName}</td>
-				<td>HP ${hp} / POW ${pow} / DEF ${def} / SPD ${spd}</td>
-				<td>EXP ${exp} / Coins ${coins}</td>
-			</tr>`);
+			addHTML(
+				table,
+				`<tr>
+					<th>${i}</th>
+					<td>${name}</td>
+					<td>${spriteName}</td>
+					<td>${scriptName}</td>
+					<td>HP ${hp} / POW ${pow} / DEF ${def} / SPD ${spd}</td>
+					<td>EXP ${exp} / Coins ${coins}</td>
+				</tr>`,
+			);
 
 			monsters.monsters.push({ name, script, sprite, level, hp, pow, def, spd, exp, coins });
 		}
@@ -3451,18 +3566,16 @@
 	// | Section: Battle Scripts                                                                                       |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const bai = (window.bai = createSection('Battle Scripts', (section) => {
+	const bai = (window.bai = createSection('Battle Scripts', section => {
 		const bai = {};
 
 		// preprocess commands
-		const commands = bai.commands = [];
+		const commands = (bai.commands = []);
 		for (const block of fsext.baiCommands) {
 			const argc = block.getUint8(0);
 			const args = [];
 			for (let i = 0; i < (argc & 0x7f); ++i) {
-				const type = i & 1
-					? block.getUint8(1 + (i >> 1)) >> 4
-					: block.getUint8(1 + (i >> 1)) & 0xf;
+				const type = i & 1 ? block.getUint8(1 + (i >> 1)) >> 4 : block.getUint8(1 + (i >> 1)) & 0xf;
 				args.push(type);
 			}
 
@@ -3483,7 +3596,11 @@
 			['/BAI/BAI_scn_ji.dat', 0x3000, fsext.bai_scn_ji],
 			['/BAI/BAI_scn_yo.dat', 0x1000, fsext.bai_scn_yo],
 		];
-		const fileSelect = dropdown(options.map(entry => `<code>${entry[1] ? str16(entry[1]) : '????'}</code> ${entry[0]}`), 0, () => update());
+		const fileSelect = dropdown(
+			options.map(entry => `<code>${entry[1] ? str16(entry[1]) : '????'}</code> ${entry[0]}`),
+			0,
+			() => update(),
+		);
 		section.appendChild(fileSelect);
 
 		const scriptSelectNames = options.map(entry => {
@@ -3514,14 +3631,15 @@
 
 			const parsed = [];
 			let o = 14;
-			for (; o + 5 < script.byteLength;) {
+			for (; o + 5 < script.byteLength; ) {
 				if (script.getUint8(o + 1) >= 3) {
 					// array
 					const offsetLeft = o;
 
 					while (scriptU8[o] === 0xff) ++o;
-					const composite = script.getUint16(o, true); o += 2;
-					if ((composite >>> 12) !== 8) break;
+					const composite = script.getUint16(o, true);
+					o += 2;
+					if (composite >>> 12 !== 8) break;
 					const type = (composite >> 8) & 0xf;
 					if (type >= 8) break;
 					const elements = composite & 0xff;
@@ -3542,20 +3660,20 @@
 				o += 6;
 
 				let returnTarget;
-				if (command.returns) (returnTarget = script.getUint16(o, true), o += 2);
-				
+				if (command.returns) ((returnTarget = script.getUint16(o, true)), (o += 2));
+
 				const args = [];
 				for (let i = 0; i < command.args.length; ++i) {
 					const type = command.args[i];
-					if (variables & (1 << i)) (args.push({ type: 'var', x: script.getUint16(o, true) }), o += 2);
+					if (variables & (1 << i)) (args.push({ type: 'var', x: script.getUint16(o, true) }), (o += 2));
 					else if (type === 0) args.push({ type: 'u8', x: script.getUint8(o++) });
-					else if (type === 1) (args.push({ type: 'u16', x: script.getUint16(o, true) }), o += 2);
-					else if (type === 2) (args.push({ type: 'u32', x: script.getUint32(o, true) }), o += 4);
+					else if (type === 1) (args.push({ type: 'u16', x: script.getUint16(o, true) }), (o += 2));
+					else if (type === 2) (args.push({ type: 'u32', x: script.getUint32(o, true) }), (o += 4));
 					else if (type === 3) args.push({ type: 's8', x: script.getInt8(o++) });
-					else if (type === 4) (args.push({ type: 's16', x: script.getInt16(o, true) }), o += 2);
-					else if (type === 5) (args.push({ type: 's32', x: script.getInt32(o, true) }), o += 4);
-					else if (type === 6) (args.push({ type: 'fp88', x: script.getInt16(o, true) / 256 }), o += 2);
-					else if (type === 7) (args.push({ type: 'fp2012', x: script.getInt32(o, true) / 4096 }), o += 4);
+					else if (type === 4) (args.push({ type: 's16', x: script.getInt16(o, true) }), (o += 2));
+					else if (type === 5) (args.push({ type: 's32', x: script.getInt32(o, true) }), (o += 4));
+					else if (type === 6) (args.push({ type: 'fp88', x: script.getInt16(o, true) / 256 }), (o += 2));
+					else if (type === 7) (args.push({ type: 'fp2012', x: script.getInt32(o, true) / 4096 }), (o += 4));
 				}
 
 				parsed.push({ opcode, returnTarget, args, offsetLeft, offsetRight: o });
@@ -3599,10 +3717,13 @@
 							const atkScript = cmd.args[0].x;
 							const ref = attackToInvokerReferences.get(atkScript);
 							if (ref) ref[type].add(script);
-							else attackToInvokerReferences.set(atkScript, {
-								atk: new Set(), mon: new Set(), scn: new Set(),
-								[type]: new Set([script]),
-							});
+							else
+								attackToInvokerReferences.set(atkScript, {
+									atk: new Set(),
+									mon: new Set(),
+									scn: new Set(),
+									[type]: new Set([script]),
+								});
 						} else if (cmd.opcode === 0x65) {
 							// create monster from description id
 							if (cmd.args[1].type === 'var') continue;
@@ -3610,10 +3731,13 @@
 							const monsterId = cmd.args[1].x;
 							const ref = monsterToCreatorReferences.get(monsterId);
 							if (ref) ref[type].add(script);
-							else monsterToCreatorReferences.set(monsterId, {
-								atk: new Set(), mon: new Set(), scn: new Set(),
-								[type]: new Set([script]),
-							});
+							else
+								monsterToCreatorReferences.set(monsterId, {
+									atk: new Set(),
+									mon: new Set(),
+									scn: new Set(),
+									[type]: new Set([script]),
+								});
 
 							const ref2 = creatorToMonsterReferences.get(script);
 							if (ref2) ref2.add(monsterId);
@@ -3750,7 +3874,9 @@
 				const line = lines[i].trim();
 				if (!line) continue;
 
-				const components = line.match(/^(@[A-Za-z0-9_]+)?\s*(?:var\[0x([0-9A-Fa-f]{4})\]\s*\=\s*)?(?:BA|CM)_([A-Fa-f0-9]{4})\(([^\)]*)\)(?:\s*\/\/.*)?$/);
+				const components = line.match(
+					/^(@[A-Za-z0-9_]+)?\s*(?:var\[0x([0-9A-Fa-f]{4})\]\s*\=\s*)?(?:BA|CM)_([A-Fa-f0-9]{4})\(([^\)]*)\)(?:\s*\/\/.*)?$/,
+				);
 				if (!components) throw `invalid line: ${line}`;
 
 				const label = components[1];
@@ -3769,24 +3895,28 @@
 
 				let varflags = 0;
 				const rawArgs = components[4] === '' ? [] : components[4].split(', ');
-				if (rawArgs.length !== command.args.length) throw L + `Command 0x${str16(opcode)} expects ${command.args.length} args, got ${rawArgs.length}`;
+				if (rawArgs.length !== command.args.length)
+					throw L + `Command 0x${str16(opcode)} expects ${command.args.length} args, got ${rawArgs.length}`;
 
-				dat.setUint16(o, opcode, true); o += 2;
-				const varflagsOffset = o; o += 4;
+				dat.setUint16(o, opcode, true);
+				o += 2;
+				const varflagsOffset = o;
+				o += 4;
 				if (command.returns) {
-					dat.setUint16(o, parseInt(assignment, 16), true); o += 2;
+					dat.setUint16(o, parseInt(assignment, 16), true);
+					o += 2;
 				}
 
 				const labelInjectOffsetRightTodos = [];
 				const write = (i, x) => {
 					if (command.args[i] === 0) dat.setUint8(o++, x);
-					else if (command.args[i] === 1) (dat.setUint16(o, x, true), o += 2);
-					else if (command.args[i] === 2) (dat.setUint32(o, x, true), o += 4);
-					else if (command.args[i] === 3) (dat.setInt8(o++, x));
-					else if (command.args[i] === 4) (dat.setInt16(o, x, true), o += 2);
-					else if (command.args[i] === 5) (dat.setInt32(o, x, true), o += 4);
-					else if (command.args[i] === 6) (dat.setInt16(o, x * 256, true), o += 2);
-					else if (command.args[i] === 7) (dat.setInt32(o, x * 4096, true), o += 4);
+					else if (command.args[i] === 1) (dat.setUint16(o, x, true), (o += 2));
+					else if (command.args[i] === 2) (dat.setUint32(o, x, true), (o += 4));
+					else if (command.args[i] === 3) dat.setInt8(o++, x);
+					else if (command.args[i] === 4) (dat.setInt16(o, x, true), (o += 2));
+					else if (command.args[i] === 5) (dat.setInt32(o, x, true), (o += 4));
+					else if (command.args[i] === 6) (dat.setInt16(o, x * 256, true), (o += 2));
+					else if (command.args[i] === 7) (dat.setInt32(o, x * 4096, true), (o += 4));
 				};
 				for (let i = 0; i < rawArgs.length; ++i) {
 					const x = rawArgs[i];
@@ -3816,7 +3946,8 @@
 					const varMatch = x.match(/^var\[0x([0-9A-Fa-f]{4})\]$/);
 					if (varMatch) {
 						varflags |= 1 << i;
-						dat.setUint16(o, parseInt(varMatch[1], 16), true); o += 2;
+						dat.setUint16(o, parseInt(varMatch[1], 16), true);
+						o += 2;
 						continue;
 					}
 
@@ -3838,7 +3969,7 @@
 				}
 
 				for (let i = 0; i < locations.length; ++i) {
-					const [writeAt, base] = locations[i]
+					const [writeAt, base] = locations[i];
 					dat.setInt16(writeAt, loc - base, true);
 				}
 			}
@@ -3846,37 +3977,33 @@
 			return sliceDataView(dat, 0, o);
 		};
 
-		bai.actorAttribute = x => {
-			switch (x) {
-				case 3: return 'x';
-				case 4: return 'y';
-				case 5: return 'z';
-				case 9: return 'home_x';
-				case 10: return 'home_y';
-				case 11: return 'home_z';
-				case 24: return 'animation';
-				case 32: return 'level';
-				case 33: return 'max_hp';
-				case 34: return 'hp';
-				case 35: return 'spd'; // why are you here
-				case 36: return 'pow';
-				case 37: return 'def';
-				case 47: return 'invincible';
-				case 63: return 'sprite';
-			}
-		};
+		bai.actorAttributes = new Map([
+			[3, 'x'],
+			[4, 'y'],
+			[5, 'z'],
+			[9, 'home_x'],
+			[10, 'home_y'],
+			[11, 'home_z'],
+			[24, 'animation'],
+			[32, 'level'],
+			[33, 'max_hp'],
+			[34, 'hp'],
+			[35, 'spd'], // why are you here
+			[36, 'pow'],
+			[37, 'def'],
+			[47, 'invincible'],
+			[63, 'sprite'],
+		]);
 
-		bai.monsterAttribute = x => {
-			switch (x) {
-				case 2: return 'sprite';
-				case 12: return 'flying';
-			}
-		};
+		bai.monsterAttributes = new Map([
+			[2, 'sprite'],
+			[12, 'flying'],
+		]);
 
 		bai.spriteFile = x => {
-			if ((x >>> 24) === 0xc0) return `BObjPc[0x${(x & 0xffff).toString(16)}]`;
-			if ((x >>> 24) === 0xc1) return `BObjMon[0x${(x & 0xffff).toString(16)}]`;
-			if ((x >>> 24) === 0xc2) return `BObjUI[0x${(x & 0xffff).toString(16)}]`;
+			if (x >>> 24 === 0xc0) return `BObjPc[0x${(x & 0xffff).toString(16)}]`;
+			if (x >>> 24 === 0xc1) return `BObjMon[0x${(x & 0xffff).toString(16)}]`;
+			if (x >>> 24 === 0xc2) return `BObjUI[0x${(x & 0xffff).toString(16)}]`;
 			return '(?)';
 		};
 
@@ -3931,14 +4058,15 @@
 			const arg = (i, context) => {
 				if (args[i].type === 'var') return bai.variable(args[i].x, context);
 				else return bai.value(args[i].x, context);
-			}
-			const argsConcat = () => args.map((_,i) => arg(i)).join(', ');
-			const pm = x => x < 0 ? String(x) : '+' + x;
+			};
+			const argsConcat = () => args.map((_, i) => arg(i)).join(', ');
+			const pm = x => (x < 0 ? String(x) : '+' + x);
 
 			const rp = returnTarget !== undefined ? `${bai.variable(returnTarget)} ${operator('=')} ` : '';
 
 			switch (opcode) {
-				case 1: return keyword('return');
+				case 1:
+					return keyword('return');
 				case 2: {
 					const to = offsetRight + args[4].x;
 					return `${keyword('if')} ${args[3].x ? '' : operator('!')}(${arg(1)} ${operator(operators[args[0].x])} ${arg(2)}) ${keyword('goto')} ${location(str16(to))} // (${pm(args[4].x)})`;
@@ -3948,61 +4076,112 @@
 					if (args[0].x === 1) return fn(functionLabels.get(to)) + '()';
 					else return `${keyword('goto')} ${location(str16(to))} // (${pm(args[1].x)}) type ${args[0].x}`;
 				}
-				case 4: return builtin('wait') + `(${arg(0)})`;
-				case 5: return builtin('stack_push') + `(${arg(0)})`;
+				case 4:
+					return builtin('wait') + `(${arg(0)})`;
+				case 5:
+					return builtin('stack_push') + `(${arg(0)})`;
 				case 7: {
 					const to = offsetRight + args[3].x;
 					return `${keyword('if')} (${builtin('stack_compare')}(${arg(0)}, ${arg(1)}, ${arg(2)})) ${keyword('goto')} ${location(str16(to))} // (${pm(args[3].x)})`;
 				}
-				case 8: return rp + arg(0);
-				case 9: return rp + arg(0) + operator(' + ') + arg(1);
-				case 0xa: return rp + arg(0) + operator(' - ') + arg(1);
-				case 0xb: return rp + arg(0) + operator(' * ') + arg(1);
-				case 0xc: return rp + arg(0) + operator(' / ') + arg(1);
-				case 0xd: return rp + arg(0) + operator(' % ') + arg(1);
-				case 0xe: return rp + arg(0) + operator(' << ') + arg(1);
-				case 0xf: return rp + arg(0) + operator(' >> ') + arg(1);
-				case 0x10: return rp + arg(0) + operator(' & ') + arg(1);
-				case 0x11: return rp + arg(0) + operator(' | ') + arg(1);
-				case 0x12: return rp + arg(0) + operator(' ^ ') + arg(1);
-				case 0x13: return rp + operator('-') + arg(0);
-				case 0x14: return rp + builtin('bool') + `(${arg(0)})`;
-				case 0x15: return rp + operator('~') + arg(0);
-				case 0x16: return bai.variable(returnTarget) + operator('++');
-				case 0x17: return bai.variable(returnTarget) + operator('--');
-				case 0x18: return `${bai.variable(returnTarget)} ${operator('+=')} ${arg(0)}`;
-				case 0x19: return `${bai.variable(returnTarget)} ${operator('-=')} ${arg(0)}`;
-				case 0x1a: return `${bai.variable(returnTarget)} ${operator('*=')} ${arg(0)}`;
-				case 0x1b: return `${bai.variable(returnTarget)} ${operator('/=')} ${arg(0)}`;
-				case 0x1c: return `${bai.variable(returnTarget)} ${operator('%=')} ${arg(0)}`;
-				case 0x1d: return `${bai.variable(returnTarget)} ${operator('<<=')} ${arg(0)}`;
-				case 0x1e: return `${bai.variable(returnTarget)} ${operator('>>=')} ${arg(0)}`;
-				case 0x1f: return `${bai.variable(returnTarget)} ${operator('&=')} ${arg(0)}`;
-				case 0x20: return `${bai.variable(returnTarget)} ${operator('|=')} ${arg(0)}`;
-				case 0x21: return `${bai.variable(returnTarget)} ${operator('^=')} ${arg(0)}`;
-				case 0x22: return rp + builtin('sqrt') + `(${arg(0)})`;
-				case 0x23: return rp + builtin('invsqrt') + `(${arg(0)})`;
-				case 0x24: return rp + `${constant(1)} ${operator('/')} ${arg(0)}`;
-				case 0x25: return rp + builtin('sin') + `(${arg(0)})`;
-				case 0x26: return rp + builtin('cos') + `(${arg(0)})`;
-				case 0x27: return rp + builtin('atan') + `(${arg(0)})`;
-				case 0x28: return rp + builtin('atan2') + `(${arg(0)}, ${arg(1)})`;
-				case 0x29: return rp + builtin('random') + `(${arg(0)})`;
-				case 0x2a: return rp + `${arg(0)} [fx32]`;
-				case 0x2b: return rp + `${arg(0)} ${operator('+')} ${arg(1)} [fx32]`;
-				case 0x2c: return rp + `${arg(0)} ${operator('-')} ${arg(1)} [fx32]`;
-				case 0x2d: return rp + `${arg(0)} ${operator('*')} ${arg(1)} [fx32]`;
-				case 0x2e: return rp + `${arg(0)} ${operator('/')} ${arg(1)} [fx32]`;
-				case 0x2f: return rp + `${arg(0)} ${operator('%')} ${arg(1)} [fx32]`;
-				case 0x30: return rp + builtin('fx32_to_int') + `(${arg(0)})`;
-				case 0x31: return rp + builtin('trunc') + `(${arg(0)}) [fx32]`;
-				case 0x32: return rp + builtin('sqrt') + `(${arg(0)}) [fx32]`;
-				case 0x33: return rp + builtin('invsqrt') + `(${arg(0)}) [fx32]`;
-				case 0x34: return rp + `${constant(1)} ${operator('/')} ${arg(0)} [fx32]`;
-				case 0x35: return rp + builtin('sin') + `(${arg(0)}) [fx32]`;
-				case 0x36: return rp + builtin('cos') + `(${arg(0)}) [fx32]`;
-				case 0x37: return rp + builtin('atan') + `(${arg(0)}) [fx32]`;
-				case 0x38: return rp + builtin('atan2') + `(${arg(0)}, ${arg(1)}) [fx32]`;
+				case 8:
+					return rp + arg(0);
+				case 9:
+					return rp + arg(0) + operator(' + ') + arg(1);
+				case 0xa:
+					return rp + arg(0) + operator(' - ') + arg(1);
+				case 0xb:
+					return rp + arg(0) + operator(' * ') + arg(1);
+				case 0xc:
+					return rp + arg(0) + operator(' / ') + arg(1);
+				case 0xd:
+					return rp + arg(0) + operator(' % ') + arg(1);
+				case 0xe:
+					return rp + arg(0) + operator(' << ') + arg(1);
+				case 0xf:
+					return rp + arg(0) + operator(' >> ') + arg(1);
+				case 0x10:
+					return rp + arg(0) + operator(' & ') + arg(1);
+				case 0x11:
+					return rp + arg(0) + operator(' | ') + arg(1);
+				case 0x12:
+					return rp + arg(0) + operator(' ^ ') + arg(1);
+				case 0x13:
+					return rp + operator('-') + arg(0);
+				case 0x14:
+					return rp + builtin('bool') + `(${arg(0)})`;
+				case 0x15:
+					return rp + operator('~') + arg(0);
+				case 0x16:
+					return bai.variable(returnTarget) + operator('++');
+				case 0x17:
+					return bai.variable(returnTarget) + operator('--');
+				case 0x18:
+					return `${bai.variable(returnTarget)} ${operator('+=')} ${arg(0)}`;
+				case 0x19:
+					return `${bai.variable(returnTarget)} ${operator('-=')} ${arg(0)}`;
+				case 0x1a:
+					return `${bai.variable(returnTarget)} ${operator('*=')} ${arg(0)}`;
+				case 0x1b:
+					return `${bai.variable(returnTarget)} ${operator('/=')} ${arg(0)}`;
+				case 0x1c:
+					return `${bai.variable(returnTarget)} ${operator('%=')} ${arg(0)}`;
+				case 0x1d:
+					return `${bai.variable(returnTarget)} ${operator('<<=')} ${arg(0)}`;
+				case 0x1e:
+					return `${bai.variable(returnTarget)} ${operator('>>=')} ${arg(0)}`;
+				case 0x1f:
+					return `${bai.variable(returnTarget)} ${operator('&=')} ${arg(0)}`;
+				case 0x20:
+					return `${bai.variable(returnTarget)} ${operator('|=')} ${arg(0)}`;
+				case 0x21:
+					return `${bai.variable(returnTarget)} ${operator('^=')} ${arg(0)}`;
+				case 0x22:
+					return rp + builtin('sqrt') + `(${arg(0)})`;
+				case 0x23:
+					return rp + builtin('invsqrt') + `(${arg(0)})`;
+				case 0x24:
+					return rp + `${constant(1)} ${operator('/')} ${arg(0)}`;
+				case 0x25:
+					return rp + builtin('sin') + `(${arg(0)})`;
+				case 0x26:
+					return rp + builtin('cos') + `(${arg(0)})`;
+				case 0x27:
+					return rp + builtin('atan') + `(${arg(0)})`;
+				case 0x28:
+					return rp + builtin('atan2') + `(${arg(0)}, ${arg(1)})`;
+				case 0x29:
+					return rp + builtin('random') + `(${arg(0)})`;
+				case 0x2a:
+					return rp + `${arg(0)} [fx32]`;
+				case 0x2b:
+					return rp + `${arg(0)} ${operator('+')} ${arg(1)} [fx32]`;
+				case 0x2c:
+					return rp + `${arg(0)} ${operator('-')} ${arg(1)} [fx32]`;
+				case 0x2d:
+					return rp + `${arg(0)} ${operator('*')} ${arg(1)} [fx32]`;
+				case 0x2e:
+					return rp + `${arg(0)} ${operator('/')} ${arg(1)} [fx32]`;
+				case 0x2f:
+					return rp + `${arg(0)} ${operator('%')} ${arg(1)} [fx32]`;
+				case 0x30:
+					return rp + builtin('fx32_to_int') + `(${arg(0)})`;
+				case 0x31:
+					return rp + builtin('trunc') + `(${arg(0)}) [fx32]`;
+				case 0x32:
+					return rp + builtin('sqrt') + `(${arg(0)}) [fx32]`;
+				case 0x33:
+					return rp + builtin('invsqrt') + `(${arg(0)}) [fx32]`;
+				case 0x34:
+					return rp + `${constant(1)} ${operator('/')} ${arg(0)} [fx32]`;
+				case 0x35:
+					return rp + builtin('sin') + `(${arg(0)}) [fx32]`;
+				case 0x36:
+					return rp + builtin('cos') + `(${arg(0)}) [fx32]`;
+				case 0x37:
+					return rp + builtin('atan') + `(${arg(0)}) [fx32]`;
+				case 0x38:
+					return rp + builtin('atan2') + `(${arg(0)}, ${arg(1)}) [fx32]`;
 				case 0x39: {
 					const to = offsetRight + args[0].x;
 					return rp + builtin('load_data_from_array') + `(${location(str16(to))}, ${arg(1)})`;
@@ -4019,14 +4198,22 @@
 					const to = offsetRight + args[0].x;
 					return builtin('debug') + `(${string('"' + shiftJis(script, to) + '"')})`;
 				}
-				case 0x3d: return builtin('debug_bin') + `(${arg(0)})`;
-				case 0x3e: return builtin('debug_dec') + `(${arg(0)})`;
-				case 0x3f: return builtin('debug_hex') + `(${arg(0)})`;
-				case 0x41: return rp + builtin('add_coins') + `(${arg(0)})`;
-				case 0x43: return rp + builtin('get_item_amount') + `(${arg(0)})`;
-				case 0x44: return rp + builtin('add_items') + `(${arg(0)})`;
-				case 0x45: return rp + builtin('get_player_stat') + `(${arg(0)}, ${arg(1)})`;
-				case 0x46: return rp + builtin('set_player_stat') + `(${argsConcat()})`;
+				case 0x3d:
+					return builtin('debug_bin') + `(${arg(0)})`;
+				case 0x3e:
+					return builtin('debug_dec') + `(${arg(0)})`;
+				case 0x3f:
+					return builtin('debug_hex') + `(${arg(0)})`;
+				case 0x41:
+					return rp + builtin('add_coins') + `(${arg(0)})`;
+				case 0x43:
+					return rp + builtin('get_item_amount') + `(${arg(0)})`;
+				case 0x44:
+					return rp + builtin('add_items') + `(${arg(0)})`;
+				case 0x45:
+					return rp + builtin('get_player_stat') + `(${arg(0)}, ${arg(1)})`;
+				case 0x46:
+					return rp + builtin('set_player_stat') + `(${argsConcat()})`;
 				// end CM_xxxx commands, begin BA_xxxx commands
 				case 0x47: {
 					const to = offsetRight + args[2].x;
@@ -4038,13 +4225,24 @@
 				}
 				case 0x49: {
 					const to = offsetRight + args[2].x;
-					return rp + fn('spawn_actor_thread') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`;
+					return (
+						rp + fn('spawn_actor_thread') + `(${arg(0, 'actor')}, ${arg(1)}, ${fn(functionLabels.get(to))})`
+					);
 				}
-				case 0x4a: return rp + fn('join_actor_thread') + `(${arg(0, 'actor')})`;
-				case 0x4e: return rp + fn('BA_004e') + `(${arg(0, 'actor')})`;
-				case 0x58: return rp + fn('party_turn_check') + `(${arg(0, 'party')})`;
-				case 0x59: return rp + fn('party_turn_wait') + `(${arg(0, 'party')}, ${arg(1)})`;
-				case 0x63: return rp + fn('desc_by_sprite_id') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}) // ${bai.spriteFile(args[1].x)}`;
+				case 0x4a:
+					return rp + fn('join_actor_thread') + `(${arg(0, 'actor')})`;
+				case 0x4e:
+					return rp + fn('BA_004e') + `(${arg(0, 'actor')})`;
+				case 0x58:
+					return rp + fn('party_turn_check') + `(${arg(0, 'party')})`;
+				case 0x59:
+					return rp + fn('party_turn_wait') + `(${arg(0, 'party')}, ${arg(1)})`;
+				case 0x63:
+					return (
+						rp +
+						fn('desc_by_sprite_id') +
+						`(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}) // ${bai.spriteFile(args[1].x)}`
+					);
 				case 0x65: {
 					let comment;
 					if (args[1].type !== 'var') comment = ' // ' + monsters.monsters[args[1].x]?.name ?? '(?)';
@@ -4058,11 +4256,16 @@
 					else if (args[0].x >= 0xa000) scriptFile = 'BAI_atk_nh';
 					return rp + fn('load_atk_script') + `(${arg(0, 'hex16')}) // ${scriptFile} ${args[0].x & 0xfff}`;
 				}
-				case 0x68: return rp + fn('desc_by_sprite_id_load') + `(${arg(0, 'actor')})`;
-				case 0x69: return rp + fn('desc_by_monster_id_load') + `(${arg(0, 'actor')})`;
-				case 0x6a: return rp + fn('load_atk_script2') + '()';
-				case 0x6d: return rp + fn('npc_init') + `(${arg(0, 'actor')})`;
-				case 0x6f: return rp + fn('monster_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
+				case 0x68:
+					return rp + fn('desc_by_sprite_id_load') + `(${arg(0, 'actor')})`;
+				case 0x69:
+					return rp + fn('desc_by_monster_id_load') + `(${arg(0, 'actor')})`;
+				case 0x6a:
+					return rp + fn('load_atk_script2') + '()';
+				case 0x6d:
+					return rp + fn('npc_init') + `(${arg(0, 'actor')})`;
+				case 0x6f:
+					return rp + fn('monster_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
 				case 0x71: {
 					let bmapK = '(?)';
 					let bmapML = '(?)';
@@ -4074,117 +4277,260 @@
 						if (args[1].x === -1) bmapML = 'default';
 						else bmapML = '0x' + str8(args[1].x / 8);
 					}
-					return rp + fn('set_battle_background') + `(${arg(0)}, ${arg(1)}) // bowser bmap = ${bmapK}, m&l bmap = ${bmapML}`;
+					return (
+						rp +
+						fn('set_battle_background') +
+						`(${arg(0)}, ${arg(1)}) // bowser bmap = ${bmapK}, m&l bmap = ${bmapML}`
+					);
 				}
 				case 0x73: {
-					const counterattack = constant(['NOTHING', 'JUMP', 'HAMMER', 'PUNCH', 'SHELL'][args[1].x] || args[1].x);
+					const counterattack = constant(
+						['NOTHING', 'JUMP', 'HAMMER', 'PUNCH', 'SHELL'][args[1].x] || args[1].x,
+					);
 					return rp + fn('player_set_counterattack') + `(${arg(0, 'actor')}, ${counterattack})`;
 				}
-				case 0x7b: return rp + fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
-				case 0x7e: return rp + fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
-				case 0xad: return rp + fn('select_coordinate') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3, 'coordinate')})`;
+				case 0x7b:
+					return rp + fn('disable_action_block') + `(${arg(0, 'action_block')}, ${arg(1, 'bool')})`;
+				case 0x7e:
+					return rp + fn('end_battle') + `(${arg(0)}, ${arg(1)})`;
+				case 0xad:
+					return rp + fn('select_coordinate') + `(${arg(0)}, ${arg(1)}, ${arg(2)}, ${arg(3, 'coordinate')})`;
 				case 0xbf: {
-					let attribute = bai.actorAttribute(args[1].x);
+					let attribute = bai.actorAttributes.get(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
 					return rp + fn('actor_attr_get') + `(${arg(0, 'actor')}, ${attribute})`;
 				}
 				case 0xc0: {
-					let attribute = bai.actorAttribute(args[1].x);
+					let attribute = bai.actorAttributes.get(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
 					let value;
 					switch (args[1].x) {
-						case 47: value = arg(2, 'bool'); break; // .invincible
-						case 63: value = arg(2, 'hex32'); break; // sprite
-						default: value = arg(2);
+						case 47:
+							value = arg(2, 'bool');
+							break; // .invincible
+						case 63:
+							value = arg(2, 'hex32');
+							break; // sprite
+						default:
+							value = arg(2);
 					}
 					return rp + fn('actor_attr_set') + `(${arg(0, 'actor')}, ${attribute}, ${value})`;
 				}
 				case 0xc1: {
-					let attribute = bai.actorAttribute(args[1].x);
+					let attribute = bai.actorAttributes.get(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
 					return rp + fn('actor_attr_set_fx32') + `(${arg(0, 'actor')}, ${attribute}, ${arg(2)})`;
 				}
 				case 0xc6: {
-					let attribute = bai.monsterAttribute(args[1].x);
+					let attribute = bai.monsterAttributes.get(args[1].x);
 					if (attribute) attribute = text('.' + attribute);
 					else attribute = arg(1);
 
 					return rp + fn('monster_get_attribute') + `(${arg(0, 'actor')}, ${attribute})`;
 				}
-				case 0xc8: return rp + fn('monster_kill') + `(${arg(0, 'actor')})`;
-				case 0xc9: return rp + fn('actor_despawn') + `(${arg(0, 'actor')})`;
-				case 0xd3: return rp + fn('npc_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
-				case 0xe7: return rp + fn('actor_move') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
-				case 0xe8: return rp + fn('actor_move_fixed_duration') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, duration=${arg(6)})`;
-				case 0xe9: return rp + fn('actor_move_around_actor') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, speed=${arg(6)})`;
-				case 0xea: return rp + fn('actor_move_around_actor_fixed_duration') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, duration=${arg(6)})`;
-				case 0xeb: return rp + fn('actor_move_wait') + `(${arg(0, 'actor')}, ${arg(1)})`;
-				case 0xef: return rp + fn('actor_set_position') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
-				case 0xf0: return rp + fn('actor_set_position_around_actor') + `(${arg(0, 'actor')}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
-				case 0xf3: return rp + fn('actor_set_home') + `(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`;
-				case 0x10f: return rp + fn('actor_jump') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, height=${arg(3)}, speed=${arg(4)})`;
-				case 0x121: return rp + fn('spawn_monster_atk_thread') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
-				case 0x122: return rp + fn('join_monster_atk_thread') + `(${arg(0, 'actor')})`;
-				case 0x124: return rp + fn('monster_set_damage_victim') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)})`;
-				case 0x125: return rp + fn('monster_set_damage_victims') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)})`;
-				case 0x126: return rp + fn('monster_clear_damage_victims') + `(${arg(0, 'actor')})`;
-				case 0x132: return rp + fn('play_boss_death_animation') + `(${arg(0)}, ${arg(1, 'actor')}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x133: return rp + fn('play_boss_death_animation_0133') + `(${argsConcat()})`;
-				case 0x134: return rp + fn('play_boss_death_animation_0134') + `(${argsConcat()})`;
-				case 0x13b: return rp + fn('wait_for_boss_death_animation') + `(${argsConcat()})`;
+				case 0xc8:
+					return rp + fn('monster_kill') + `(${arg(0, 'actor')})`;
+				case 0xc9:
+					return rp + fn('actor_despawn') + `(${arg(0, 'actor')})`;
+				case 0xd3:
+					return rp + fn('npc_apply_desc') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
+				case 0xe7:
+					return (
+						rp +
+						fn('actor_move') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`speed=${arg(6)})`
+					);
+				case 0xe8:
+					return (
+						rp +
+						fn('actor_move_fixed_duration') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'positioning')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`duration=${arg(6)})`
+					);
+				case 0xe9:
+					return (
+						rp +
+						fn('actor_move_around_actor') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`speed=${arg(6)})`
+					);
+				case 0xea:
+					return (
+						rp +
+						fn('actor_move_around_actor_fixed_duration') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`duration=${arg(6)})`
+					);
+				case 0xeb:
+					return rp + fn('actor_move_wait') + `(${arg(0, 'actor')}, ${arg(1)})`;
+				case 0xef:
+					return (
+						rp +
+						fn('actor_set_position') +
+						`(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`
+					);
+				case 0xf0:
+					return (
+						rp +
+						fn('actor_set_position_around_actor') +
+						`(${arg(0, 'actor')}, ${arg(1, 'actor')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`
+					);
+				case 0xf3:
+					return (
+						rp +
+						fn('actor_set_home') +
+						`(${arg(0, 'actor')}, ${arg(1, 'positioning')}, ${arg(2)}, ${arg(3)}, ${arg(4)})`
+					);
+				case 0x10f:
+					return (
+						rp +
+						fn('actor_jump') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, height=${arg(3)}, speed=${arg(4)})`
+					);
+				case 0x121:
+					return rp + fn('spawn_monster_atk_thread') + `(${arg(0, 'actor')}, ${arg(1, 'actor')})`;
+				case 0x122:
+					return rp + fn('join_monster_atk_thread') + `(${arg(0, 'actor')})`;
+				case 0x124:
+					return (
+						rp +
+						fn('monster_set_damage_victim') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2, 'actor')}, ${arg(3)})`
+					);
+				case 0x125:
+					return rp + fn('monster_set_damage_victims') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)})`;
+				case 0x126:
+					return rp + fn('monster_clear_damage_victims') + `(${arg(0, 'actor')})`;
+				case 0x132:
+					return (
+						rp +
+						fn('play_boss_death_animation') +
+						`(${arg(0)}, ${arg(1, 'actor')}, ${arg(2, 'actor')}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`${arg(6)})`
+					);
+				case 0x133:
+					return rp + fn('play_boss_death_animation_0133') + `(${argsConcat()})`;
+				case 0x134:
+					return rp + fn('play_boss_death_animation_0134') + `(${argsConcat()})`;
+				case 0x13b:
+					return rp + fn('wait_for_boss_death_animation') + `(${argsConcat()})`;
 				case 0x1ee: {
 					let file = '(?)';
 					if (args[0].x === 24) file = 'BMes_cf';
 					else if (args[0].x === 23) file = 'BMes_ji';
 					else if (args[0].x === 22) file = 'BMes_yo';
-					return rp + fn('load_messages') + `(${arg(0)}, ${arg(1)}) // ${file} table 0x${(args[1].x + 1).toString(16)}`;
+					return (
+						rp +
+						fn('load_messages') +
+						`(${arg(0)}, ${arg(1)}) // ${file} table 0x${(args[1].x + 1).toString(16)}`
+					);
 				}
-				case 0x1ef: return rp + fn('load_messages2') + '()';
-				case 0x1f1: return rp + fn('textbox_say') + `(${argsConcat()})`;
-				case 0x1f2: return rp + fn('textbox_wait') + `(${arg(0)})`;
-				case 0x1fc: return rp + fn('play_sound_directional') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x1fd: return rp + fn('play_sound_directional_handle') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x1fe: return rp + fn('play_sound') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x1ff: return rp + fn('play_sound_handle') + `(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ${arg(6)})`;
-				case 0x200: return rp + fn('stop_sound') + `(${arg(0)})`;
-				case 0x201: return rp + fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
-				case 0x202: return rp + fn('set_music2') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
-				case 0x203: return rp + fn('fade_out_music') + `(${arg(0)})`;
+				case 0x1ef:
+					return rp + fn('load_messages2') + '()';
+				case 0x1f1:
+					return rp + fn('textbox_say') + `(${argsConcat()})`;
+				case 0x1f2:
+					return rp + fn('textbox_wait') + `(${arg(0)})`;
+				case 0x1fc:
+					return (
+						rp +
+						fn('play_sound_directional') +
+						`(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`${arg(6)})`
+					);
+				case 0x1fd:
+					return (
+						rp +
+						fn('play_sound_directional_handle') +
+						`(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`${arg(6)})`
+					);
+				case 0x1fe:
+					return (
+						rp +
+						fn('play_sound') +
+						`(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`${arg(6)})`
+					);
+				case 0x1ff:
+					return (
+						rp +
+						fn('play_sound_handle') +
+						`(${arg(0, 'actor')}, ${arg(1, 'hex32')}, ${arg(2)}, ${arg(3)}, ${arg(4)}, ${arg(5)}, ` +
+						`${arg(6)})`
+					);
+				case 0x200:
+					return rp + fn('stop_sound') + `(${arg(0)})`;
+				case 0x201:
+					return rp + fn('set_music') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x202:
+					return rp + fn('set_music2') + `(${arg(0)}) // ${sound.names[args[0].x] || '(?)'}`;
+				case 0x203:
+					return rp + fn('fade_out_music') + `(${arg(0)})`;
 				case 0x204: {
 					const to = offsetRight + args[5].x;
-					return `${keyword('if')} ${args[4].x ? '' : '!'}((${arg(1)} ${operator(operators[args[0].x])} ${arg(2)}) ${operator('==')} ${arg(3)}) ${keyword('goto')} ${location(str16(to))} // (${pm(args[5].x)})`;
+					return (
+						`${keyword('if')} ${args[4].x ? '' : '!'}(` +
+						`(${arg(1)} ${operator(operators[args[0].x])} ${arg(2)}) ${operator('==')} ${arg(3)}` +
+						`) ${keyword('goto')} ${location(str16(to))} // (${pm(args[5].x)})`
+					);
 				}
 				case 0x205: {
 					const to = offsetRight + args[4].x;
-					let key = bai.actorAttribute(args[2].x);
+					let key = bai.actorAttributes.get(args[2].x);
 					if (key) key = text(key);
 					else key = text('attr' + args[2].x);
 
-					return `${keyword('if')} (${arg(1, 'actor')}.${key} ${operator(operators[args[0].x])} ${arg(3)}) ${keyword('goto')} ${location(str16(to))} // (${pm(args[4].x)})`;
+					return (
+						`${keyword('if')} (${arg(1, 'actor')}.${key} ${operator(operators[args[0].x])} ${arg(3)}) ` +
+						`${keyword('goto')} ${location(str16(to))} // (${pm(args[4].x)})`
+					);
 				}
 				case 0x206: {
 					const to = offsetRight + args[2].x;
-					return rp + fn('BA_0206') + `(${arg(0, 'actor')}, ${arg(1)}, ${location(str16(to))}) // (${pm(args[2].x)})`;
+					return (
+						rp +
+						fn('BA_0206') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${location(str16(to))}) // (${pm(args[2].x)})`
+					);
 				}
 				case 0x207: {
 					const to = offsetRight + args[3].x;
-					return rp + fn('BA_0207') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
+					return (
+						rp +
+						fn('BA_0207') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`
+					);
 				}
 				case 0x209: {
 					const to = offsetRight + args[3].x;
-					return rp + fn('BA_0209') + `(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`;
+					return (
+						rp +
+						fn('BA_0209') +
+						`(${arg(0, 'actor')}, ${arg(1)}, ${arg(2)}, ${location(str16(to))}) // (${pm(args[3].x)})`
+					);
 				}
-				case 0x213: return rp + fn('random_attack_target') + `(${arg(0)}, ${arg(1)})`;
-				case 0x216: return rp + fn('actor_is_monster') + `(${arg(0, 'actor')})`;
-				case 0x219: return rp + fn('monster_next_slot') + '()';
-				case 0x21a: return rp + fn('desc_next_slot') + '()';
-				case 0x21b: return rp + fn('desc_by_sprite_id_cached') + `(${arg(0)}, ${arg(1, 'hex32')}) // ${bai.spriteFile(args[1].x)}`;
+				case 0x213:
+					return rp + fn('random_attack_target') + `(${arg(0)}, ${arg(1)})`;
+				case 0x216:
+					return rp + fn('actor_is_monster') + `(${arg(0, 'actor')})`;
+				case 0x219:
+					return rp + fn('monster_next_slot') + '()';
+				case 0x21a:
+					return rp + fn('desc_next_slot') + '()';
+				case 0x21b:
+					return (
+						rp +
+						fn('desc_by_sprite_id_cached') +
+						`(${arg(0)}, ${arg(1, 'hex32')}) // ${bai.spriteFile(args[1].x)}`
+					);
 				case 0x21c: {
 					let comment;
 					if (args[0].type !== 'var') comment = ' // ' + monsters.monsters[args[0].x]?.name ?? '(?)';
@@ -4209,7 +4555,7 @@
 			}
 
 			const segmentNames = scriptSelectNames[fileSelect.value];
-			scriptSelect.replaceWith(scriptSelect = dropdown(segmentNames, 0, () => updateScript()));
+			scriptSelect.replaceWith((scriptSelect = dropdown(segmentNames, 0, () => updateScript())));
 
 			updateScript = () => {
 				const script = segments[scriptSelect.value];
@@ -4234,7 +4580,7 @@
 
 					const parts = [];
 					let o = 14;
-					for (; o + 5 < script.byteLength;) {
+					for (; o + 5 < script.byteLength; ) {
 						const startO = o;
 						const cmd = script.getUint16(o, true);
 						const flags = script.getUint32(o + 2, true);
@@ -4257,12 +4603,18 @@
 							if (flags & (1 << i)) {
 								args.push(`var[0x${str16(script.getUint16(o, true))}]`);
 								o += 2; // variable
-							} else if (command.args[i] === 0) (args.push(script.getUint8(o)), ++o); // u8
-							else if (command.args[i] === 1) (args.push(script.getUint16(o, true)), o += 2); // u16
-							else if (command.args[i] === 2) (args.push(script.getUint32(o, true)), o += 4); // u32
-							else if (command.args[i] === 3) (args.push(script.getInt8(o)), ++o); // s8
-							else if (command.args[i] === 4) (args.push(script.getInt16(o, true)), o += 2); // s16
-							else if (command.args[i] === 5) (args.push(script.getInt32(o, true)), o += 4); // s32
+							} else if (command.args[i] === 0)
+								(args.push(script.getUint8(o)), ++o); // u8
+							else if (command.args[i] === 1)
+								(args.push(script.getUint16(o, true)), (o += 2)); // u16
+							else if (command.args[i] === 2)
+								(args.push(script.getUint32(o, true)), (o += 4)); // u32
+							else if (command.args[i] === 3)
+								(args.push(script.getInt8(o)), ++o); // s8
+							else if (command.args[i] === 4)
+								(args.push(script.getInt16(o, true)), (o += 2)); // s16
+							else if (command.args[i] === 5)
+								(args.push(script.getInt32(o, true)), (o += 4)); // s32
 							else if (command.args[i] === 6) {
 								const x = script.getInt16(o, true);
 								args.push(`(fx16)${x / 256}`);
@@ -4387,15 +4739,22 @@
 											const elseRight = branch[elseRightIdx];
 											if (elseRight) {
 												// don't do any validation yet, let's see what happens
-												const childrenElse = branch.splice(elseLeftIdx, elseRightIdx - elseLeftIdx + 1);
+												const childrenElse = branch.splice(
+													elseLeftIdx,
+													elseRightIdx - elseLeftIdx + 1,
+												);
 												const childrenIf = branch.splice(ifLeftIdx, ifRightIdx - ifLeftIdx + 1);
-												const ifelse = branch[j] = {
-													separators: [`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`, `} ${keyword('else')} {`, `}`],
+												const ifelse = (branch[j] = {
+													separators: [
+														`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`,
+														`} ${keyword('else')} {`,
+														`}`,
+													],
 													content: [childrenIf, childrenElse],
 													offsetLeft: outer.offsetLeft,
 													offsetsMiddle: [right.offsetLeft],
 													offsetRight: undefined /* elseRight.offsetRight */,
-												};
+												});
 												branch.splice(j + 1, 1); // delete the "else" command
 
 												explore(childrenIf);
@@ -4406,7 +4765,9 @@
 													// TODO maybe won't look too right if i introduce a loop { or smth
 													ifelse.separators.pop();
 													ifelse.separators.pop();
-													ifelse.separators.push(`} ${keyword('else')} ${inner.separators[0]}`);
+													ifelse.separators.push(
+														`} ${keyword('else')} ${inner.separators[0]}`,
+													);
 													for (let k = 1; k < inner.separators.length; ++k) {
 														ifelse.separators.push(inner.separators[k]);
 													}
@@ -4424,8 +4785,12 @@
 									}
 
 									const children = branch.splice(leftIdx, rightIdx - leftIdx + 1);
-									branch[j] = { // replace `outer` with a block
-										separators: [`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`, `}`],
+									branch[j] = {
+										// replace `outer` with a block
+										separators: [
+											`${keyword('if')} (${arg(outer.args[1])} ${operator(operators[outer.args[0].x])} ${arg(outer.args[2])}) {`,
+											`}`,
+										],
 										content: [children],
 										offsetLeft: outer.offsetLeft,
 										offsetsMiddle: [],
@@ -4438,31 +4803,51 @@
 						explore(children);
 					}
 
-					const explore = (branch, indent) => branch.map(block => {
-						const prefix = offsetLeft => `${offsetLeft !== undefined ? str16(offsetLeft) : '----'} ${'&nbsp;'.repeat(indent * 4)}`;
-						if (block.opcode === undefined) {
-							const parts = [];
-							parts.push(`${prefix(block.offsetLeft)}${block.separators[0]}`);
-							for (let i = 0; i < block.content.length - 1; ++i) {
-								parts.push(...explore(block.content[i], indent + 1));
-								parts.push(`${prefix(block.offsetsMiddle[i])}${block.separators[i + 1]}`);
-							}
-							parts.push(...explore(block.content[block.content.length - 1], indent + 1));
-							parts.push(`${prefix(block.offsetRight)}${block.separators[block.separators.length - 1]}`);
-							return parts;
-						} else if (block.opcode === -2) {
-							// raw string
-							return `${prefix}${block.str}`;
-						} else if (block.opcode === -1) {
-							// raw data
-							return `${prefix(block.offsetLeft)}${text(bytes(block.offsetLeft, block.offsetRight - block.offsetLeft, script))}</span>`;
-						} else {
-							// command
-							const { opcode, returnTarget, args, offsetLeft, offsetRight } = block;
-							return prefix(offsetLeft) + bai.command(script, opcode, returnTarget, args, offsetLeft, offsetRight, functionLabels);
-						}
-					}).flat();
-					addHTML(preview, `<div style="color: var(--overlay2);"><code>${explore(tree, 0).join('<br>')}</code></div>`);
+					const explore = (branch, indent) =>
+						branch
+							.map(block => {
+								const prefix = offsetLeft =>
+									`${offsetLeft !== undefined ? str16(offsetLeft) : '----'} ${'&nbsp;'.repeat(indent * 4)}`;
+								if (block.opcode === undefined) {
+									const parts = [];
+									parts.push(`${prefix(block.offsetLeft)}${block.separators[0]}`);
+									for (let i = 0; i < block.content.length - 1; ++i) {
+										parts.push(...explore(block.content[i], indent + 1));
+										parts.push(`${prefix(block.offsetsMiddle[i])}${block.separators[i + 1]}`);
+									}
+									parts.push(...explore(block.content[block.content.length - 1], indent + 1));
+									parts.push(
+										`${prefix(block.offsetRight)}${block.separators[block.separators.length - 1]}`,
+									);
+									return parts;
+								} else if (block.opcode === -2) {
+									// raw string
+									return `${prefix}${block.str}`;
+								} else if (block.opcode === -1) {
+									// raw data
+									return `${prefix(block.offsetLeft)}${text(bytes(block.offsetLeft, block.offsetRight - block.offsetLeft, script))}</span>`;
+								} else {
+									// command
+									const { opcode, returnTarget, args, offsetLeft, offsetRight } = block;
+									return (
+										prefix(offsetLeft) +
+										bai.command(
+											script,
+											opcode,
+											returnTarget,
+											args,
+											offsetLeft,
+											offsetRight,
+											functionLabels,
+										)
+									);
+								}
+							})
+							.flat();
+					addHTML(
+						preview,
+						`<div style="color: var(--overlay2);"><code>${explore(tree, 0).join('<br>')}</code></div>`,
+					);
 				}
 			};
 			updateScript();
@@ -4476,7 +4861,7 @@
 	// | Section: FX Alls                                                                                              |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fxalls = (window.fxalls = createSection('FX Alls', (section) => {
+	const fxalls = (window.fxalls = createSection('FX Alls', section => {
 		const fxalls = {};
 
 		const files = ['/BRfx/BDfxAll.dat', '/BRfx/BDfxGAll.dat', '/BRfx/BOfxAll.dat', '/FRfx/FWfxAll.dat'];
@@ -4496,9 +4881,12 @@
 
 		const updateFile = () => {
 			const segments = unpackSegmented(fs.get(files[fileSelect.value]));
-			const newDropdown = dropdown(segments.map((x, i) => `${i}. (len ${x.byteLength})`),
-				0, () => updateSegment());
-			segmentSelect.replaceWith(segmentSelect = newDropdown);
+			const newDropdown = dropdown(
+				segments.map((x, i) => `${i}. (len ${x.byteLength})`),
+				0,
+				() => updateSegment(),
+			);
+			segmentSelect.replaceWith((segmentSelect = newDropdown));
 
 			updateSegment = () => {
 				preview.innerHTML = '';
@@ -4524,86 +4912,109 @@
 					let numKeyframes80;
 					let numKeyframes81;
 					let o = 1;
-					if (prettyPrint.checked) while (o < u16.length) {
-						const composite = u16[o++];
-						const cmd = composite & 0xff;
-						const params = composite >> 8;
+					if (prettyPrint.checked) {
+						while (o < u16.length) {
+							const composite = u16[o++];
+							const cmd = composite & 0xff;
+							const params = composite >> 8;
 
-						if (cmd === 0x01) { // maybe
-							parts.push(`(cx01<sub>${params}</sub> : ${s16[o++]})`);
-						} else if (cmd === 0x02) { // maybe
-							parts.push(`(cx02<sub>${params}</sub> : ${s16[o++]})`);
-						} else if (cmd === 0x03) { // maybe
-							parts.push(`(cx03<sub>${params}</sub> : ${s16[o++]})`);
-						} else if (cmd === 0x04) { // maybe
-							parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
-						} else if (cmd === 0x08) { // maybe
-							parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
-						} else if (cmd === 0x19) { // pretty sure
-							const nums = [];
-							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-							parts.push(`(x<sub>${params}</sub> : ${nums.join(' ')})`);
-						} else if (cmd === 0x1a) { // pretty sure
-							const nums = [];
-							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-							parts.push(`(y<sub>${params}</sub> : ${nums.join(' ')})`);
-						} else if (cmd === 0x1b) { // pretty sure
-							const nums = [];
-							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-							parts.push(`(z<sub>${params}</sub> : ${nums.join(' ')})`);
-						} else if (cmd === 0x1c) { // pretty sure
-							const nums = [];
-							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-							parts.push(`(red<sub>${params}</sub> : ${nums.join(' ')})`);
-						} else if (cmd === 0x1d) { // pretty sure
-							const nums = [];
-							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-							parts.push(`(green<sub>${params}</sub> : ${nums.join(' ')})`);
-						} else if (cmd === 0x1d) { // pretty sure
-							const nums = [];
-							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-							parts.push(`(blue<sub>${params}</sub> : ${nums.join(' ')})`);
-						} else if (cmd === 0x24) { // pretty sure
-							numKeyframes24 = (params + 2) / 2;
-							const nums = [];
-							for (let i = 0; i < numKeyframes24; ++i) nums.push(s16[o++]);
-							parts.push(`(cx24 : ${nums.join(' ')})`);
-						} else if (cmd === 0x34) { // maybe
-							parts.push(`(cx34 : ${s16[o++]} ${s16[o++]})`);
-						} else if (cmd === 0x35) { // maybe
-							parts.push(`(cx35 : ${s16[o++]} ${s16[o++]})`);
-						} else if (cmd === 0x36) { // maybe
-							parts.push(`(cx36 : ${s16[o++]} ${s16[o++]})`);
-						} else if (cmd === 0x37) { // maybe
-							parts.push(`(cx37 : ${s16[o++]} ${s16[o++]})`);
-						} else if (cmd === 0x74) { // pretty sure
-							numKeyframes74 = (params + 2) / 2;
-							const nums = [];
-							for (let i = 0; i < numKeyframes74; ++i) nums.push(s16[o++]);
-							parts.push(`(cx74 : ${nums.join(' ')})`);
-						} else if (cmd === 0x80) { // pretty sure
-							numKeyframes80 = (params + 2) / 2;
-							const nums = [];
-							for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-							parts.push(`(cx80 : ${nums.join(' ')})`);
-						} else if (cmd === 0x81) { // pretty sure
-							numKeyframes81 = (params + 2) / 2;
-							const nums = [];
-							for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-							parts.push(`(cx81 : ${nums.join(' ')})`);
-						} else {
-							o--; // unknown command, retry printing in the next loop
-							break;
+							if (cmd === 0x01) {
+								// maybe
+								parts.push(`(cx01<sub>${params}</sub> : ${s16[o++]})`);
+							} else if (cmd === 0x02) {
+								// maybe
+								parts.push(`(cx02<sub>${params}</sub> : ${s16[o++]})`);
+							} else if (cmd === 0x03) {
+								// maybe
+								parts.push(`(cx03<sub>${params}</sub> : ${s16[o++]})`);
+							} else if (cmd === 0x04) {
+								// maybe
+								parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
+							} else if (cmd === 0x08) {
+								// maybe
+								parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
+							} else if (cmd === 0x19) {
+								// pretty sure
+								const nums = [];
+								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+								parts.push(`(x<sub>${params}</sub> : ${nums.join(' ')})`);
+							} else if (cmd === 0x1a) {
+								// pretty sure
+								const nums = [];
+								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+								parts.push(`(y<sub>${params}</sub> : ${nums.join(' ')})`);
+							} else if (cmd === 0x1b) {
+								// pretty sure
+								const nums = [];
+								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+								parts.push(`(z<sub>${params}</sub> : ${nums.join(' ')})`);
+							} else if (cmd === 0x1c) {
+								// pretty sure
+								const nums = [];
+								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+								parts.push(`(red<sub>${params}</sub> : ${nums.join(' ')})`);
+							} else if (cmd === 0x1d) {
+								// pretty sure
+								const nums = [];
+								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+								parts.push(`(green<sub>${params}</sub> : ${nums.join(' ')})`);
+							} else if (cmd === 0x1d) {
+								// pretty sure
+								const nums = [];
+								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+								parts.push(`(blue<sub>${params}</sub> : ${nums.join(' ')})`);
+							} else if (cmd === 0x24) {
+								// pretty sure
+								numKeyframes24 = (params + 2) / 2;
+								const nums = [];
+								for (let i = 0; i < numKeyframes24; ++i) nums.push(s16[o++]);
+								parts.push(`(cx24 : ${nums.join(' ')})`);
+							} else if (cmd === 0x34) {
+								// maybe
+								parts.push(`(cx34 : ${s16[o++]} ${s16[o++]})`);
+							} else if (cmd === 0x35) {
+								// maybe
+								parts.push(`(cx35 : ${s16[o++]} ${s16[o++]})`);
+							} else if (cmd === 0x36) {
+								// maybe
+								parts.push(`(cx36 : ${s16[o++]} ${s16[o++]})`);
+							} else if (cmd === 0x37) {
+								// maybe
+								parts.push(`(cx37 : ${s16[o++]} ${s16[o++]})`);
+							} else if (cmd === 0x74) {
+								// pretty sure
+								numKeyframes74 = (params + 2) / 2;
+								const nums = [];
+								for (let i = 0; i < numKeyframes74; ++i) nums.push(s16[o++]);
+								parts.push(`(cx74 : ${nums.join(' ')})`);
+							} else if (cmd === 0x80) {
+								// pretty sure
+								numKeyframes80 = (params + 2) / 2;
+								const nums = [];
+								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
+								parts.push(`(cx80 : ${nums.join(' ')})`);
+							} else if (cmd === 0x81) {
+								// pretty sure
+								numKeyframes81 = (params + 2) / 2;
+								const nums = [];
+								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
+								parts.push(`(cx81 : ${nums.join(' ')})`);
+							} else {
+								o--; // unknown command, retry printing in the next loop
+								break;
+							}
 						}
 					}
 
 					for (; o < u16.length; ++o) {
 						let style = '';
-						if ((u16[o] >> 8) && (u16[o] < 0xf000)) style = 'style="color: #98f !important;"';
+						if (u16[o] >> 8 && u16[o] < 0xf000) style = 'style="color: #98f !important;"';
 						parts.push(`<span ${style}>${str8(u16[o] & 0xff)} ${str8(u16[o] >> 8)}</span>`);
 					}
 
-					const colorized = parts.map((x,i) => i % 2 ? `<span style="color: var(--fg-dim);">${x}</span>` : x);
+					const colorized = parts.map((x, i) =>
+						i % 2 ? `<span style="color: var(--fg-dim);">${x}</span>` : x,
+					);
 					addHTML(ul, `<li><code>[${i}] ${colorized.join(' ')}</code></li>`);
 				}
 
@@ -4620,7 +5031,7 @@
 	// | Section: FX Sprites                                                                                           |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const fxsprites = (window.fxsprites = createSection('FX Sprites', (section) => {
+	const fxsprites = (window.fxsprites = createSection('FX Sprites', section => {
 		const fxsprites = {};
 
 		const files = [
@@ -4629,12 +5040,22 @@
 			{ label: 'BOfx', pals: fsext.bofxpal?.segments, texs: fsext.bofxtex?.segments },
 			{ label: 'FDfx', pals: fsext.fdfxpal?.segments, texs: fsext.fdfxtex?.segments },
 			{ label: 'FOfx', pals: fsext.fofxpal?.segments, texs: fsext.fofxtex?.segments },
-			{ label: 'MDfx', pals: unpackSegmented(fs.get('/MRfx/MDfxPal.dat')),
-				texs: unpackSegmented(fs.get('/MRfx/MDfxTex.dat')) },
-			{ label: 'MOfx', pals: unpackSegmented(fs.get('/MRfx/MOfxPal.dat')),
-				texs: unpackSegmented(fs.get('/MRfx/MOfxTex.dat')) },
+			{
+				label: 'MDfx',
+				pals: unpackSegmented(fs.get('/MRfx/MDfxPal.dat')),
+				texs: unpackSegmented(fs.get('/MRfx/MDfxTex.dat')),
+			},
+			{
+				label: 'MOfx',
+				pals: unpackSegmented(fs.get('/MRfx/MOfxPal.dat')),
+				texs: unpackSegmented(fs.get('/MRfx/MOfxTex.dat')),
+			},
 		];
-		const fileSelect = dropdown(files.map(x => x.label), 0, () => updateFile());
+		const fileSelect = dropdown(
+			files.map(x => x.label),
+			0,
+			() => updateFile(),
+		);
 		section.appendChild(fileSelect);
 
 		let segmentSelect = dropdown([''], 0, () => {});
@@ -4677,24 +5098,27 @@
 
 		const fallbackPaletteU16 = new Uint16Array(256);
 		for (let row = 0; row < 16; ++row) {
-			fallbackPaletteU16.set([
-				0,
-				31 | 0 << 5 | row << 11,
-				31 | 8 << 5 | row << 11,
-				31 | 16 << 5 | row << 11,
-				31 | 24 << 5 | row << 11,
-				31 | 31 << 5 | row << 11,
-				row << 1 | 31 << 5 | 0 << 10,
-				row << 1 | 31 << 5 | 8 << 10,
-				row << 1 | 31 << 5 | 16 << 10,
-				row << 1 | 31 << 5 | 24 << 10,
-				row << 1 | 31 << 5 | 31 << 10,
-				0 | row << 6 | 31 << 10,
-				8 | row << 6 | 31 << 10,
-				16 | row << 6 | 31 << 10,
-				24 | row << 6 | 31 << 10,
-				31 | row << 6 | 31 << 10,
-			], row * 16);
+			fallbackPaletteU16.set(
+				[
+					0,
+					31 | (0 << 5) | (row << 11),
+					31 | (8 << 5) | (row << 11),
+					31 | (16 << 5) | (row << 11),
+					31 | (24 << 5) | (row << 11),
+					31 | (31 << 5) | (row << 11),
+					(row << 1) | (31 << 5) | (0 << 10),
+					(row << 1) | (31 << 5) | (8 << 10),
+					(row << 1) | (31 << 5) | (16 << 10),
+					(row << 1) | (31 << 5) | (24 << 10),
+					(row << 1) | (31 << 5) | (31 << 10),
+					0 | (row << 6) | (31 << 10),
+					8 | (row << 6) | (31 << 10),
+					16 | (row << 6) | (31 << 10),
+					24 | (row << 6) | (31 << 10),
+					31 | (row << 6) | (31 << 10),
+				],
+				row * 16,
+			);
 		}
 		const fallbackPaletteU32 = rgb15To32(fallbackPaletteU16);
 
@@ -4727,7 +5151,13 @@
 				if (texs[i].byteLength < 8) continue;
 				options.push([`Texture 0x${i.toString(16)}`, i]);
 			}
-			segmentSelect.replaceWith(segmentSelect = dropdown(options.map(x => x[0]), 0, () => updateSegment()));
+			segmentSelect.replaceWith(
+				(segmentSelect = dropdown(
+					options.map(x => x[0]),
+					0,
+					() => updateSegment(),
+				)),
+			);
 
 			updateSegment = () => {
 				metaTop.innerHTML = '';
@@ -4780,14 +5210,14 @@
 					textureCanvas.style.width = `${width * 8 * scale}px`;
 					textureCanvas.style.height = `${height * 8 * scale}px`;
 					preview.style.height = `${Math.max(height * 8 * scale, 128) + 20}px`;
-					
+
 					const paletteOffset = paletteRowSelect.value << 4;
 					const bitmapU32 = new Uint32Array(width * height * 64);
 					let o = 8;
 					const texU8 = bufToU8(tex);
 					for (let tileY = 0; tileY < height; ++tileY) {
 						for (let tileX = 0; tileX < width; ++tileX) {
-							const basePos = (tileY * 8 * width * 8) + tileX * 8;
+							const basePos = tileY * 8 * width * 8 + tileX * 8;
 							if (bitDepth === 4) {
 								for (let i = 0; i < 32; ++i) {
 									const pos = basePos + (i >> 2) * width * 8 + ((i & 3) << 1);
@@ -4826,7 +5256,7 @@
 	// | Section: VTable Scanner                                                                                       |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const vtables = (window.vtables = createSection('VTables', (section) => {
+	const vtables = (window.vtables = createSection('VTables', section => {
 		const vtables = {};
 
 		const picked = new Set();
@@ -4870,8 +5300,11 @@
 
 		const addEntry = (name, id, bufProvider, ramStart, ramSize) => {
 			const overlapBox = document.createElement('div');
-			overlapBox.style.cssText = `position: absolute; top: 0; left: ${(ramStart - 0x02000000) / 0x400000 * 100}%;
-				width: ${ramSize / 0x400000 * 100}%; height: 20px; background: var(--surface1); border: 1px solid var(--overlay2); display: none; z-index: 2; opacity: 0.333;`;
+			overlapBox.style.cssText =
+				`position: absolute; top: 0; ` +
+				`left: ${((ramStart - 0x02000000) / 0x400000) * 100}%; width: ${(ramSize / 0x400000) * 100}%; ` +
+				`height: 20px; background: var(--surface1); border: 1px solid var(--overlay2); display: none; ` +
+				`z-index: 2; opacity: 0.333;`;
 			overlapDisplay.appendChild(overlapBox);
 
 			const container = { overlapBox, name, id, bufProvider, ramStart, ramSize };
@@ -4903,10 +5336,16 @@
 		addEntry('ARM9&nbsp;', -2, () => fs.arm9, headers.arm9ram, fs.arm9.byteLength);
 		addEntry('ARM7&nbsp;', -1, () => fs.arm7, headers.arm7ram, fs.arm7.byteLength);
 		for (const ov of ovt.overlays) {
-			addEntry(`ov${String(ov.id).padStart(3, '0')}`, ov.id, () => fs.overlay(ov.id, true), ov.ramStart, ov.ramSize);
+			addEntry(
+				`ov${String(ov.id).padStart(3, '0')}`,
+				ov.id,
+				() => fs.overlay(ov.id, true),
+				ov.ramStart,
+				ov.ramSize,
+			);
 		}
 
-		section.appendChild(button('Scan', () => {
+		const scanButton = button('Scan', () => {
 			scanPreview.innerHTML = '';
 
 			// MLBIS's RTTI info seems to follow this structure:
@@ -4938,8 +5377,13 @@
 			let lastInvalid = -1;
 			for (let o = 0; o < 0x400000; ++o) {
 				const byte = u8[o];
-				if ((0x41 <= byte && byte <= 0x5a)/* A-Z */ || (0x61 <= byte && byte <= 0x7a)/* a-z */
-					|| (0x30 <= byte && byte <= 0x39)/* 0-9 */ || byte === 0x5f/* _ */) continue;
+				if (
+					(0x41 <= byte && byte <= 0x5a) /* A-Z */ ||
+					(0x61 <= byte && byte <= 0x7a) /* a-z */ ||
+					(0x30 <= byte && byte <= 0x39) /* 0-9 */ ||
+					byte === 0x5f /* _ */
+				)
+					continue;
 
 				const start = lastInvalid + 1;
 				const end = o;
@@ -4959,7 +5403,7 @@
 				const readUnqualifiedName = () => {
 					let len = 0;
 					for (let i = 0; i < 3 && o2 < end; ++i, ++o2) {
-						if (!(0x30 <= u8[o2] && u8[o2] <= 0x39)/* 0-9 */) break;
+						if (!(0x30 <= u8[o2] && u8[o2] <= 0x39) /* 0-9 */) break;
 						len *= 10;
 						len += u8[o2] - 0x30;
 					}
@@ -5035,18 +5479,25 @@
 			for (const [demangled, offsets] of demangledToOffsets) {
 				const refs = demangledToReferences.get(demangled);
 				if (refs?.length !== offsets.length) {
-					errors.push(`${demangled} is defined at ${offsets.length} places ` +
-						`(${offsets.map(x => str32(x + 0x02000000)).join(', ')}) but referenced at ` +
-						`${refs?.length ?? 0} places instead ` +
-						`${refs ? '(' + refs.map(x => str32(x.from + 0x02000000)).join(', ')  + ')' : ''}`);
+					errors.push(
+						`${demangled} is defined at ${offsets.length} places ` +
+							`(${offsets.map(x => str32(x + 0x02000000)).join(', ')}) but referenced at ` +
+							`${refs?.length ?? 0} places instead ` +
+							`${refs ? '(' + refs.map(x => str32(x.from + 0x02000000)).join(', ') + ')' : ''}`,
+					);
 					continue;
 				}
 
 				const usedOffsets = new Set();
 				for (const { from, to } of refs) {
 					if (usedOffsets.has(to)) {
-						errors.push(`${demangled} @ ${str32(from + 0x02000000)} is referenced more than once, ` +
-							`references: ${refs.filter(ref => ref.to === to).map(x => str32(x.from + 0x02000000)).join(', ')}`);
+						errors.push(
+							`${demangled} @ ${str32(from + 0x02000000)} is referenced more than once, ` +
+								`references: ${refs
+									.filter(ref => ref.to === to)
+									.map(x => str32(x.from + 0x02000000))
+									.join(', ')}`,
+						);
 					}
 
 					usedOffsets.add(to);
@@ -5086,12 +5537,14 @@
 							offset: typeInfoOffset,
 							name: demangled,
 							type: baseTypeInfoName,
-							baseTypeInfoOffsets: [{
-								at: dat.getUint32(typeInfoOffset + 8, true) - 0x02000000,
-								vptrFieldOffset: 0,
-								virtual: false,
-								public: true,
-							}],
+							baseTypeInfoOffsets: [
+								{
+									at: dat.getUint32(typeInfoOffset + 8, true) - 0x02000000,
+									vptrFieldOffset: 0,
+									virtual: false,
+									public: true,
+								},
+							],
 							dat: sliceDataView(dat, typeInfoOffset, typeInfoOffset + 12),
 						};
 					} else if (baseTypeInfoName === '__cxxabiv1::__vmi_class_type_info') {
@@ -5117,8 +5570,10 @@
 							dat: sliceDataView(dat, typeInfoOffset, typeInfoOffset + 16 + baseCount * 8),
 						};
 					} else {
-						errors.push(`${demangled}'s type_info struct @ ${str32(typeInfoOffset + 0x02000000)} inherits `+
-							`from unhandled type_info derivative ${baseTypeInfoName}`);
+						errors.push(
+							`${demangled}'s type_info struct @ ${str32(typeInfoOffset + 0x02000000)} inherits ` +
+								`from unhandled type_info derivative ${baseTypeInfoName}`,
+						);
 						continue;
 					}
 
@@ -5142,8 +5597,10 @@
 					}
 
 					if (equivalent) continue; // ok
-					errors.push(`${demangled} has duplicate type_infos that aren't equivalent @ ` +
-						`${str32(typeInfos[0].offset + 0x02000000)} and ${str32(typeInfos[i].offset + 0x02000000)}`);
+					errors.push(
+						`${demangled} has duplicate type_infos that aren't equivalent @ ` +
+							`${str32(typeInfos[0].offset + 0x02000000)} and ${str32(typeInfos[i].offset + 0x02000000)}`,
+					);
 				}
 			}
 			checkErrors();
@@ -5151,11 +5608,13 @@
 			// #7 : make sure that type_infos reference real base type_infos
 			for (const [demangled, typeInfos] of demangledToTypeInfos) {
 				const typeInfo = typeInfos[0];
-				for (const baseTypeInfoOffset of typeInfo.baseTypeInfoOffsets) { 
+				for (const baseTypeInfoOffset of typeInfo.baseTypeInfoOffsets) {
 					if (offsetToTypeInfo.has(baseTypeInfoOffset.at)) continue;
 
-					errors.push(`${demangled}'s type_info @ ${str32(typeInfo.offset + 0x02000000)} references a base ` +
-						`type_info @ ${str32(baseTypeInfoOffset.at + 0x02000000)}, but it doesn't exist`);
+					errors.push(
+						`${demangled}'s type_info @ ${str32(typeInfo.offset + 0x02000000)} references a base ` +
+							`type_info @ ${str32(baseTypeInfoOffset.at + 0x02000000)}, but it doesn't exist`,
+					);
 				}
 			}
 			checkErrors();
@@ -5186,11 +5645,13 @@
 					const previousVtablePtrs = typeInfoToVtablePtrs.get(typeInfo);
 					if (previousVtablePtrs) {
 						const [prevVptrFieldOffset, at] = previousVtablePtrs.entries().next().value;
-						errors.push(`Base class ${typeInfo.name}'s type_info @ ` +
-							`${str32(typeInfo.offset + 0x02000000)} already has an associated vtable at ` +
-							`${str32(at + 0x02000000)} (vptr at field_0x${prevVptrFieldOffset.toString(16)}), ` +
-							`but a new one was found at ${str32(vtableOffset + 0x02000000)} (vptr at ` +
-							`field_0x${vptrFieldOffset.toString(16)})`);
+						errors.push(
+							`Base class ${typeInfo.name}'s type_info @ ` +
+								`${str32(typeInfo.offset + 0x02000000)} already has an associated vtable at ` +
+								`${str32(at + 0x02000000)} (vptr at field_0x${prevVptrFieldOffset.toString(16)}), ` +
+								`but a new one was found at ${str32(vtableOffset + 0x02000000)} (vptr at ` +
+								`field_0x${vptrFieldOffset.toString(16)})`,
+						);
 						continue;
 					}
 
@@ -5218,14 +5679,19 @@
 					if (previousAttr) {
 						// make sure the info is not mismatched (a base class can't be public/virtual in one place but
 						// not in another)
-						if (previousAttr.public === baseTypeInfoOffset.public
-							|| previousAttr.virtual === baseTypeInfoOffset.virtual) continue;
+						if (
+							previousAttr.public === baseTypeInfoOffset.public ||
+							previousAttr.virtual === baseTypeInfoOffset.virtual
+						)
+							continue;
 
-						errors.push(`${demangled}'s type_info @ ${str32(typeInfos[0].offset + 0x02000000)} ` +
-							`marks base class ${baseTypeInfo.name} as public=${baseTypeInfoOffset.public} & ` +
-							`virtual=${baseTypeInfoOffset.virtual}, but it was previously marked as ` +
-							`public=${previousAttr.public} & virtual=${previousAttr.virtual} by ` +
-							`${previousAttr.blame}`);
+						errors.push(
+							`${demangled}'s type_info @ ${str32(typeInfos[0].offset + 0x02000000)} ` +
+								`marks base class ${baseTypeInfo.name} as public=${baseTypeInfoOffset.public} & ` +
+								`virtual=${baseTypeInfoOffset.virtual}, but it was previously marked as ` +
+								`public=${previousAttr.public} & virtual=${previousAttr.virtual} by ` +
+								`${previousAttr.blame}`,
+						);
 					} else {
 						typeInfoToClassAttr.set(baseTypeInfo, {
 							public: baseTypeInfoOffset.public,
@@ -5239,12 +5705,15 @@
 			// #10 : display info
 			const table = document.createElement('table');
 			table.className = 'bordered';
-			addHTML(table, `<tr>
-				<th>Name</th>
-				<th>Base Classes</th>
-				<th>VTables</th>
-				<th>type_infos</th>
-			</tr>`);
+			addHTML(
+				table,
+				`<tr>
+					<th>Name</th>
+					<th>Base Classes</th>
+					<th>VTables</th>
+					<th>type_infos</th>
+				</tr>`,
+			);
 
 			for (const [demangled, typeInfos] of demangledToTypeInfos) {
 				const typeInfo = typeInfos[0];
@@ -5260,7 +5729,7 @@
 				}
 
 				const baseClassesField = [...typeInfo.baseTypeInfoOffsets]
-					.sort((a,b) => a.vptrFieldOffset - b.vptrFieldOffset)
+					.sort((a, b) => a.vptrFieldOffset - b.vptrFieldOffset)
 					// must be valid, by #7
 					.map(x => `field_0x${x.vptrFieldOffset.toString(16)} - ${offsetToTypeInfo.get(x.at).name}`)
 					.join('<br>');
@@ -5273,28 +5742,35 @@
 
 				let vtablesField = '';
 				if (vtablePtrs.length) {
-					vtablesField = vtablePtrs.sort((a,b) => a[0] - b[0])
+					vtablesField = vtablePtrs
+						.sort((a, b) => a[0] - b[0])
 						.map(([vptrFieldOffset, vtableOffsets]) => {
 							const prefix = `field_0x${vptrFieldOffset.toString(16)} - `;
-							return vtableOffsets.map((y, i) => {
-								if (!i) return prefix + str32(y + 0x02000000);
-								else return '&nbsp;'.repeat(prefix.length) + str32(y + 0x02000000);
-							}).join('<br>')
+							return vtableOffsets
+								.map((y, i) => {
+									if (!i) return prefix + str32(y + 0x02000000);
+									else return '&nbsp;'.repeat(prefix.length) + str32(y + 0x02000000);
+								})
+								.join('<br>');
 						})
 						.join('<br>');
 				}
 
 				const typeInfosField = typeInfos.map(x => str32(x.offset + 0x02000000)).join('<br>');
 
-				addHTML(table, `<tr style="font-family: 'Red Hat Mono'; text-align: center;">
-					<td>${nameField || '-'}</td>
-					<td>${baseClassesField || '-'}</td>
-					<td>${vtablesField || '-'}</td>
-					<td>${typeInfosField}</td>
-				</tr>`);
+				addHTML(
+					table,
+					`<tr style="font-family: 'Red Hat Mono'; text-align: center;">
+						<td>${nameField || '-'}</td>
+						<td>${baseClassesField || '-'}</td>
+						<td>${vtablesField || '-'}</td>
+						<td>${typeInfosField}</td>
+					</tr>`,
+				);
 			}
 			scanPreview.appendChild(table);
-		}));
+		});
+		section.appendChild(scanButton);
 
 		const scanPreview = document.createElement('div');
 		section.appendChild(scanPreview);
@@ -5306,7 +5782,7 @@
 	// | Section: Sound Data (very unfinished)                                                                         |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const sound = (window.sound = createSection('Sound (very unfinished)', (section) => {
+	const sound = (window.sound = createSection('Sound (very unfinished)', section => {
 		const sound = {};
 
 		const soundFile = fs.get('/Sound/sound_data.sdat');
@@ -5333,13 +5809,13 @@
 		window.fileDat = fileDat;
 
 		// symb block
-		const symbFileList = (o) => {
+		const symbFileList = o => {
 			const length = symbDat.getUint32(o, true);
 			const files = [];
 			for (let i = 0; i < length; ++i) files.push(latin1(symbDat.getUint32(o + i * 4, true), undefined, symbDat));
 			return files;
 		};
-		const symbFolderList = (o) => {
+		const symbFolderList = o => {
 			const length = symbDat.getUint32(o, true);
 			const folders = [];
 			for (let i = 0; i < length; ++i) {
@@ -5397,7 +5873,7 @@
 	// | Section: Object Palette Animations (very unfinished)                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const objpalanim = (window.objpalanim = createSection('Object Palette Animations (very unfinished)', (section) => {
+	const objpalanim = (window.objpalanim = createSection('Object Palette Animations (very unfinished)', section => {
 		const objpalanim = {};
 
 		const fileSelect = dropdown(['FObj'], 0, () => updateFile());
@@ -5409,10 +5885,10 @@
 
 		const updateFile = () => {
 			let paletteTable, segmentsTable;
-			if (fileSelect.value === 0) paletteTable = fsext.fobjPalettes, segmentsTable = fsext.fobj;
+			if (fileSelect.value === 0) ((paletteTable = fsext.fobjPalettes), (segmentsTable = fsext.fobj));
 
 			if (!paletteTable) {
-				table.innerHTML = '<tr><td>This entry doesn\'t exist in fpaf</td></tr>';
+				table.innerHTML = "<tr><td>This entry doesn't exist in fpaf</td></tr>";
 				return;
 			}
 
@@ -5426,10 +5902,13 @@
 				try {
 					segments = unpackSegmented16(bigSeg);
 				} catch (err) {
-					addHTML(table, `<tr style="border-bottom: 1px solid var(--line);">
-						<td><code>${i}</code></td>
-						<td style="padding: 10px 0;"><code>${bytes(0, bigSeg.byteLength, bigSeg)}</code></td>
-					</tr>`);
+					addHTML(
+						table,
+						`<tr style="border-bottom: 1px solid var(--line);">
+							<td><code>${i}</code></td>
+							<td style="padding: 10px 0;"><code>${bytes(0, bigSeg.byteLength, bigSeg)}</code></td>
+						</tr>`,
+					);
 					continue;
 				}
 
@@ -5461,21 +5940,23 @@
 
 	// devtools console help
 	const loadingEnd = performance.now();
-	console.log(`File read in ${sectionLoadingStart - fileLoadingStart} ms; loaded in ${loadingEnd - sectionLoadingStart} ms`);
+	console.log(
+		`File read in ${sectionLoadingStart - fileLoadingStart} ms; loaded in ${loadingEnd - sectionLoadingStart} ms`,
+	);
 
 	console.log(
 		`Dumping functions: \
-	\n%clatin1(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \
-	\ndownload(name, dat, mime = 'application/octet-stream') %c \
-	\n\nCompression/Packing functions: \
-	\n%cblz(indat) \nblzCompress(indat, minimumSize?) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
-	\nzipStore(files) \nunpackSegmented(dat) %c \
-	\n\nView functions: \
-	\n%csliceDataView(dat, start, end) \nbufToU8(buf) \nbufToU8Clamped(buf) \nbufToU16(buf) \nbufToS16(buf) \
-	\nbufToU32(buf) \nbufToDat(buf) \nstr8(x) \nstr16(x) \nstr32(x) %c \
-	\n\nSections: \
-	\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset mes disassembler sound %c \
-	\n\nFile: %cfile%c`,
+		\n%clatin1(off, len, dat) \nbytes(off, len, dat) \nbits(off, len, dat) \
+		\ndownload(name, dat, mime = 'application/octet-stream') %c \
+		\n\nCompression/Packing functions: \
+		\n%cblz(indat) \nblzCompress(indat, minimumSize?) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
+		\nzipStore(files) \nunpackSegmented(dat) %c \
+		\n\nView functions: \
+		\n%csliceDataView(dat, start, end) \nbufToU8(buf) \nbufToU8Clamped(buf) \nbufToU16(buf) \nbufToS16(buf) \
+		\nbufToU32(buf) \nbufToDat(buf) \nstr8(x) \nstr16(x) \nstr32(x) %c \
+		\n\nSections: \
+		\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset mes disassembler sound %c \
+		\n\nFile: %cfile%c`,
 		'color: #3cc;',
 		'color: unset;',
 		'color: #3cc;',

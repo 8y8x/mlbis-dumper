@@ -5,7 +5,7 @@ window.initDisassembler = () => {
 	// | Section: Disassembler                                                                                         |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const disassembler = (window.disassembler = createSection('Disassembler', (section) => {
+	const disassembler = (window.disassembler = createSection('Disassembler', section => {
 		const disassembler = {};
 
 		const options = [
@@ -50,9 +50,9 @@ window.initDisassembler = () => {
 			'le',
 			'',
 			'(UNCONDITIONAL)',
-		].map((x) => `<span style="color: #d7c;">${x}</span>`);
-		const imm = (x) => (x <= -10 ? '-0x' + (-x).toString(16) : x <= 10 ? x : '0x' + x.toString(16));
-		const unpredictable = (c) => (c ? ' <span style="color: #e96;">(UNPREDICTABLE)</span>' : '');
+		].map(x => `<span style="color: #d7c;">${x}</span>`);
+		const imm = x => (x <= -10 ? '-0x' + (-x).toString(16) : x <= 10 ? x : '0x' + x.toString(16));
+		const unpredictable = c => (c ? ' <span style="color: #e96;">(UNPREDICTABLE)</span>' : '');
 
 		/** `style` can be 'object' or 'asm' */
 		const disassembleArm = (disassembler.arm = (overlay, style, isArmv5) => {
@@ -82,7 +82,7 @@ window.initDisassembler = () => {
 			];
 
 			// see section A5.1
-			const shifterOperand = (inst) => {
+			const shifterOperand = inst => {
 				// used to detect unpredictability
 				const Rn = (inst >>> 16) & 0xf;
 				const Rd = (inst >>> 12) & 0xf;
@@ -173,7 +173,7 @@ window.initDisassembler = () => {
 			};
 
 			// see section A5.2
-			const loadAddressingMode = (inst) => {
+			const loadAddressingMode = inst => {
 				const U = (inst >>> 23) & 1;
 				const Rn = (inst >>> 16) & 0xf;
 
@@ -295,7 +295,7 @@ window.initDisassembler = () => {
 			};
 
 			// see section A5.3
-			const loadMiscAddressingMode = (inst) => {
+			const loadMiscAddressingMode = inst => {
 				const Rn = (inst >>> 16) & 0xf;
 				const U = (inst >>> 23) & 1;
 
@@ -348,7 +348,7 @@ window.initDisassembler = () => {
 			};
 
 			// see section A5.4
-			const loadMultipleAddressingMode = (inst) => {
+			const loadMultipleAddressingMode = inst => {
 				const P = (inst >>> 24) & 1;
 				const U = (inst >>> 23) & 1;
 
@@ -374,7 +374,7 @@ window.initDisassembler = () => {
 			};
 
 			// see section A5.5
-			const coprocessorAddressingMode = (inst) => {
+			const coprocessorAddressingMode = inst => {
 				const P = (inst >>> 24) & 1;
 				const U = (inst >>> 23) & 1;
 				const N = (inst >>> 22) & 1;

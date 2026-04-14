@@ -5,7 +5,7 @@ window.initField = () => {
 	// | Section: Field Maps                                                                                           |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const field = (window.field = createSection('Field Maps', (section) => {
+	const field = (window.field = createSection('Field Maps', section => {
 		const field = {};
 
 		const treasureFile = fs.get('/Treasure/TreasureInfo.dat');
@@ -161,7 +161,7 @@ window.initField = () => {
 				canvas.style.gridColumn = column;
 				canvas.style.gridRow = row;
 			};
-			const hide = (canvas) => (canvas.style.display = 'none');
+			const hide = canvas => (canvas.style.display = 'none');
 
 			if (options.previewPalettes.checked && options.previewTilesets.checked) {
 				apply(paletteCanvases[0], '1', '1');
@@ -304,9 +304,9 @@ window.initField = () => {
 			addEventListener('mouseup', () => void ((dragging = false), (lastClientX = lastClientY = undefined)));
 			addEventListener('blur', () => void ((dragging = false), (lastClientX = lastClientY = undefined)));
 
-			map3dOverlay.addEventListener('dragstart', (e) => e.preventDefault());
+			map3dOverlay.addEventListener('dragstart', e => e.preventDefault());
 
-			map3dOverlay.addEventListener('mousemove', (e) => {
+			map3dOverlay.addEventListener('mousemove', e => {
 				if (!dragging) return;
 				if (lastClientX !== undefined && lastClientY !== undefined) {
 					rotX = (rotX - (e.clientX - lastClientX) * 0.01) % (2 * Math.PI);
@@ -344,20 +344,18 @@ window.initField = () => {
 				indices,
 				props: unpackSegmented(lzBis(fsext.fmapdata.segments[indices.props])),
 				tilesets: [indices.l1, indices.l2, indices.l3].map(
-					(index) => index !== -1 && bufToU8(lzBis(fsext.fmapdata.segments[index])),
+					index => index !== -1 && bufToU8(lzBis(fsext.fmapdata.segments[index])),
 				),
 			});
 			Object.assign(room, {
-				tilemaps: [room.props[0], room.props[1], room.props[2]].map((buf) => bufToU16(buf)),
-				palettes: [room.props[3], room.props[4], room.props[5]].map((buf) => rgb15To32(bufToU16(buf))),
+				tilemaps: [room.props[0], room.props[1], room.props[2]].map(buf => bufToU16(buf)),
+				palettes: [room.props[3], room.props[4], room.props[5]].map(buf => rgb15To32(bufToU16(buf))),
 				map: room.props[6],
 				loadingZones: room.props[7],
 				blending: room.props[8],
 				toggles: room.props[9],
 				tileAnimations: room.props[10],
-				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map((buf) =>
-					unpackSegmented16(buf),
-				),
+				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map(buf => unpackSegmented16(buf)),
 				collision: room.props[14],
 				depth: room.props[15],
 			});
@@ -498,7 +496,7 @@ window.initField = () => {
 						lines.push(`Enter at: <code>(${xRange}, ${yRange}, ${enterZ})</code>`);
 
 						side.loadingZoneDisplay.innerHTML = `<div style="border-left: 1px solid #76f; margin-left: 1px;
-					padding-left: 8px;">${lines.map((x) => '<div>' + x + '</div>').join(' ')}</div>`;
+					padding-left: 8px;">${lines.map(x => '<div>' + x + '</div>').join(' ')}</div>`;
 					},
 					() => {
 						updateOverlay3d = updateOverlay3dTriangles = true;
@@ -630,9 +628,9 @@ window.initField = () => {
 						'0x10', // 0x10 (not understood)
 						'0x20', // 0x20 (not understood)
 						'unisolid', // 0x40
-					].filter((_,i) => attributes & (1 << i));
+					].filter((_, i) => attributes & (1 << i));
 					if (attributeNames.length)
-						html.push(`<div style="color: ${(attributes & 1) ? '#f00' : '#f90'}">
+						html.push(`<div style="color: ${attributes & 1 ? '#f00' : '#f90'}">
 							Attributes: ${attributeNames.join(', ')}</div>`);
 
 					side.collisionDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
@@ -658,7 +656,7 @@ window.initField = () => {
 							`${i}. [ID ${id}] ${color ? `<span style="color: ${color};">◼︎</span>` : ''}`,
 						]);
 					}
-					options = options.sort(([weightA, _], [weightB, __]) => weightA - weightB).map((x) => x[1]);
+					options = options.sort(([weightA, _], [weightB, __]) => weightA - weightB).map(x => x[1]);
 
 					side.collisionDropdown.replaceWith(
 						(side.collisionDropdown = dropdown(
@@ -696,32 +694,41 @@ window.initField = () => {
 				for (let i = 0; i < numSwitches; ++i) {
 					options.push(`${i}. Switch`);
 				}
-				side.switchDropdown.replaceWith((side.switchDropdown = dropdown(options, 0, () => {
-					updateOverlay2d = true;
-					if (side.switchDropdown.value === 0) {
-						side.switchDisplay.style.cssText = '';
-						side.switchDisplay.innerHTML = '';
-						return;
-					}
+				side.switchDropdown.replaceWith(
+					(side.switchDropdown = dropdown(
+						options,
+						0,
+						() => {
+							updateOverlay2d = true;
+							if (side.switchDropdown.value === 0) {
+								side.switchDisplay.style.cssText = '';
+								side.switchDisplay.innerHTML = '';
+								return;
+							}
 
-					const index = side.switchDropdown.value - 1;
-					const o = 8 + numPrisms * 40 + index * 24;
-					const u16 = bufToU16(sliceDataView(room.collision, o, o + 24));
-					const type = [
-						'(unknown mode 0)',
-						'<b>Obj</b> &gt; BG1 &gt; BG2 &gt; BG3',
-						'BG1 &gt; <b>Obj</b> &gt; BG2 &gt; BG3',
-						'BG1 &gt; BG2 &gt; <b>Obj</b> &gt; BG3',
-					][u16[1] & 3];
-					side.switchDisplay.style.cssText = 'border-left: 1px solid #76f; margin-left: 1px; \
-						padding-left: 8px;';
-					side.switchDisplay.innerHTML = `ID ${u16[0] >> 1}${u16[0] & 1 ? ', last' : ''}<br>
-						${type}<br>
-						<code>(${u16[2]}..${u16[3]}, ${u16[4]}..${u16[5]}, ${u16[6]})</code><br>
-						${u16[7] || u16[8] || u16[9] || u16[10] || u16[11]
-							? `Unknown: <code>${u16[7]}, ${u16[8]}, ${u16[9]}, ${u16[10]}, ${u16[11]}</code>`
-							: ''}`;
-				}, () => (updateOverlay2d = true))));
+							const index = side.switchDropdown.value - 1;
+							const o = 8 + numPrisms * 40 + index * 24;
+							const u16 = bufToU16(sliceDataView(room.collision, o, o + 24));
+							const type = [
+								'(unknown mode 0)',
+								'<b>Obj</b> &gt; BG1 &gt; BG2 &gt; BG3',
+								'BG1 &gt; <b>Obj</b> &gt; BG2 &gt; BG3',
+								'BG1 &gt; BG2 &gt; <b>Obj</b> &gt; BG3',
+							][u16[1] & 3];
+							side.switchDisplay.style.cssText =
+								'border-left: 1px solid #76f; margin-left: 1px; padding-left: 8px;';
+							side.switchDisplay.innerHTML = `ID ${u16[0] >> 1}${u16[0] & 1 ? ', last' : ''}<br>
+								${type}<br>
+								<code>(${u16[2]}..${u16[3]}, ${u16[4]}..${u16[5]}, ${u16[6]})</code><br>
+								${
+									u16[7] || u16[8] || u16[9] || u16[10] || u16[11]
+										? `Unknown: <code>${u16[7]}, ${u16[8]}, ${u16[9]}, ${u16[10]}, ${u16[11]}</code>`
+										: ''
+								}`;
+						},
+						() => (updateOverlay2d = true),
+					)),
+				);
 			} else {
 				side.switchDropdown.replaceWith((side.switchDropdown = dropdown(['0 switches'], 0, () => {})));
 			}
@@ -733,24 +740,32 @@ window.initField = () => {
 				const numFaces = room.depth.getUint32(0, true);
 				const options = [`${numFaces} faces`];
 				for (let i = 0; i < numFaces; ++i) options.push(`${i}. Face`);
-				side.depthDropdown.replaceWith((side.depthDropdown = dropdown(options, 0, () => {
-					updateOverlay2d = true;
-					if (side.depthDropdown.value === 0) {
-						side.depthDisplay.style.cssText = '';
-						side.depthDisplay.innerHTML = '';
-						return;
-					}
+				side.depthDropdown.replaceWith(
+					(side.depthDropdown = dropdown(
+						options,
+						0,
+						() => {
+							updateOverlay2d = true;
+							if (side.depthDropdown.value === 0) {
+								side.depthDisplay.style.cssText = '';
+								side.depthDisplay.innerHTML = '';
+								return;
+							}
 
-					const index = side.depthDropdown.value - 1;
-					const o = 4 + index * 12;
-					const u16 = bufToU16(sliceDataView(room.depth, o, o + 12));
-					const layers = ['BG1', 'BG2', 'BG3'].filter((_, i) => u16[1] & (1 << i));
-					side.depthDisplay.style.cssText = 'border-left: 1px solid #76f; margin-left: 1px; \
+							const index = side.depthDropdown.value - 1;
+							const o = 4 + index * 12;
+							const u16 = bufToU16(sliceDataView(room.depth, o, o + 12));
+							const layers = ['BG1', 'BG2', 'BG3'].filter((_, i) => u16[1] & (1 << i));
+							side.depthDisplay.style.cssText =
+								'border-left: 1px solid #76f; margin-left: 1px; \
 						padding-left: 8px;';
-					side.depthDisplay.innerHTML = `${u16[0] & 0x8000 ? 'front/back' : 'top/bottom'} face -
+							side.depthDisplay.innerHTML = `${u16[0] & 0x8000 ? 'front/back' : 'top/bottom'} face -
 						${layers.join(', ') || '<span style="color: var(--red);">(no layers)</span>'}<br>
 						<code>(${u16[2]}..${u16[3]}, ${u16[4]}..${u16[5]}, ${u16[0] & 0x7fff})</code>`;
-				}, () => (updateOverlay2d = true))));
+						},
+						() => (updateOverlay2d = true),
+					)),
+				);
 			} else {
 				side.depthDropdown.replaceWith((side.depthDropdown = dropdown(['0 faces'], 0, () => {})));
 			}
@@ -778,7 +793,7 @@ window.initField = () => {
 						const layersB = (blending[i].getUint16(2, true) >> 8) & 0x1f;
 						const alphaA = blending[i].getUint16(4, true) & 0x1f;
 						const alphaB = (blending[i].getUint16(4, true) >> 5) & 0x1f;
-						
+
 						const layersAList = ['(?)', 'BG1', 'BG2', 'BG3', 'Obj'].filter((_, i) => layersA & (1 << i));
 						const layersBList = ['BG2', 'BG3', 'Obj', '(?)', 'BG1'].filter((_, i) => layersB & (1 << i));
 						side.blendingDisplay.innerHTML = `
@@ -876,7 +891,7 @@ window.initField = () => {
 					const line = document.createElement('div');
 					const regionObj = { x, y, w, h };
 					line.append(
-						hovery(`(${x},${y}) size (${w},${h})`, (hovering) => {
+						hovery(`(${x},${y}) size (${w},${h})`, hovering => {
 							updateOverlay2d = true;
 							if (hovering) room.toggleHoveringTilemapRegion = regionObj;
 							else if (room.toggleHoveringTilemapRegion === regionObj) {
@@ -933,14 +948,16 @@ window.initField = () => {
 					if (options.animations.checked) room.enabledTileAnimations.add(container);
 				}
 				const check = checkbox('', options.animations.checked && !(flags & 0xc), () => {
-					const anyPaletteAnimations = field.state.paletteAnimations.some((x) => x);
+					const anyPaletteAnimations = field.state.paletteAnimations.some(x => x);
 					if (check.checked) {
 						container.startTick = Math.floor((performance.now() / 1000) * 60);
 						room.enabledTileAnimations.add(container);
-						if (room.enabledTileAnimations.size === 1 && !anyPaletteAnimations) options.animations.set(true, true);
+						if (room.enabledTileAnimations.size === 1 && !anyPaletteAnimations)
+							options.animations.set(true, true);
 					} else {
 						room.enabledTileAnimations.delete(container);
-						if (room.enabledTileAnimations.size === 0 && !anyPaletteAnimations) options.animations.set(false, true);
+						if (room.enabledTileAnimations.size === 0 && !anyPaletteAnimations)
+							options.animations.set(false, true);
 					}
 					updateTiles = updateMaps = true;
 				});
@@ -1008,46 +1025,58 @@ window.initField = () => {
 
 				if (tilemap.byteLength) {
 					const tilemapContainer = document.createElement('div');
-					tilemapContainer.style.cssText = 'border: 1px solid var(--line); padding: 5px; display: none; overflow-x: scroll;';
-					container.appendChild(checkbox('Tilemap', false, checked => {
-						if (checked) {
-							const lines = [];
-							for (let y = 0, o = 0; y < room.actualHeight; ++y) {
-								const line = [];
-								for (let x = 0; x < mapWidth; ++x, ++o) {
-									line.push(tilemap[o] ? str16(tilemap[o]) : '----');
+					tilemapContainer.style.cssText =
+						'border: 1px solid var(--line); padding: 5px; display: none; overflow-x: scroll;';
+					container.appendChild(
+						checkbox('Tilemap', false, checked => {
+							if (checked) {
+								const lines = [];
+								for (let y = 0, o = 0; y < room.actualHeight; ++y) {
+									const line = [];
+									for (let x = 0; x < mapWidth; ++x, ++o) {
+										line.push(tilemap[o] ? str16(tilemap[o]) : '----');
+									}
+									lines.push(line.join(' '));
 								}
-								lines.push(line.join(' '));
+								tilemapContainer.style.display = '';
+								tilemapContainer.innerHTML = `<code style="white-space: pre;">${lines.join('\n')}</code>`;
+							} else {
+								tilemapContainer.style.display = 'none';
+								tilemapContainer.innerHTML = '';
 							}
-							tilemapContainer.style.display = '';
-							tilemapContainer.innerHTML = `<code style="white-space: pre;">${lines.join('\n')}</code>`;
-						} else {
-							tilemapContainer.style.display = 'none';
-							tilemapContainer.innerHTML = '';
-						}
-					}));
+						}),
+					);
 					container.appendChild(tilemapContainer);
 				}
 			}
 
 			// [3] palette BG1, [4] palette BG2, [5] palette BG3
-			addHTML(bottomProperties,
-				`<div><code>[3]</code> palettes[0] (BG1): ${room.palettes[0].byteLength ? 'exists' : ''}</div>`);
-			addHTML(bottomProperties,
-				`<div><code>[4]</code> palettes[1] (BG2): ${room.palettes[1].byteLength ? 'exists' : ''}</div>`);
-			addHTML(bottomProperties,
-				`<div><code>[5]</code> palettes[2] (BG3): ${room.palettes[2].byteLength ? 'exists' : ''}</div>`);
+			addHTML(
+				bottomProperties,
+				`<div><code>[3]</code> palettes[0] (BG1): ${room.palettes[0].byteLength ? 'exists' : ''}</div>`,
+			);
+			addHTML(
+				bottomProperties,
+				`<div><code>[4]</code> palettes[1] (BG2): ${room.palettes[1].byteLength ? 'exists' : ''}</div>`,
+			);
+			addHTML(
+				bottomProperties,
+				`<div><code>[5]</code> palettes[2] (BG3): ${room.palettes[2].byteLength ? 'exists' : ''}</div>`,
+			);
 
 			// [6] map properties
 			{
 				const width = room.map.getUint16(0, true);
 				const height = room.map.getUint16(2, true);
 				const u8 = bufToU8(room.map);
-				addHTML(bottomProperties, `<div><code>[6]</code> map: ${width}x${height} tiles -
+				addHTML(
+					bottomProperties,
+					`<div><code>[6]</code> map: ${width}x${height} tiles -
 					${u8[5] & 1 ? '256' : '16'}/${u8[5] & 2 ? '256' : '16'}/${u8[5] & 4 ? '256' : '16'}-color tileset (BG1/BG2/BG3) <ul>
 						<li><code>(${bytes(0, 12, room.map)})</code></li>
 					</ul>
-				</div>`);
+				</div>`,
+				);
 			}
 
 			// [7] loading zones
@@ -1091,10 +1120,13 @@ window.initField = () => {
 					['BG2', 'BG3', 'Obj', '(?)', 'BG1'].forEach((name, i) => {
 						if (groupB & (1 << i)) stringsB.push(name);
 					});
-					addHTML(list, `<li><code>[${i}] (${bytes(0, 8, blend)})</code> -
-						group A (alpha ${alphaA}/16): ${stringsA.join(', ')}${(blend[1] & 0x80) ? ' (with UI)' : ''} -
+					addHTML(
+						list,
+						`<li><code>[${i}] (${bytes(0, 8, blend)})</code> -
+						group A (alpha ${alphaA}/16): ${stringsA.join(', ')}${blend[1] & 0x80 ? ' (with UI)' : ''} -
 						group B (alpha ${alphaB}/16): ${stringsB.join(', ')}
-					</li>`);
+					</li>`,
+					);
 				}
 			}
 
@@ -1166,7 +1198,7 @@ window.initField = () => {
 						expandable.innerHTML = `<table class="bordered">
 							<tr><th>BG1</th><th>BG2</th><th>BG3</th></tr>
 							<tr>
-								${grids.map((x) => `<td style="white-space: pre;"><code>${x}</code></td>`).join('')}
+								${grids.map(x => `<td style="white-space: pre;"><code>${x}</code></td>`).join('')}
 							</tr>
 						</table>`;
 						const expander = checkbox('Tilemap', false, () => {
@@ -1223,33 +1255,57 @@ window.initField = () => {
 						</span>`);
 					}
 
-					addHTML(list, `<li>
+					addHTML(
+						list,
+						`<li>
 						<code>[${i}]</code> BG${(flags & 3) + 1} -
-						${(flags & 8) ? 'scripted' : 'immediately'} ${(flags & 4) ? 'one-shot' : 'looping'} -
+						${flags & 8 ? 'scripted' : 'immediately'} ${flags & 4 ? 'one-shot' : 'looping'} -
 						anime 0x${animeId.toString(16)} - start tile 0x${((flags >> 4) & 0x3ff).toString(16)},
 						len 0x${((flags >> 14) & 0x3ff).toString(16)} <ul>
 							<li>${keyframes} keyframes (frame, ticks): <code>${keyframeParts.join(' ')}</code></li>
 						</ul>
-					</li>`);
+					</li>`,
+					);
 				}
 			}
 
 			// [11] paletteAnimations BG1, [12] paletteAnimations BG2, [13] paletteAnimations BG3
-			addHTML(bottomProperties, `<div><code>[11]</code> paletteAnimations[0] (BG1): <ul>
-				${fpaf.stringify(room.paletteAnimations[0]).map((x) => `<li><code>${x}</code></li>`).join('')}
-			</ul>`);
-			addHTML(bottomProperties, `<div><code>[12]</code> paletteAnimations[1] (BG2): <ul>
-				${fpaf.stringify(room.paletteAnimations[1]).map((x) => `<li><code>${x}</code></li>`).join('')}
-			</ul>`);
-			addHTML(bottomProperties, `<div><code>[13]</code> paletteAnimations[2] (BG3): <ul>
-				${fpaf.stringify(room.paletteAnimations[2]).map((x) => `<li><code>${x}</code></li>`).join('')}
-			</ul>`);
+			addHTML(
+				bottomProperties,
+				`<div><code>[11]</code> paletteAnimations[0] (BG1): <ul>
+				${fpaf
+					.stringify(room.paletteAnimations[0])
+					.map(x => `<li><code>${x}</code></li>`)
+					.join('')}
+			</ul>`,
+			);
+			addHTML(
+				bottomProperties,
+				`<div><code>[12]</code> paletteAnimations[1] (BG2): <ul>
+				${fpaf
+					.stringify(room.paletteAnimations[1])
+					.map(x => `<li><code>${x}</code></li>`)
+					.join('')}
+			</ul>`,
+			);
+			addHTML(
+				bottomProperties,
+				`<div><code>[13]</code> paletteAnimations[2] (BG3): <ul>
+				${fpaf
+					.stringify(room.paletteAnimations[2])
+					.map(x => `<li><code>${x}</code></li>`)
+					.join('')}
+			</ul>`,
+			);
 
 			// [14] collision
 			if (room.collision.byteLength) {
 				const numPrisms = room.collision.getUint32(0, true);
 				const numSwitches = room.collision.getUint32(4, true);
-				addHTML(bottomProperties, `<div><code>[14]</code> collision: ${numPrisms} prisms, ${numSwitches} switches</div>`);
+				addHTML(
+					bottomProperties,
+					`<div><code>[14]</code> collision: ${numPrisms} prisms, ${numSwitches} switches</div>`,
+				);
 			} else {
 				addHTML(bottomProperties, `<div><code>[15]</code> collision:</div>`);
 			}
@@ -1305,7 +1361,7 @@ window.initField = () => {
 			const canvasWidth = options.margins.checked ? layerWidth * 8 : layerWidth * 8 - 32;
 			const canvasHeight = options.margins.checked ? roomHeight * 8 : roomHeight * 8 - 32;
 
-			if (field.state.paletteAnimations.some((x) => x)) {
+			if (field.state.paletteAnimations.some(x => x)) {
 				updatePalettes = updateTiles = updateMaps = true;
 			}
 			if (updatePalettes) {
@@ -1441,7 +1497,8 @@ window.initField = () => {
 								const ix = i % w;
 								const iy = Math.floor(i / w);
 								const newTile = u16[4 + layer * w * h + i];
-								if ((newTile & 0x3ff) !== 0x3ff) mapLayouts[layer][(y + iy) * layerWidth + x + ix] = newTile;
+								if ((newTile & 0x3ff) !== 0x3ff)
+									mapLayouts[layer][(y + iy) * layerWidth + x + ix] = newTile;
 							}
 						}
 					}
@@ -1453,13 +1510,15 @@ window.initField = () => {
 							!room.tilesets[layer] ||
 							!palettes[layer] ||
 							![options.bg1, options.bg2, options.bg3][layer].checked
-						) continue;
+						)
+							continue;
 						const layout = mapLayouts[layer];
 
 						const blendingLayersA = ((field.state.blendingSelected?.getUint16(2, true) ?? 0) >> 1) & 0x1f;
 						const blendingLayersB = ((field.state.blendingSelected?.getUint16(2, true) ?? 0) >> 8) & 0x1f;
 						const blendingAlphaA = ((field.state.blendingSelected?.getUint16(4, true) ?? 0) & 0x1f) / 16;
-						const blendingAlphaB = (((field.state.blendingSelected?.getUint16(4, true) ?? 0) >> 5) & 0x1f) / 16;
+						const blendingAlphaB =
+							(((field.state.blendingSelected?.getUint16(4, true) ?? 0) >> 5) & 0x1f) / 16;
 
 						/*
 						const layersAList = ['(?)', 'BG1', 'BG2', 'BG3', 'Obj'].filter((_, i) => layersA & (1 << i));
@@ -1483,8 +1542,11 @@ window.initField = () => {
 								const r = Math.min(ar * blendingAlphaA + br * blendingAlphaB, 0x1f);
 								const g = Math.min(ag * blendingAlphaA + bg * blendingAlphaB, 0x1f);
 								const b = Math.min(ab * blendingAlphaA + bb * blendingAlphaB, 0x1f);
-								mapBitmap[pos] = (isB ? 0xf0000000 : 0xff000000) | ((b << 3 | b >> 2) << 16)
-									| ((g << 3 | g >> 2) << 8) | (r << 3 | r >> 2);
+								mapBitmap[pos] =
+									(isB ? 0xf0000000 : 0xff000000) |
+									(((b << 3) | (b >> 2)) << 16) |
+									(((g << 3) | (g >> 2)) << 8) |
+									((r << 3) | (r >> 2));
 							}
 						};
 
@@ -1516,7 +1578,8 @@ window.initField = () => {
 										((k & 7) ^ horizontalFlip);
 									const composite = tile[o] || 0;
 									if (composite & 0xf) pixel(pos, palettes[layer][paletteShift | (composite & 0xf)]);
-									if (composite >> 4) pixel(pos ^ 1, palettes[layer][paletteShift | (composite >> 4)]);
+									if (composite >> 4)
+										pixel(pos ^ 1, palettes[layer][paletteShift | (composite >> 4)]);
 								}
 							}
 						}
@@ -1629,9 +1692,14 @@ window.initField = () => {
 						ctx.strokeRect(drawX + 0.5, drawY + 0.5, x2 - x1 - 1, y2 - y1 - 1);
 
 						const label = `${z & 0x8000 ? '↕︎' : '↔'}z=${z & 0x7fff}`;
-						ctx.fillStyle = z & 0x8000
-							? selectedIndex === i ? '#088' : '#cff'
-							: selectedIndex === i ? '#000' : '#fff';
+						ctx.fillStyle =
+							z & 0x8000
+								? selectedIndex === i
+									? '#088'
+									: '#cff'
+								: selectedIndex === i
+									? '#000'
+									: '#fff';
 						ctx.lineWidth = 5;
 						ctx.strokeText(label, drawX + 5, drawY + 15);
 						ctx.fillText(label, drawX + 5, drawY + 15);
@@ -1814,10 +1882,10 @@ window.initField = () => {
 								const rotr8 = (x, r) => (x >> r) | (x << (8 - r));
 								const multiplier =
 									0.9 + (((rotr8(i, 1) ^ rotr8(i, 3) ^ rotr8(i, 6)) & 0xff) / 0xff) * 0.1;
-								color = color.map((x) => x * multiplier);
+								color = color.map(x => x * multiplier);
 
-								const midColor = color.map((x) => x * 0.8);
-								const lowColor = color.map((x) => x * 0.6);
+								const midColor = color.map(x => x * 0.8);
+								const lowColor = color.map(x => x * 0.6);
 
 								if (flat) {
 									if (fourPointed) quad(...bottom, color);
@@ -1869,8 +1937,8 @@ window.initField = () => {
 		field.png = (roomId, bg1, bg2, bg3, margins) => {
 			const room = field.rooms[roomId];
 			const props = unpackSegmented(lzBis(fsext.fmapdata.segments[room.props]));
-			const tilemaps = [props[0], props[1], props[2]].map((buf) => bufToU16(buf));
-			const palettes = [props[3], props[4], props[5]].map((buf) => rgb15To32(bufToU16(buf)));
+			const tilemaps = [props[0], props[1], props[2]].map(buf => bufToU16(buf));
+			const palettes = [props[3], props[4], props[5]].map(buf => rgb15To32(bufToU16(buf)));
 
 			const layerWidth = props[6].getUint16(0, true);
 			const layerHeight = props[6].getUint16(2, true);

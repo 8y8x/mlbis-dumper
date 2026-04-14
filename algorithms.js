@@ -5,7 +5,7 @@ window.initAlgorithms = () => {
 	// | Section: Algorithms                                                                                           |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const blz = (window.blz = (indat) => {
+	const blz = (window.blz = indat => {
 		const composite = indat.getUint32(indat.byteLength - 8, true);
 		const offset = composite >> 24;
 		const compressedLength = composite & 0xffffff; // could be zero
@@ -205,7 +205,7 @@ window.initAlgorithms = () => {
 	/**
 	 * Decompresses the custom lzss-like used in various BIS files
 	 */
-	const lzBis = (window.lzBis = (indat) => {
+	const lzBis = (window.lzBis = indat => {
 		let inoff = 0;
 		const readFunnyVarLength = () => {
 			const composite = indat.getUint8(inoff++);
@@ -265,7 +265,7 @@ window.initAlgorithms = () => {
 	const lzBisCompress = (window.lzBisCompress = (indat, blockSize = 512) => {
 		const outbuf = new Uint8Array(indat.byteLength * 2);
 		let outoff = 0;
-		const writeFunnyVarLength = (x) => {
+		const writeFunnyVarLength = x => {
 			if (x < 1 << 6) {
 				outbuf[outoff++] = x;
 			} else if (x < 1 << 14) {
@@ -399,7 +399,7 @@ window.initAlgorithms = () => {
 	 * Computes a standard CRC32 check value
 	 * https://stackoverflow.com/questions/18638900/javascript-crc32
 	 */
-	const crc = (window.crc = (dat) => {
+	const crc = (window.crc = dat => {
 		const u8 = bufToU8(dat);
 		let c = 0xffffffff;
 		for (let i = 0; i < u8.length; ++i) c = (c >>> 8) ^ crcTable[(c & 0xff) ^ u8[i]];
@@ -410,7 +410,7 @@ window.initAlgorithms = () => {
 	 * Computes an ADLER32 check value
 	 * https://www.rfc-editor.org/rfc/pdfrfc/rfc1950.txt.pdf
 	 */
-	const adler32 = (window.adler32 = (dat) => {
+	const adler32 = (window.adler32 = dat => {
 		let s1 = 1;
 		let s2 = 0;
 		const u8 = bufToU8(dat);
@@ -429,7 +429,7 @@ window.initAlgorithms = () => {
 	 * @param {{ name: string, dat: DataView }[]} files
 	 * @returns {DataView}
 	 */
-	const zipStore = (window.zipStore = (files) => {
+	const zipStore = (window.zipStore = files => {
 		let expectedSize = 26; // end of central directory
 		for (const file of files) {
 			expectedSize += 30 + file.name.length; // local file header
@@ -639,7 +639,7 @@ window.initAlgorithms = () => {
 		for (let x = 144; x <= 255; ++x) reversedLetterCodes[x] = reverse(0b110010000 + (x - 144), 9);
 		for (let x = 256; x <= 279; ++x) reversedLetterCodes[x] = reverse(0b0000000 + (x - 256), 7);
 		for (let x = 280; x <= 287; ++x) reversedLetterCodes[x] = reverse(0b11000000 + (x - 280), 8);
-		const writeLetterCode = (x) => {
+		const writeLetterCode = x => {
 			/*if (x <= 143) writeBits(0b00110000 + x, 8, true);
 			else if (x <= 255) writeBits(0b110010000 + (x - 144), 9, true);
 			else if (x <= 279) writeBits(0b0000000 + (x - 256), 7, true);
@@ -652,7 +652,7 @@ window.initAlgorithms = () => {
 
 		const reversedDistCodes = [];
 		for (let x = 0; x <= 31; ++x) reversedDistCodes[x] = reverse(x, 5);
-		const writeDistCode = (x) => writeBits(reversedDistCodes[x], 5);
+		const writeDistCode = x => writeBits(reversedDistCodes[x], 5);
 
 		writeBits(1, 1); // BFINAL = 1
 		writeBits(0b01, 2); // BTYPE = 01 (fixed Huffman codes)
@@ -744,7 +744,7 @@ window.initAlgorithms = () => {
 		return sliceDataView(outdat, 0, outoff);
 	});
 
-	const rgb15To32 = (window.rgb15To32 = (in16) => {
+	const rgb15To32 = (window.rgb15To32 = in16 => {
 		const out32 = new Uint32Array(in16.length);
 		for (let i = 0; i < in16.length; ++i) {
 			const r = in16[i] & 0x1f;
