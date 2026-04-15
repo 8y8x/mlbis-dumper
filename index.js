@@ -431,16 +431,22 @@
 		return segments;
 	});
 
-	const sliceDataView = (dat, start, end) => new DataView(dat.buffer, dat.byteOffset + start, end - start);
-	const bufToU8 = (buf, off = buf.byteOffset, len = buf.byteLength) => new Uint8Array(buf.buffer, off, len);
-	const bufToU8Clamped = (buf, off = buf.byteOffset, len = buf.byteLength) =>
-		new Uint8ClampedArray(buf.buffer, off, len);
-	const bufToU16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Uint16Array(buf.buffer, off, len);
-	const bufToS16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) => new Int16Array(buf.buffer, off, len);
-	const bufToU32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) => new Uint32Array(buf.buffer, off, len);
-	const bufToS32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) => new Int32Array(buf.buffer, off, len);
-	const bufToDat = (buf, off = buf.byteOffset, len = buf.byteLength) => new DataView(buf.buffer, off, len);
-	Object.assign(window, { sliceDataView, bufToU8, bufToU8Clamped, bufToU16, bufToS16, bufToU32, bufToDat });
+	const sliceDataView = (window.sliceDataView = (dat, start, end) =>
+		new DataView(dat.buffer, dat.byteOffset + start, end - start));
+	const bufToU8 = (window.bufToU8 = (buf, off = buf.byteOffset, len = buf.byteLength) =>
+		new Uint8Array(buf.buffer, off, len));
+	const bufToU8Clamped = (window.bufToU8Clamped = (buf, off = buf.byteOffset, len = buf.byteLength) =>
+		new Uint8ClampedArray(buf.buffer, off, len));
+	const bufToU16 = (window.bufToU16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) =>
+		new Uint16Array(buf.buffer, off, len));
+	const bufToS16 = (window.bufToS16 = (buf, off = buf.byteOffset, len = buf.byteLength >> 1) =>
+		new Int16Array(buf.buffer, off, len));
+	const bufToU32 = (window.bufToU32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) =>
+		new Uint32Array(buf.buffer, off, len));
+	const bufToS32 = (window.bufToS32 = (buf, off = buf.byteOffset, len = buf.byteLength >> 2) =>
+		new Int32Array(buf.buffer, off, len));
+	const bufToDat = (window.bufToDat = (buf, off = buf.byteOffset, len = buf.byteLength) =>
+		new DataView(buf.buffer, off, len));
 
 	const download = (window.download = (name, dat, mime = 'application/octet-stream') => {
 		const blob = new Blob([dat], { type: mime });
@@ -527,58 +533,130 @@
 	// +---------------------------------------------------------------------------------------------------------------+
 
 	const headers = (window.headers = createSection('ROM Headers', section => {
-		const fields = [];
 		const headers = {};
 
-		headers.title = sanitize(latin1(0, 12, file));
-		headers.gamecode = sanitize(latin1(12, 4, file));
-		fields.push(['Title', `${headers.title} (${headers.gamecode})`]);
-		document.title = `(${headers.gamecode}) MLBIS Dumper`;
+		const invalid = '<span style="color: var(--red)">(INVALID)</span>';
 
-		headers.arm9offset = file.getUint32(0x20, true);
-		headers.arm9entry = file.getUint32(0x24, true);
-		headers.arm9ram = file.getUint32(0x28, true);
-		headers.arm9size = file.getUint32(0x2c, true);
-		fields.push([
-			'ARM9',
-			`0x${str32(headers.arm9offset)}, len 0x${headers.arm9size.toString(16)},
-				ram 0x${headers.arm9ram.toString(16)}, entry 0x${headers.arm9entry.toString(16)}`,
-		]);
+		const ul = document.createElement('ul');
 
-		headers.arm7offset = file.getUint32(0x30, true);
-		headers.arm7entry = file.getUint32(0x34, true);
-		headers.arm7ram = file.getUint32(0x38, true);
-		headers.arm7size = file.getUint32(0x3c, true);
-		fields.push([
-			'ARM7',
-			`0x${str32(headers.arm7offset)}, len 0x${headers.arm7size.toString(16)},
-				ram 0x${headers.arm7ram.toString(16)}, entry 0x${headers.arm7entry.toString(16)}`,
-		]);
+		headers.title = latin1(0, 12, file);
+		headers.gamecode = latin1(0xc, 4, file);
+		addHTML(ul, `<li>Title: ${headers.title} (${headers.gamecode})</li>`);
+
+		headers.makercode = latin1(0x10, 2, file);
+		headers.unitcode = file.getUint8(0x12);
+
+		headers.arm9RomOffset = file.getUint32(0x20, true);
+		headers.arm9Entry = file.getUint32(0x24, true);
+		headers.arm9RamOffset = file.getUint32(0x28, true);
+		headers.arm9Size = file.getUint32(0x2c, true);
+		addHTML(
+			ul,
+			`<li>
+				ARM9 initializer: <ul>
+					<li>ROM offset: <code>0x${str32(headers.arm9RomOffset)}</code></li>
+					<li>RAM entry: <code>0x${str32(headers.arm9Entry)}</code></li>
+					<li>RAM offset: <code>0x${str32(headers.arm9RamOffset)}</code></li>
+					<li>Length: <code>0x${str32(headers.arm9Size)}</code></li>
+				</ul>
+			</li>`,
+		);
+
+		headers.arm7RomOffset = file.getUint32(0x30, true);
+		headers.arm7RamEntry = file.getUint32(0x34, true);
+		headers.arm7RamOffset = file.getUint32(0x38, true);
+		headers.arm7Size = file.getUint32(0x3c, true);
+		addHTML(
+			ul,
+			`<li>
+				ARM7 initializer: <ul>
+					<li>ROM offset: <code>0x${str32(headers.arm7RomOffset)}</code></li>
+					<li>RAM entry: <code>0x${str32(headers.arm7RamEntry)}</code></li>
+					<li>RAM offset: <code>0x${str32(headers.arm7RamOffset)}</code></li>
+					<li>Length: <code>0x${str32(headers.arm7Size)}</code></li>
+				</ul>
+			</li>`,
+		);
 
 		headers.fntOffset = file.getUint32(0x40, true);
 		headers.fntLength = file.getUint32(0x44, true);
-		fields.push(['FNT', `0x${str32(headers.fntOffset)}, len 0x${headers.fntLength.toString(16)}`]);
+		addHTML(
+			ul,
+			`<li>
+				File Name Table (FNT): <code>0x${str32(headers.fntOffset)}</code>, ` +
+				`len <code>0x${headers.fntLength.toString(16)}
+			</li>`,
+		);
 
 		headers.fatOffset = file.getUint32(0x48, true);
 		headers.fatLength = file.getUint32(0x4c, true);
-		fields.push(['FAT', `0x${str32(headers.fatOffset)}, len 0x${headers.fatLength.toString(16)}`]);
+		addHTML(
+			ul,
+			`<li>
+				File Allocation Table (FAT): <code>0x${str32(headers.fatOffset)}</code>, ` +
+				`len <code>0x${headers.fatLength.toString(16)}
+			</li>`,
+		);
 
-		headers.ov9Offset = file.getUint32(0x50, true);
-		headers.ov9Size = file.getUint32(0x54, true);
-		fields.push(['ARM9 Overlays', `0x${str32(headers.ov9Offset)}, len 0x${headers.ov9Size.toString(16)}`]);
+		headers.ovt9Offset = file.getUint32(0x50, true);
+		headers.ovt9Length = file.getUint32(0x54, true);
+		addHTML(
+			ul,
+			`<li>
+				ARM9 Overlay Table (OVT9): <code>0x${str32(headers.ovt9Offset)}</code>, ` +
+				`len <code>0x${headers.ovt9Length.toString(16)}
+			</li>`,
+		);
 
-		headers.ov7Offset = file.getUint32(0x58, true);
-		headers.ov7Size = file.getUint32(0x5c, true);
-		fields.push(['ARM7 Overlays', `0x${str32(headers.ov7Offset)}, len 0x${headers.ov7Size.toString(16)}`]);
+		headers.ovt7Offset = file.getUint32(0x58, true);
+		headers.ovt7Length = file.getUint32(0x5c, true);
+		addHTML(
+			ul,
+			`<li>
+				ARM7 Overlay Table (OVT7): <code>0x${str32(headers.ovt7Offset)}</code>, ` +
+				`len <code>0x${headers.ovt7Length.toString(16)}
+			</li>`,
+		);
 
-		headers.arm9HooksList = file.getUint32(0x70, true);
-		fields.push(['ARM9 Hooks List', `0x${str32(headers.arm9HooksList)}`]);
-		headers.arm7HooksList = file.getUint32(0x74, true);
-		fields.push(['ARM7 Hooks List', `0x${str32(headers.arm7HooksList)}`]);
+		headers.titleOffset = file.getUint32(0x68, true);
+		addHTML(ul, `<li>Icon/Title offset: <code>0x${str32(headers.titleOffset)}</code></li>`);
 
-		for (const [name, value] of fields) {
-			addHTML(section, `<div><code>${name}: ${value}</code></div>`);
-		}
+		headers.romLength = file.getUint32(0x80, true);
+		addHTML(ul, `<li>Total ROM length: <code>0x${str32(headers.romLength)}</code></li>`);
+
+		headers.headerLength = file.getUint32(0x84, true);
+		addHTML(ul, `<li>Total ROM header length: <code>0x${headers.headerLength.toString(16)}</code></li>`);
+
+		headers.logoCompressed = sliceDataView(file, 0xc0, 0xc0 + 0x9c);
+		headers.logoCompressedCrc16 = file.getUint16(0x15c, true);
+		const actualLogoCompressedCrc16 = crc16(headers.logoCompressed);
+		addHTML(
+			ul,
+			`<li>
+				Nintendo logo CRC16: <code>0x${str16(headers.logoCompressedCrc16)}</code>
+				(actual: <code>0x${str16(actualLogoCompressedCrc16)}</code>, expected: <code>0xcf56</code>)
+				${headers.logoCompressedCrc16 !== actualLogoCompressedCrc16 ? invalid : ''}
+			</li>`,
+		);
+
+		headers.headerCrc16 = file.getUint16(0x15e, true);
+		const actualHeaderCrc16 = crc16(sliceDataView(file, 0, 0x15e));
+		addHTML(
+			ul,
+			`<li>
+				Header CRC16: <code>0x${str16(headers.headerCrc16)}</code>
+				(actual: <code>0x${str16(actualHeaderCrc16)}</code>)
+				${headers.headerCrc16 !== actualHeaderCrc16 ? invalid : ''}
+			</li>`,
+		);
+
+		headers.signatureFlags = file.getUint8(0x1bf);
+		headers.dsiIconTitleHmac = sliceDataView(file, 0x33c, 0x33c + 0x14);
+		headers.dsiHeaderHmac = sliceDataView(file, 0x378, 0x378 + 0x14); // TODO: "and ARM9+ARM7 areas"?
+		headers.dsiOvt9AndFatHmac = sliceDataView(file, 0x38c, 0x38c + 0x14);
+		headers.dsiRsaSignature = sliceDataView(file, 0xf80, 0x1000);
+
+		section.appendChild(ul);
 
 		return headers;
 	}));
@@ -590,8 +668,8 @@
 	const fs = (window.fs = createSection('File System', section => {
 		const fs = new Map();
 
-		fs.arm9 = sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size);
-		fs.arm7 = sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size);
+		fs.arm9 = sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size);
+		fs.arm7 = sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size);
 
 		// NA, EU, and KO versions compress initial arm9/arm7; no idea what in the header controls that
 		let arm7Compressed = false;
@@ -637,7 +715,7 @@
 
 		const fileToOverlayId = (fs.fileToOverlayId = new Map());
 		const overlayEntries = (fs.overlayEntries = new Map());
-		for (let i = 0, o = headers.ov9Offset; i * 32 < headers.ov9Size; ++i, o += 32) {
+		for (let i = 0, o = headers.ovt9Offset; i * 32 < headers.ovt9Length; ++i, o += 32) {
 			const segment = bufToU32(sliceDataView(file, o, o + 32));
 			const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compressed] = segment;
 			fileToOverlayId.set(fileId, id);
@@ -687,8 +765,8 @@
 		section.appendChild(singleExport);
 
 		const singleSelectEntries = [
-			`ARM9 (len 0x${headers.arm9size.toString(16)}${arm9Compressed ? ', compressed' : ''})`,
-			`ARM7 (len 0x${headers.arm7size.toString(16)}${arm7Compressed ? ', compressed' : ''})`,
+			`ARM9 (len 0x${headers.arm9Size.toString(16)}${arm9Compressed ? ', compressed' : ''})`,
+			`ARM7 (len 0x${headers.arm7Size.toString(16)}${arm7Compressed ? ', compressed' : ''})`,
 		];
 		for (let i = 0; i * 8 < headers.fatLength; ++i) {
 			const { start, end, path } = fs.get(i);
@@ -712,7 +790,7 @@
 				if (singleDecompression.value === 0) {
 					download(
 						'arm9.bin',
-						sliceDataView(file, headers.arm9offset, headers.arm9offset + headers.arm9size),
+						sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size),
 					);
 				} else download('arm9.bin', fs.arm9);
 				return;
@@ -721,7 +799,7 @@
 				if (singleDecompression.value === 0) {
 					download(
 						'arm7.bin',
-						sliceDataView(file, headers.arm7offset, headers.arm7offset + headers.arm7size),
+						sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size),
 					);
 				} else download('arm7.bin', fs.arm7);
 				return;
@@ -819,7 +897,7 @@
 		);
 
 		ovt.overlays = [];
-		for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+		for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Size; ++i, o += 0x20) {
 			const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
 			const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression] = overlayU32;
 			ovt.overlays.push({ id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression });
@@ -924,13 +1002,13 @@
 				contentHeight += 20;
 			};
 
-			addEntry('ARM9', headers.arm9ram, fs.arm9.byteLength, 0, undefined);
-			addEntry('ARM7', headers.arm7ram, fs.arm7.byteLength, 0, undefined);
-			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+			addEntry('ARM9', headers.arm9RamOffset, fs.arm9.byteLength, 0, undefined);
+			addEntry('ARM7', headers.arm7RamOffset, fs.arm7.byteLength, 0, undefined);
+			for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Length; ++i, o += 0x20) {
 				const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
 				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3], overlayU32);
 			}
-			for (let i = 0, o = headers.ov7Offset; o < headers.ov7Offset + headers.ov7Size; ++i, o += 0x20) {
+			for (let i = 0, o = headers.ovt7Offset; o < headers.ovt7Offset + headers.ovt7Length; ++i, o += 0x20) {
 				const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
 				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3], overlayU32);
 			}
@@ -956,7 +1034,7 @@
 				</tr>`,
 			);
 
-			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+			for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Length; ++i, o += 0x20) {
 				const dat = sliceDataView(file, o, o + 0x20);
 				const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression] = bufToU32(dat);
 
@@ -1005,7 +1083,7 @@
 
 			preview.appendChild(table);
 
-			for (let i = 0, o = headers.ov9Offset; o < headers.ov9Offset + headers.ov9Size; ++i, o += 0x20) {
+			for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Length; ++i, o += 0x20) {
 				const dat = sliceDataView(file, o, o + 0x20);
 				const str24 = x => x.toString(16).padStart(6, '0');
 
@@ -1056,7 +1134,7 @@
 			search('ARM9', fs.arm9);
 			search('ARM7', fs.arm7);
 
-			for (let i = 0; i * 0x20 < headers.ov9Size; ++i) search(String(i).padStart(4, '0'), fs.overlay(i, true));
+			for (let i = 0; i * 0x20 < headers.ovt9Length; ++i) search(String(i).padStart(4, '0'), fs.overlay(i, true));
 
 			const downloadContent = lines.join('\n');
 			downloadButton.style.display = '';
@@ -5333,8 +5411,8 @@
 				overlapBox.style.display = 'none';
 			});
 		};
-		addEntry('ARM9&nbsp;', -2, () => fs.arm9, headers.arm9ram, fs.arm9.byteLength);
-		addEntry('ARM7&nbsp;', -1, () => fs.arm7, headers.arm7ram, fs.arm7.byteLength);
+		addEntry('ARM9&nbsp;', -2, () => fs.arm9, headers.arm9RamOffset, fs.arm9.byteLength);
+		addEntry('ARM7&nbsp;', -1, () => fs.arm7, headers.arm7RamOffset, fs.arm7.byteLength);
 		for (const ov of ovt.overlays) {
 			addEntry(
 				`ov${String(ov.id).padStart(3, '0')}`,

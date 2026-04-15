@@ -382,27 +382,44 @@ window.initAlgorithms = () => {
 		return new DataView(outbuf.buffer, 0, Math.ceil(outoff / 4) * 4);
 	});
 
+	const crc16Table = new Uint16Array(256);
+	for (let i = 0; i < 256; ++i) {
+		let r = i;
+		for (let j = 0; j < 8; ++j) {
+			if (r & 1) r = 0xa001 ^ (r >> 1);
+			else r >>= 1;
+		}
+		crc16Table[i] = r;
+	}
+
+	const crc16 = (window.crc16 = dat => {
+		const u8 = bufToU8(dat);
+		let c = 0xffff;
+		for (let o = 0; o < u8.length; ++o) c = (c >> 8) ^ crc16Table[(c & 0xff) ^ u8[o]];
+		return c;
+	});
+
 	// crc table (for speed)
 	// TARGET: BA 78 E8 55, or 0x55e878ba
 	// https://stackoverflow.com/questions/18638900/javascript-crc32
-	const crcTable = new Uint32Array(256);
+	const crc32Table = new Uint32Array(256);
 	for (let i = 0; i < 256; ++i) {
 		let r = i;
 		for (let j = 0; j < 8; ++j) {
 			if (r & 1) r = 0xedb88320 ^ (r >>> 1);
 			else r >>>= 1;
 		}
-		crcTable[i] = r;
+		crc32Table[i] = r;
 	}
 
 	/**
 	 * Computes a standard CRC32 check value
 	 * https://stackoverflow.com/questions/18638900/javascript-crc32
 	 */
-	const crc = (window.crc = dat => {
+	const crc32 = (window.crc32 = dat => {
 		const u8 = bufToU8(dat);
 		let c = 0xffffffff;
-		for (let i = 0; i < u8.length; ++i) c = (c >>> 8) ^ crcTable[(c & 0xff) ^ u8[i]];
+		for (let i = 0; i < u8.length; ++i) c = (c >>> 8) ^ crc32Table[(c & 0xff) ^ u8[i]];
 		return c ^ 0xffffffff;
 	});
 
@@ -460,7 +477,7 @@ window.initAlgorithms = () => {
 			(dat.setUint16(o, time, true), (o += 2)); // last mod file time (0)
 			(dat.setUint16(o, date, true), (o += 2)); // last mod file date (0)
 			const crc32LocalOffset = o;
-			o += 4; // write crc-32 later
+			o += 4; // write crc32 later
 			(dat.setUint32(o, fileDat.byteLength, true), (o += 4)); // compressed size (0 = no compression)
 			(dat.setUint32(o, fileDat.byteLength, true), (o += 4)); // uncompressed size
 			(dat.setUint16(o, name.length, true), (o += 2)); // file name length
@@ -469,18 +486,13 @@ window.initAlgorithms = () => {
 			// file name (part of local file header)
 			for (let i = 0; i < name.length; ++i) dat.setUint8(o++, name.charCodeAt(i));
 
-			// file data (in the meantime, calculate the crc32)
-			// https://stackoverflow.com/questions/18638900/javascript-crc32
-			let crc32 = 0xffffffff;
-			for (let i = 0; i < fileDat.byteLength; ++i) {
-				const byte = fileDat.getUint8(i);
-				crc32 = (crc32 >>> 8) ^ crcTable[(crc32 & 0xff) ^ byte];
-				out8[o++] = byte;
-			}
+			// file data
+			bufToU8(dat).set(bufToU8(fileDat), o);
+			o += fileDat.byteLength;
 
-			crc32 ^= 0xffffffff;
-			dat.setUint32(crc32LocalOffset, crc32, true);
-			crc32s.push(crc32);
+			const computedCrc32 = crc32(fileDat);
+			dat.setUint32(crc32LocalOffset, computedCrc32, true);
+			crc32s.push(computedCrc32);
 		}
 
 		// central directory
@@ -587,7 +599,7 @@ window.initAlgorithms = () => {
 		outbuf[outoff++] = 0; // image filter method (0 = adaptive)
 		outbuf[outoff++] = 0; // image interlace method (0 = no interlace)
 
-		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc
+		(outdat.setUint32(outoff, crc32(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc32
 
 		if (palette) {
 			// PLTE chunk
@@ -601,7 +613,8 @@ window.initAlgorithms = () => {
 				outbuf[outoff++] = palette[i] >>> 16;
 			}
 
-			(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc
+			// chunk crc32
+			(outdat.setUint32(outoff, crc32(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4));
 		}
 
 		// IDAT chunk
@@ -734,12 +747,12 @@ window.initAlgorithms = () => {
 
 		// exit zlib, complete IDAT chunk
 		outdat.setUint32(idatLengthOffset, outoff - chunkStart); // chunk length
-		(outdat.setUint32(outoff, crc(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc
+		(outdat.setUint32(outoff, crc32(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4)); // chunk crc32
 
 		// IEND chunk
 		(outdat.setUint32(outoff, 0), (outoff += 4)); // chunk length
 		(outbuf.set([0x49, 0x45, 0x4e, 0x44], outoff), (outoff += 4)); // chunk type (IEND)
-		(outdat.setUint32(outoff, crc(sliceDataView(outdat, outoff - 4, outoff))), (outoff += 4)); // chunk crc
+		(outdat.setUint32(outoff, crc32(sliceDataView(outdat, outoff - 4, outoff))), (outoff += 4)); // chunk crc32
 
 		return sliceDataView(outdat, 0, outoff);
 	});
@@ -760,5 +773,94 @@ window.initAlgorithms = () => {
 				(r >> 2);
 		}
 		return out32;
+	});
+
+	const sha1 = (window.sha1 = dat => {
+		// round up to multiple of 512 bits
+		const paddedLength = Math.ceil((dat.byteLength + 9 - 1) / 64) * 64;
+		const paddedDat = new DataView(new ArrayBuffer(paddedLength));
+		bufToU8(paddedDat).set(bufToU8(dat), 0);
+		// appended "1" bit
+		paddedDat.setUint8(dat.byteLength, 0x80);
+		// append 64-bit big-endian integer (here it's just 32-bits)
+		paddedDat.setUint32(paddedLength - 4, dat.byteLength * 8, false);
+
+		let h0 = 0x67452301;
+		let h1 = 0xefcdab89;
+		let h2 = 0x98badcfe;
+		let h3 = 0x10325476;
+		let h4 = 0xc3d2e1f0;
+
+		const paddedS32 = bufToS32(paddedDat);
+		const w = new Int32Array(80);
+
+		for (let o = 0; o < paddedS32.length; o += 16) {
+			// flip endianness of input
+			for (let i = 0; i < 16; ++i) {
+				const x = paddedS32[o + i];
+				w[i] = (x << 24) | ((x & 0xff00) << 8) | ((x & 0xff0000) >> 8) | (x >>> 24);
+			}
+
+			for (let i = 16; i < 80; ++i) {
+				w[i] = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
+				w[i] = (w[i] << 1) | (w[i] >>> 31); // left rotate
+			}
+
+			let a = h0;
+			let b = h1;
+			let c = h2;
+			let d = h3;
+			let e = h4;
+			for (let i = 0; i < 80; ++i) {
+				let f, k;
+				if (i < 20) {
+					f = (b & c) | (~b & d);
+					k = 0x5a827999;
+				} else if (i < 40) {
+					f = b ^ c ^ d;
+					k = 0x6ed9eba1;
+				} else if (i < 60) {
+					f = (b & c) | (b & d) | (c & d);
+					k = 0x8f1bbcdc;
+				} else /* (i < 80) */ {
+					f = b ^ c ^ d;
+					k = 0xca62c1d6;
+				}
+
+				const temp = ((a << 5) | (a >>> 27)) + e + f + k + w[i];
+				e = d;
+				d = c;
+				c = (b << 30) | (b >>> 2);
+				b = a;
+				a = temp | 0;
+			}
+
+			h0 = (h0 + a) | 0;
+			h1 = (h1 + b) | 0;
+			h2 = (h2 + c) | 0;
+			h3 = (h3 + d) | 0;
+			h4 = (h4 + e) | 0;
+		}
+
+		// flip endianness for ouptut
+		const out = new DataView(new ArrayBuffer(20));
+		out.setInt32(0, h0, false);
+		out.setInt32(4, h1, false);
+		out.setInt32(8, h2, false);
+		out.setInt32(12, h3, false);
+		out.setInt32(16, h4, false);
+		return out;
+	});
+
+	const hmac = (window.hmac = (key, dat) => {
+		const first = new DataView(dat.byteLength + 0x40);
+		for (let i = 0; i < 0x40; ++i) first.setUint8(key.getUint8(i) ^ 0x36);
+		bufToU8(first).set(bufToU8(dat), 0x40);
+		const firstSha1 = sha1(first);
+
+		const second = new DataView(0x54);
+		for (let i = 0; i < 0x40; ++i) first.setUint8(key.getUint8(i) ^ 0x5c);
+		bufToU8(second).set(bufToU8(firstSha1), 0x40);
+		return sha1(second);
 	});
 };
