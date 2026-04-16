@@ -897,7 +897,7 @@
 		);
 
 		ovt.overlays = [];
-		for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Size; ++i, o += 0x20) {
+		for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Length; ++i, o += 0x20) {
 			const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
 			const [id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression] = overlayU32;
 			ovt.overlays.push({ id, ramStart, ramSize, bssSize, staticStart, staticEnd, fileId, compression });
