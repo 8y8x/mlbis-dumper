@@ -1177,19 +1177,22 @@ window.initDisassembler = () => {
 						);
 					}
 					continue;
-				} else if ((inst & 0x0e700000) === 0x08400000 && cond !== conds[0b1111]) {
+				} else if ((inst & 0x0e700000) === 0x08600000 && cond !== conds[0b1111]) {
 					// (2) (A4.1.98)
+					// note: the check should be (inst & 0x0e700000) === 0x08400000
+					// and W should always be zero
+					const W = (inst >>> 21) & 1;
 					const Rn = (inst >>> 16) & 0xf;
 					const registers = inst & 0xffff;
 					const addressing = loadMultipleAddressingMode(inst);
-					const u = unpredictable(Rn === 15 || registers === 0);
+					const u = unpredictable(Rn === 15 || registers === 0 || W);
 					if (ASM) {
 						const list = [];
 						for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
 							if (registers & bit) list.push(r[i]);
 						}
 						lines.push(
-							`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}, {${list.join(', ')}}^` +
+							`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}^` +
 								u,
 						);
 					}
@@ -1956,10 +1959,10 @@ window.initDisassembler = () => {
 			let ramStart;
 			if (select.value === 1) {
 				binary = fs.arm9;
-				ramStart = headers.arm9ram;
+				ramStart = headers.arm9RamOffset;
 			} else if (select.value === 2) {
 				binary = fs.arm7;
-				ramStart = headers.arm7ram;
+				ramStart = headers.arm7RamOffset;
 			} else {
 				binary = fs.overlay(select.value - 3);
 				ramStart = ovt.overlays[select.value - 3].ramStart;
