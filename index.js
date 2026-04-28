@@ -208,6 +208,22 @@
 		return button;
 	});
 
+	const hovery = (window.hovery = (html, onhover) => {
+		const span = document.createElement('span');
+		span.style.cssText =
+			'background: #333; border: 1px solid #fff; color: #ccc; cursor: default; font-size: 0.9rem; padding: 0 3px;';
+		span.innerHTML = html;
+		span.addEventListener('mouseenter', () => {
+			span.style.background = '#666';
+			onhover(true);
+		});
+		span.addEventListener('mouseleave', () => {
+			span.style.background = '#333';
+			onhover(false);
+		});
+		return span;
+	});
+
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Quick Data Display                                                                                            |
 	// +---------------------------------------------------------------------------------------------------------------+
