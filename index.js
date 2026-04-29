@@ -1942,7 +1942,7 @@
 		}
 
 		const bmapDropdown = dropdown(
-			bmaps.map((_, i) => `BMap 0x${i.toString(16)}`),
+			bmaps.map((_, i) => `BMap 0x${i.toString(16)} (0x${(i * 8).toString(16)})`),
 			0,
 			() => update(),
 		);
