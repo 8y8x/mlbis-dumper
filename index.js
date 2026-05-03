@@ -5347,10 +5347,10 @@
 	window.initDisassembler();
 
 	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: VTable Scanner                                                                                       |
+	// | Section: RTTI VTables                                                                                         |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const vtables = (window.vtables = createSection('VTables', section => {
+	const vtables = (window.vtables = createSection('RTTI VTables', section => {
 		const vtables = {};
 
 		const picked = new Set();
