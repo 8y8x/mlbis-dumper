@@ -697,7 +697,6 @@
 		fs.arm9 = sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size);
 		fs.arm9BssSize = 0;
 		fs.arm7 = sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size);
-		fs.arm7BssSize = 0;
 		fs.autoloads = [];
 
 		let arm9DecompressedPacked;
@@ -716,7 +715,7 @@
 				autoloadListEnd,
 				autoloadStart,
 				arm9BssStart,
-				arm9BssSize,
+				arm9BssEnd,
 				compressionHead,
 				sdkVersion,
 				code1,
@@ -730,7 +729,7 @@
 			);
 
 			if (code1 === 0xdec00621 && code2 === 0x2106c0de) {
-				fs.arm9BssSize = arm9BssSize;
+				fs.arm9BssSize = arm9BssEnd - arm9BssStart;
 
 				if (compressionHead) {
 					// the rest of the ARM9 is compressed, so decompress it
@@ -1094,39 +1093,47 @@
 				}
 			};
 
-			const addEntry = (label, leftAddress, size, bss, overlayU32) => {
+			const START = 0x01ff8000;
+			const END = 0x02400000;
+			const SIZE = END - START;
+			const addEntry = (label, leftAddress, size, bss) => {
 				const row = document.createElement('div');
 				row.style.cssText = `position: absolute; top: ${contentHeight}px; left: 0px; height: 20px; width: 100%; color: var(--clicky-text);`;
 				row.className = 'clicky';
 				preview.appendChild(row);
 
 				const left = document.createElement('div');
-				left.style.cssText = `position: absolute; top: 0; left: 0; height: 20px; width: 200px; font: 16px "Red Hat Mono";`;
+				left.style.cssText = `position: absolute; top: 0; left: 0; height: 20px; width: 240px; font: 16px "Red Hat Mono";`;
 				left.innerHTML = `${'&nbsp;'.repeat(4 - label.length)}${label}.
-					${str24(leftAddress - 0x02000000)}-${str24(leftAddress + size - 0x02000000)}`;
+					${str32(leftAddress)}-${str32(leftAddress + size)}`;
 				row.appendChild(left);
 
 				const right = document.createElement('div');
-				right.style.cssText = `background: var(--clicky-bg); position: absolute; top: 0; left: 200px; height: 20px; width: calc(100% - 200px);`;
+				right.style.cssText = `background: var(--clicky-bg); position: absolute; top: 0; left: 240px; height: 20px; width: calc(100% - 240px);`;
 				row.appendChild(right);
 
 				const boxExecutable = document.createElement('div');
 				boxExecutable.style.cssText = `background: var(--clicky-fill); border: 1px solid var(--clicky-box); position: absolute; top: 0; height: 20px;`;
-				boxExecutable.style.left = `${((leftAddress - 0x02000000) / 0x400000) * 100}%`;
-				boxExecutable.style.width = `${(size / 0x400000) * 100}%`;
+				boxExecutable.style.left = `${((leftAddress - START) / SIZE) * 100}%`;
+				boxExecutable.style.width = `${(size / SIZE) * 100}%`;
 				right.appendChild(boxExecutable);
 
 				const boxStatic = document.createElement('div');
 				boxStatic.style.cssText = `background: var(--clicky-fill); position: absolute; top: 0; height: 20px;`;
-				boxStatic.style.left = `${((leftAddress + size - 0x02000000) / 0x400000) * 100}%`;
-				boxStatic.style.width = `${(bss / 0x400000) * 100}%`;
+				boxStatic.style.left = `${((leftAddress + size - START) / SIZE) * 100}%`;
+				boxStatic.style.width = `${(bss / SIZE) * 100}%`;
 				right.appendChild(boxStatic);
 
 				let bssLabel;
 				if (bss) {
 					bssLabel = document.createElement('div');
 					bssLabel.style.cssText = `position: absolute; top: 0; height: 20px; font: 1em "Red Hat Mono"`;
-					bssLabel.style.left = `calc(${((leftAddress + size + bss - 0x02000000) / 0x400000) * 100}% + 10px)`;
+					const leftPercent = ((leftAddress + size + bss - START) / SIZE) * 100;
+					if (leftPercent < 80) {
+						bssLabel.style.left = `calc(${leftPercent}% + 10px)`;
+					} else {
+						bssLabel.style.right = `calc(${100 - ((leftAddress - START) / SIZE) * 100}% + 10px)`;
+					}
 					bssLabel.textContent = `(BSS 0x${bss.toString(16)})`;
 					right.appendChild(bssLabel);
 				}
@@ -1151,15 +1158,30 @@
 				contentHeight += 20;
 			};
 
-			addEntry('ARM9', headers.arm9RamOffset, fs.arm9.byteLength, 0, undefined);
-			addEntry('ARM7', headers.arm7RamOffset, fs.arm7.byteLength, 0, undefined);
+			addEntry('ARM9', headers.arm9RamOffset, fs.arm9.byteLength, fs.arm9BssSize);
+
+			for (let i = 0; i < fs.autoloads.length; ++i) {
+				const autoload = fs.autoloads[i];
+
+				let name = autoload.name;
+				if (autoload.name !== 'ITCM' && autoload.name !== 'DTCM') name = 'al' + String(i);
+
+				let addr = autoload.ramStart;
+				// 02000000 - 02400000 and 02400000 - 02800000 are mirrors of each other
+				if (0x02400000 <= addr && addr < 0x02800000) addr -= 0x00400000;
+				addEntry(name, addr, autoload.ramSize, autoload.bssSize);
+			}
+
+			addEntry('ARM7', headers.arm7RamOffset, fs.arm7.byteLength, 0);
+
 			for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Length; ++i, o += 0x20) {
 				const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
-				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3], overlayU32);
+				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3]);
 			}
+
 			for (let i = 0, o = headers.ovt7Offset; o < headers.ovt7Offset + headers.ovt7Length; ++i, o += 0x20) {
 				const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
-				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3], overlayU32);
+				addEntry(String(i), overlayU32[1], overlayU32[2], overlayU32[3]);
 			}
 
 			preview.style.height = `${contentHeight}px`;
