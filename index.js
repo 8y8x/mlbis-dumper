@@ -1039,11 +1039,6 @@
 		const mode = dropdown(['RAM Arrangement', 'Overlay Entries', 'String Search'], 0, () => update());
 		section.appendChild(mode);
 
-		addHTML(
-			section,
-			`<span style="margin: 0 5px;">Base address: <code>0x02000000</code>, min string length 6</span>`,
-		);
-
 		ovt.overlays = [];
 		for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Length; ++i, o += 0x20) {
 			const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
