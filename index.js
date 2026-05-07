@@ -61,6 +61,8 @@
 		const options = dropdown.querySelector('.options');
 		const optionBase = dropdown.querySelector('.option');
 
+		dropdown.values = values;
+
 		const optionElements = [];
 		let docListener;
 		let open = false;
@@ -72,7 +74,7 @@
 			open = false;
 			docListener = undefined;
 		};
-		const select = (i, silent) => {
+		const select = dropdown.select = (i, silent) => {
 			optionElements[selected].style.color = '';
 			optionElements[i].style.color = 'var(--dropdown-fg)';
 			selection.innerHTML = values[i];
@@ -639,6 +641,12 @@
 		headers.titleOffset = file.getUint32(0x68, true);
 		addHTML(ul, `<li>Icon/Title offset: <code>0x${str32(headers.titleOffset)}</code></li>`);
 
+		headers.arm9AutoLoadHook = file.getUint32(0x70, true);
+		addHTML(ul, `<li>ARM9 Auto Load Hook: <code>0x${str32(headers.arm9AutoLoadHook)}</code></li>`);
+
+		headers.arm7AutoLoadHook = file.getUint32(0x74, true);
+		addHTML(ul, `<li>ARM7 Auto Load Hook: <code>0x${str32(headers.arm7AutoLoadHook)}</code></li>`);
+
 		headers.romLength = file.getUint32(0x80, true);
 		addHTML(ul, `<li>Total ROM length: <code>0x${str32(headers.romLength)}</code></li>`);
 
@@ -687,26 +695,104 @@
 		const fs = new Map();
 
 		fs.arm9 = sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size);
+		fs.arm9BssSize = 0;
 		fs.arm7 = sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size);
+		fs.arm7BssSize = 0;
+		fs.autoloads = [];
 
-		// NA, EU, and KO versions compress initial arm9/arm7; no idea what in the header controls that
-		let arm9Compressed = false;
-		if (['CLJE', 'CLJP', 'CLJK'].includes(headers.gamecode)) { // TODO TEST REMOVE THIS
-			// NA, EU, and KO versions completely compress initial arm9/arm7
-			fs.arm9 = blz(fs.arm9);
-			arm9Compressed = true;
-		} else if (headers.gamecode === 'CLJJ' && fs.arm9.getUint32(0x371fc, true) === 0xffffffff) {
-			// JP (not ROC) compresses most of the arm9, but not the arm7
-			const dec9 = blz(sliceDataView(fs.arm9, 0x4000, 0x3718c));
-			const new9 = new DataView(new ArrayBuffer(dec9.byteLength + 0x4000));
-			bufToU8(new9).set(bufToU8(sliceDataView(fs.arm9, 0, 0x4000)), 0);
-			bufToU8(new9).set(bufToU8(dec9), 0x4000);
-			fs.arm9 = new9;
-			arm9Compressed = true;
+		let arm9DecompressedPacked;
+		let arm9Unpacked = false;
+
+		const moduleParamsInfo = document.createElement('div'); // add to DOM later
+
+		// some games compress the ARM9 region, but only partially
+		// headers.arm9Size cannot be trusted - for example, JP version specifies 0x550b8 (decompressed size) when the
+		// ARM9 is actually 0x3718c in size
+		const moduleParamsAddr = fs.arm9.getUint32(headers.arm9AutoLoadHook - 4 - headers.arm9RamOffset, true);
+		if (headers.arm9RamOffset < moduleParamsAddr &&
+			moduleParamsAddr + 0x24 < headers.arm9RamOffset + fs.arm9.byteLength) {
+			const [
+				autoloadListStart,
+				autoloadListEnd,
+				autoloadStart,
+				arm9BssStart,
+				arm9BssSize,
+				compressionHead,
+				sdkVersion,
+				code1,
+				code2,
+			] = bufToU32(
+				sliceDataView(
+					fs.arm9,
+					moduleParamsAddr - headers.arm9RamOffset,
+					moduleParamsAddr + 0x28 - headers.arm9RamOffset,
+				),
+			);
+
+			if (code1 === 0xdec00621 && code2 === 0x2106c0de) {
+				fs.arm9BssSize = arm9BssSize;
+
+				if (compressionHead) {
+					// the rest of the ARM9 is compressed, so decompress it
+					// note that headers.arm9Size does not always match this. for example, the JP release specifies the
+					// *decompressed* size, which would put you midway into like overlay 2 or something on the ROM
+					arm9DecompressedPacked = fs.arm9 = blz(sliceDataView(fs.arm9, 0, compressionHead - headers.arm9RamOffset));
+				}
+
+				const sdkMajorVersion = sdkVersion >>> 24;
+				const sdkMinorVersion = (sdkVersion >>> 16) & 0xff;
+				const sdkPatch = sdkVersion & 0xffff;
+				addHTML(moduleParamsInfo, `<div>NitroSDK ${sdkMajorVersion}.${sdkMinorVersion} (patch ${sdkPatch})</div>`);
+
+				let copyAddr = autoloadStart;
+				for (let i = 0, o = autoloadListStart; o < autoloadListEnd; ++i, o += 12) {
+					const ramStart = fs.arm9.getUint32(o - headers.arm9RamOffset, true);
+					const ramSize = fs.arm9.getUint32(o + 4 - headers.arm9RamOffset, true);
+					const bssSize = fs.arm9.getUint32(o + 8 - headers.arm9RamOffset, true);
+
+					let name, fileName;
+					if (ramStart === 0x01ff8000) {
+						name = 'ITCM';
+						fileName = 'itcm.bin';
+					} else if (ramStart === 0x027e0000) {
+						// DTCM can be put elsewhere but i think it's usually put here
+						name = 'DTCM';
+						fileName = 'dtcm.bin';
+					} else {
+						name = `ARM9 Autoload[${i}]`;
+						fileName = `autoload${i}.bin`;
+					}
+
+					fs.autoloads.push({
+						name,
+						fileName,
+						ramStart,
+						ramSize,
+						bssSize,
+						dat: sliceDataView(
+							fs.arm9, copyAddr - headers.arm9RamOffset, copyAddr + ramSize - headers.arm9RamOffset,
+						),
+					});
+
+					addHTML(
+						moduleParamsInfo,
+						`<div>
+							${name}: <code>${str32(ramStart)} - ${str32(ramStart + ramSize)}</code>
+							(len <code>0x${ramSize.toString(16)}</code>, BSS <code>0x${bssSize.toString(16)}</code>),
+							copied from ARM9 <code>${str32(copyAddr)} - ${str32(copyAddr += ramSize)}</code>
+						</div>`,
+					);
+				}
+
+				fs.arm9 = sliceDataView(fs.arm9, 0, arm9BssStart - headers.arm9RamOffset);
+				arm9Unpacked = true;
+			} else {
+				addHTML(moduleParamsInfo, `<div>(Can't read autoload section - is this a DSi game?)</div>`);
+			}
 		}
 
 		const names = new Map();
-		names.set(0xf000, ''); // so every fie path starts with '/'
+		names.set(0xf000, ''); // so every file path starts with '/'
 		const parents = new Map();
 		const numDirectories = file.getUint16(headers.fntOffset + 6, true);
 		for (let i = 0; i < numDirectories; ++i) {
@@ -780,63 +866,106 @@
 		singleExport.textContent = 'File: ';
 		section.appendChild(singleExport);
 
+		const error = () => {
+			throw 0;
+		};
 		const singleSelectEntries = [
-			`ARM9 (len 0x${headers.arm9Size.toString(16)}${arm9Compressed ? ', compressed' : ''})`,
-			`ARM7 (len 0x${headers.arm7Size.toString(16)})`,
+			{
+				label: `ARM9 (len 0x${fs.arm9.byteLength.toString(16)})`,
+				fileName: 'arm9.bin',
+				getDat: () => sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size),
+				getBlzDat: () => arm9DecompressedPacked || error(),
+				getBlzUnpackedDat: () => fs.arm9,
+			},
+			{
+				label: `ARM7 (len 0x${fs.arm7.byteLength.toString(16)})`,
+				fileName: 'arm7.bin',
+				getDat: () => sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size),
+				getBlzDat: () => fs.arm7,
+			},
 		];
-		for (let i = 0; i * 8 < headers.fatLength; ++i) {
-			const { start, end, path } = fs.get(i);
-			singleSelectEntries.push(`0x${str8(i)}. (len 0x${(end - start).toString(16)}) ${sanitize(path)}`);
+
+		for (let i = 0; i < fs.autoloads.length; ++i) {
+			const autoload = fs.autoloads[i];
+			singleSelectEntries.push({
+				label: `${autoload.name} (len 0x${autoload.dat.byteLength.toString(16)})`,
+				fileName: autoload.fileName,
+				getDat: () => autoload.dat,
+			});
 		}
-		const singleSelect = dropdown(singleSelectEntries, 0, () => {});
+
+		for (let i = 0; i * 8 < headers.fatLength; ++i) {
+			const dat = fs.get(i);
+			const { start, end, name, path } = dat;
+
+			let getBlzDat;
+			const ovid = fileToOverlayId.get(i);
+			if (ovid !== undefined && overlayEntries.get(ovid).compressed) {
+				getBlzDat = () => fs.overlay(ovid, true);
+			}
+
+			singleSelectEntries.push({
+				label: `0x${str8(i)}. (len 0x${(end - start).toString(16)}) ${sanitize(path)}`,
+				fileName: name,
+				getDat: () => dat,
+				getBlzDat,
+			});
+		}
+
+		// ARM9: "Raw" or "BLZ" or "BLZ + Unpacked"
+		// ARM7: "Raw"
+		// overlays: "Raw" or "BLZ"
+		// files: "Raw"
+		const singleSelect = dropdown(singleSelectEntries.map(x => x.label), 0, () => {
+			// when switching files, change the selected dropdown, and change the value of that dropdown to whatever was
+			// selected on the previous dropdown (or "Raw" if it's not available anymore)
+			const entry = singleSelectEntries[singleSelect.value];
+
+			let newDecompDropdown;
+			if (entry.getBlzUnpackedDat) newDecompDropdown = decompBlzUnpacked;
+			else if (entry.getBlzDat) newDecompDropdown = decompBlz;
+			else newDecompDropdown = decompRawOnly;
+
+			if (newDecompDropdown === singleDecompDropdown) return; // no need to change
+			newDecompDropdown.select(newDecompDropdown.values.length - 1, true); // the best option is the last one
+			singleDecompDropdown.style.display = 'none';
+			newDecompDropdown.style.display = 'inline-block';
+			singleDecompDropdown = newDecompDropdown;
+		});
 		singleExport.appendChild(singleSelect);
 
-		const singleDecompression = dropdown(
-			['No decompression', 'BLZ on compressed overlays only'],
-			1,
-			() => {},
-			undefined,
-			true,
-		);
-		singleExport.appendChild(singleDecompression);
+		const decompRawOnly = dropdown(['Raw'], 0, () => {}, undefined, true);
+		const decompBlz = dropdown(['Raw', 'Decompressed (BLZ)'], 1, () => {}, undefined, true);
+		const decompBlzUnpacked = dropdown(['Raw', 'Decompressed (BLZ)', 'Decompressed + Unpacked'], 2, () => {}, undefined, true);
+		decompRawOnly.style.display = decompBlz.style.display = decompBlzUnpacked.style.display = 'none';
+		singleExport.appendChild(decompRawOnly);
+		singleExport.appendChild(decompBlz);
+		singleExport.appendChild(decompBlzUnpacked);
+
+		let singleDecompDropdown = arm9Unpacked ? decompBlzUnpacked : decompBlz;
+		singleDecompDropdown.style.display = 'inline-block';
 
 		const singleDump = button('Dump', () => {
-			if (singleSelect.value === 0) {
-				singleOutput.textContent = '';
-				if (singleDecompression.value === 0) {
-					download(
-						'arm9.bin',
-						sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size),
-					);
-				} else download('arm9.bin', fs.arm9);
-				return;
-			} else if (singleSelect.value === 1) {
-				singleOutput.textContent = '';
-				if (singleDecompression.value === 0) {
-					download(
-						'arm7.bin',
-						sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size),
-					);
-				} else download('arm7.bin', fs.arm7);
+			const entry = singleSelectEntries[singleSelect.value];
+
+			let dat;
+			try {
+				if (singleDecompDropdown.value === 0) dat = entry.getDat();
+				else if (singleDecompDropdown.value === 1) dat = entry.getBlzDat();
+				else if (singleDecompDropdown.value === 2) dat = entry.getBlzUnpackedDat();
+			} catch (err) {
+				console.error(err);
+				singleOutput.textContent = '(Failed to decompress)';
 				return;
 			}
-			const fsentry = fs.get(singleSelect.value - 2);
 
-			let output;
-			if (singleDecompression.value === 0) output = fsentry;
-			else {
-				const overlayId = fileToOverlayId.get(singleSelect.value - 2);
-				if (overlayId !== undefined) output = fs.overlay(overlayId, true);
-				else output = fsentry;
-			}
-
-			if (!output) {
-				singleOutput.textContent = '(Failed to decompress; only backwards LZSS is supported)';
+			if (!dat) {
+				singleOutput.textContent = '(Failed to decompress)';
 				return;
 			}
 
 			singleOutput.textContent = '';
-			download(fsentry.name, output);
+			download(entry.fileName, dat);
 		});
 		singleExport.appendChild(singleDump);
 
@@ -853,6 +982,8 @@
 				{ name: 'arm7.bin', dat: fs.arm7 },
 			];
 
+			for (const autoload of fs.autoloads) files.push({ name: autoload.fileName, dat: autoload.dat });
+
 			for (let i = 0; i * 8 < headers.fatLength; ++i) {
 				const fsentry = fs.get(i);
 				const overlayId = fileToOverlayId.get(i);
@@ -868,6 +999,8 @@
 		});
 		multiExport.appendChild(multiDump);
 
+		addHTML(section, '<br>');
+		section.appendChild(moduleParamsInfo);
 		addHTML(section, '<br>');
 
 		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => update(), undefined, true);
