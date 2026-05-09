@@ -562,6 +562,7 @@
 		headers.title = latin1(0, 12, file);
 		headers.gamecode = latin1(0xc, 4, file);
 		addHTML(ul, `<li>Title: ${headers.title} (${headers.gamecode})</li>`);
+		document.title = `(${headers.gamecode}) MLBIS Dumper`;
 
 		headers.makercode = latin1(0x10, 2, file);
 		headers.unitcode = file.getUint8(0x12);
