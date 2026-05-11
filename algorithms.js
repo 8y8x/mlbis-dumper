@@ -170,10 +170,10 @@ window.initAlgorithms = () => {
 		const compressedLength = startingOutoff - outstop;
 		const paddingStart = startingOutoff;
 		let headerStart = dataStart + Math.ceil((decompressedLength + compressedLength) / 4) * 4;
-		if (minimumSize !== undefined) {
-			const estimatedSize = headerStart - dataStart + 8;
-			headerStart += minimumSize - estimatedSize;
-		}
+
+		const estimatedSize = headerStart - dataStart + 8;
+		if (minimumSize > estimatedSize) headerStart += minimumSize - estimatedSize;
+
 		const dataLength = headerStart + 8 - dataStart;
 		const additionalLength = inbuf.length - dataLength;
 		if (additionalLength <= 0) {
