@@ -79,7 +79,7 @@
 			open = false;
 			docListener = undefined;
 		};
-		const select = dropdown.select = (i, silent) => {
+		const select = (dropdown.select = (i, silent) => {
 			optionElements[selected].style.color = '';
 			optionElements[i].style.color = 'var(--dropdown-fg)';
 			selection.innerHTML = values[i];
@@ -88,7 +88,7 @@
 			dropdown.value = i;
 			dropdown.hovered = undefined;
 			if (!silent) onchange(i);
-		};
+		});
 
 		for (let i = 0; i < values.length; ++i) {
 			const value = values[i];
@@ -714,8 +714,10 @@
 		// headers.arm9Size cannot be trusted - for example, JP version specifies 0x550b8 (decompressed size) when the
 		// ARM9 is actually 0x3718c in size
 		const moduleParamsAddr = fs.arm9.getUint32(headers.arm9AutoLoadHook - 4 - headers.arm9RamOffset, true);
-		if (headers.arm9RamOffset < moduleParamsAddr &&
-			moduleParamsAddr + 0x24 < headers.arm9RamOffset + fs.arm9.byteLength) {
+		if (
+			headers.arm9RamOffset < moduleParamsAddr &&
+			moduleParamsAddr + 0x24 < headers.arm9RamOffset + fs.arm9.byteLength
+		) {
 			const [
 				autoloadListStart,
 				autoloadListEnd,
@@ -741,13 +743,18 @@
 					// the rest of the ARM9 is compressed, so decompress it
 					// note that headers.arm9Size does not always match this. for example, the JP release specifies the
 					// *decompressed* size, which would put you midway into like overlay 2 or something on the ROM
-					arm9DecompressedPacked = fs.arm9 = blz(sliceDataView(fs.arm9, 0, compressionHead - headers.arm9RamOffset));
+					arm9DecompressedPacked = fs.arm9 = blz(
+						sliceDataView(fs.arm9, 0, compressionHead - headers.arm9RamOffset),
+					);
 				}
 
 				const sdkMajorVersion = sdkVersion >>> 24;
 				const sdkMinorVersion = (sdkVersion >>> 16) & 0xff;
 				const sdkPatch = sdkVersion & 0xffff;
-				addHTML(moduleParamsInfo, `<div>NitroSDK ${sdkMajorVersion}.${sdkMinorVersion} (patch ${sdkPatch})</div>`);
+				addHTML(
+					moduleParamsInfo,
+					`<div>NitroSDK ${sdkMajorVersion}.${sdkMinorVersion} (patch ${sdkPatch})</div>`,
+				);
 
 				let copyAddr = autoloadStart;
 				for (let i = 0, o = autoloadListStart; o < autoloadListEnd; ++i, o += 12) {
@@ -775,7 +782,9 @@
 						ramSize,
 						bssSize,
 						dat: sliceDataView(
-							fs.arm9, copyAddr - headers.arm9RamOffset, copyAddr + ramSize - headers.arm9RamOffset,
+							fs.arm9,
+							copyAddr - headers.arm9RamOffset,
+							copyAddr + ramSize - headers.arm9RamOffset,
 						),
 					});
 
@@ -784,7 +793,7 @@
 						`<div>
 							${name}: <code>${str32(ramStart)} - ${str32(ramStart + ramSize)}</code>
 							(len <code>0x${ramSize.toString(16)}</code>, BSS <code>0x${bssSize.toString(16)}</code>),
-							copied from ARM9 <code>${str32(copyAddr)} - ${str32(copyAddr += ramSize)}</code>
+							copied from ARM9 <code>${str32(copyAddr)} - ${str32((copyAddr += ramSize))}</code>
 						</div>`,
 					);
 				}
@@ -921,27 +930,37 @@
 		// ARM7: "Raw"
 		// overlays: "Raw" or "BLZ"
 		// files: "Raw"
-		const singleSelect = dropdown(singleSelectEntries.map(x => x.label), 0, () => {
-			// when switching files, change the selected dropdown, and change the value of that dropdown to whatever was
-			// selected on the previous dropdown (or "Raw" if it's not available anymore)
-			const entry = singleSelectEntries[singleSelect.value];
+		const singleSelect = dropdown(
+			singleSelectEntries.map(x => x.label),
+			0,
+			() => {
+				// when switching files, change the selected dropdown, and change the value of that dropdown to whatever was
+				// selected on the previous dropdown (or "Raw" if it's not available anymore)
+				const entry = singleSelectEntries[singleSelect.value];
 
-			let newDecompDropdown;
-			if (entry.getBlzUnpackedDat) newDecompDropdown = decompBlzUnpacked;
-			else if (entry.getBlzDat) newDecompDropdown = decompBlz;
-			else newDecompDropdown = decompRawOnly;
+				let newDecompDropdown;
+				if (entry.getBlzUnpackedDat) newDecompDropdown = decompBlzUnpacked;
+				else if (entry.getBlzDat) newDecompDropdown = decompBlz;
+				else newDecompDropdown = decompRawOnly;
 
-			if (newDecompDropdown === singleDecompDropdown) return; // no need to change
-			newDecompDropdown.select(newDecompDropdown.values.length - 1, true); // the best option is the last one
-			singleDecompDropdown.style.display = 'none';
-			newDecompDropdown.style.display = 'inline-block';
-			singleDecompDropdown = newDecompDropdown;
-		});
+				if (newDecompDropdown === singleDecompDropdown) return; // no need to change
+				newDecompDropdown.select(newDecompDropdown.values.length - 1, true); // the best option is the last one
+				singleDecompDropdown.style.display = 'none';
+				newDecompDropdown.style.display = 'inline-block';
+				singleDecompDropdown = newDecompDropdown;
+			},
+		);
 		singleExport.appendChild(singleSelect);
 
 		const decompRawOnly = dropdown(['Raw'], 0, () => {}, undefined, true);
 		const decompBlz = dropdown(['Raw', 'Decompressed (BLZ)'], 1, () => {}, undefined, true);
-		const decompBlzUnpacked = dropdown(['Raw', 'Decompressed (BLZ)', 'Decompressed + Unpacked'], 2, () => {}, undefined, true);
+		const decompBlzUnpacked = dropdown(
+			['Raw', 'Decompressed (BLZ)', 'Decompressed + Unpacked'],
+			2,
+			() => {},
+			undefined,
+			true,
+		);
 		decompRawOnly.style.display = decompBlz.style.display = decompBlzUnpacked.style.display = 'none';
 		singleExport.appendChild(decompRawOnly);
 		singleExport.appendChild(decompBlz);

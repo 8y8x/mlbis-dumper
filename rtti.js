@@ -618,7 +618,7 @@ window.initRtti = () => {
 			const scanString = (dat, str) => {
 				const strBytes = new Uint8Array(str.length);
 				for (let i = 0; i < str.length; ++i) strBytes[i] = str.charCodeAt(i);
-				
+
 				let matchedLength = 0;
 				for (let o = 0; o < dat.byteLength; ++o) {
 					if (dat.getUint8(o) === strBytes[matchedLength]) {
@@ -799,11 +799,14 @@ window.initRtti = () => {
 			addHTML(section, `<div>Found type info for ${rtti.classes.size} classes...</div>`);
 
 			// #4 : parse all type_info's and setup superclass links
-			const baseClassVptr = rtti.classes.get('__cxxabiv1::__class_type_info')?.vtable.at ??
+			const baseClassVptr =
+				rtti.classes.get('__cxxabiv1::__class_type_info')?.vtable.at ??
 				rtti.classes.get('abi::__class_type_info')?.vtable.at;
-			const siClassVptr = rtti.classes.get('__cxxabiv1::__si_class_type_info')?.vtable.at ??
+			const siClassVptr =
+				rtti.classes.get('__cxxabiv1::__si_class_type_info')?.vtable.at ??
 				rtti.classes.get('abi::__si_class_type_info')?.vtable.at;
-			const vmiClassVptr = rtti.classes.get('__cxxabiv1::__vmi_class_type_info')?.vtable.at ??
+			const vmiClassVptr =
+				rtti.classes.get('__cxxabiv1::__vmi_class_type_info')?.vtable.at ??
 				rtti.classes.get('abi::__vmi_class_type_info')?.vtable.at;
 			for (const c of rtti.classes.values()) {
 				const dat = c.typeInfo.dat;
@@ -828,7 +831,10 @@ window.initRtti = () => {
 					if (localCandidate) return localCandidate;
 
 					if (foreignCandidates.length === 1) return foreignCandidates[0].c;
-					if (foreignCandidates.length === 0) error(`resolveTypeInfo: ${c.demangled} @ ${str32(c.typeInfo.at)} inherits from some type info @ ${str32(addr)} but none was found`);
+					if (foreignCandidates.length === 0)
+						error(
+							`resolveTypeInfo: ${c.demangled} @ ${str32(c.typeInfo.at)} inherits from some type info @ ${str32(addr)} but none was found`,
+						);
 
 					// as a last-ditch-effort, eliminate any foreign candidates from overlays that overlap
 					let foreignCandidate;
@@ -837,11 +843,17 @@ window.initRtti = () => {
 						const otherBase = datBases.get(typeInfo.dat);
 						const otherEnd = datEnds.get(typeInfo.dat);
 						if (datBase < otherEnd && otherBase + datEnd) continue;
-						if (foreignCandidate) error(`resolveTypeInfo: ${c.demangled} inherits from some type info @ ${str32(addr)} but there are multiple candidates`);
+						if (foreignCandidate)
+							error(
+								`resolveTypeInfo: ${c.demangled} inherits from some type info @ ${str32(addr)} but there are multiple candidates`,
+							);
 						foreignCandidate = foreignC;
 					}
 
-					if (!foreignCandidate) error(`resolveTypeInfo: ${c.demangled} inherits from some type info @ ${str32(addr)} from another overlay that overlaps this one`);
+					if (!foreignCandidate)
+						error(
+							`resolveTypeInfo: ${c.demangled} inherits from some type info @ ${str32(addr)} from another overlay that overlaps this one`,
+						);
 					return foreignCandidate;
 				};
 
@@ -960,7 +972,7 @@ window.initRtti = () => {
 				const ctx = document.createElement('canvas').getContext('2d');
 				ctx.font = '16px "Red Hat Text"';
 
-				let svgWidth = 0
+				let svgWidth = 0;
 				let svgHeight = 10;
 				for (const c2 of bases) svgHeight += c2.width * 60;
 
@@ -1011,55 +1023,102 @@ window.initRtti = () => {
 						const numTopSpaces = Math.ceil(unideals.length / 2) + 1;
 						for (let i = 0; i < numTopSpaces - 1; ++i) {
 							// each space y = (25 / numTopSpaces)px
-							const y = ~~(tlY + ((i + 1) * (25 / numTopSpaces))) + .5;
-							svg.appendChild(svgElement(
-								'path',
-								{ d: `M${tlX - 10},${y} l10,0`, stroke: 'var(--red)', strokeWidth: 1 },
-							));
-							svg.appendChild(svgElement(
-								'text',
-								{ x: tlX - 15 - textWidths[i], y, 'dominant-baseline': 'central', 'font-size': '16', fill: 'var(--red)' },
-								unideals[i].c.demangled,
-							));
+							const y = ~~(tlY + (i + 1) * (25 / numTopSpaces)) + 0.5;
+							svg.appendChild(
+								svgElement('path', {
+									d: `M${tlX - 10},${y} l10,0`,
+									stroke: 'var(--red)',
+									strokeWidth: 1,
+								}),
+							);
+							svg.appendChild(
+								svgElement(
+									'text',
+									{
+										x: tlX - 15 - textWidths[i],
+										y,
+										'dominant-baseline': 'central',
+										'font-size': '16',
+										fill: 'var(--red)',
+									},
+									unideals[i].c.demangled,
+								),
+							);
 						}
-						
+
 						const numBottomSpaces = Math.floor(unideals.length / 2) + 1;
 						for (let i = 0; i < numBottomSpaces - 1; ++i) {
 							const realI = i + numTopSpaces - 1;
-							const y = ~~(tlY + ((i + 1) * (25 / numBottomSpaces))) + .5 + 25;
-							svg.appendChild(svgElement(
-								'path',
-								{ d: `M${tlX - 10},${y} l10,0`, stroke: 'var(--red)', strokeWidth: 1 },
-							));
-							svg.appendChild(svgElement(
-								'text',
-								{ x: tlX - 15 - textWidths[realI], y, 'dominant-baseline': 'central', 'font-size': '16', fill: 'var(--red)' },
-								unideals[realI].c.demangled,
-							));
+							const y = ~~(tlY + (i + 1) * (25 / numBottomSpaces)) + 0.5 + 25;
+							svg.appendChild(
+								svgElement('path', {
+									d: `M${tlX - 10},${y} l10,0`,
+									stroke: 'var(--red)',
+									strokeWidth: 1,
+								}),
+							);
+							svg.appendChild(
+								svgElement(
+									'text',
+									{
+										x: tlX - 15 - textWidths[realI],
+										y,
+										'dominant-baseline': 'central',
+										'font-size': '16',
+										fill: 'var(--red)',
+									},
+									unideals[realI].c.demangled,
+								),
+							);
 						}
 					}
 
 					svgWidth = Math.max(svgWidth, tlX + boxWidth);
 
-					svg.appendChild(svgElement(
-						'rect',
-						{ x: tlX + 0.5, y: tlY + 0.5, width: boxWidth - 1, height: 50 - 1, fill: 'var(--blue33)', stroke: 'var(--blue)', strokeWidth: 1 },
-					));
-					svg.appendChild(svgElement(
-						'text',
-						{ x: tlX + boxWidth / 2, y: tlY + 25, 'dominant-baseline': 'central', 'text-anchor': 'middle', 'font-size': '16', fill: 'var(--blue)' },
-						c2.demangled,
-					));
-					svg.appendChild(svgElement(
-						'text',
-						{ x: tlX + boxWidth / 2, y: tlY + 25 - 8 - 6, 'dominant-baseline': 'central', 'font-size': '12', 'text-anchor': 'middle', fill: 'var(--blue)' },
-						ovNamesConcat,
-					));
+					svg.appendChild(
+						svgElement('rect', {
+							x: tlX + 0.5,
+							y: tlY + 0.5,
+							width: boxWidth - 1,
+							height: 50 - 1,
+							fill: 'var(--blue33)',
+							stroke: 'var(--blue)',
+							strokeWidth: 1,
+						}),
+					);
+					svg.appendChild(
+						svgElement(
+							'text',
+							{
+								x: tlX + boxWidth / 2,
+								y: tlY + 25,
+								'dominant-baseline': 'central',
+								'text-anchor': 'middle',
+								'font-size': '16',
+								fill: 'var(--blue)',
+							},
+							c2.demangled,
+						),
+					);
+					svg.appendChild(
+						svgElement(
+							'text',
+							{
+								x: tlX + boxWidth / 2,
+								y: tlY + 25 - 8 - 6,
+								'dominant-baseline': 'central',
+								'font-size': '12',
+								'text-anchor': 'middle',
+								fill: 'var(--blue)',
+							},
+							ovNamesConcat,
+						),
+					);
 
 					const startTlX = tlX + boxWidth;
 					let branchMinY = Infinity;
 					let branchMaxY = -Infinity;
-					let y = tlY / 60 - (c2.width / 2);
+					let y = tlY / 60 - c2.width / 2;
 					for (const c3 of c2.idealSubclasses) {
 						const tlY = (y + c3.width / 2) * 60;
 						const adjustedTlX = buildSvg(c3, [startTlX + 50, tlY]);
@@ -1067,25 +1126,28 @@ window.initRtti = () => {
 						branchMinY = Math.min(branchMinY, tlY + 25);
 						branchMaxY = Math.max(branchMaxY, tlY + 25);
 
-						svg.appendChild(svgElement(
-							'path',
-							{ d: `M${startTlX + 25},${~~tlY + .5 + 25} L${adjustedTlX},${~~tlY + .5 + 25}`, fill: 'none', stroke: 'var(--text)', strokeWidth: '1' },
-						));
+						svg.appendChild(
+							svgElement('path', {
+								d: `M${startTlX + 25},${~~tlY + 0.5 + 25} L${adjustedTlX},${~~tlY + 0.5 + 25}`,
+								fill: 'none',
+								stroke: 'var(--text)',
+								strokeWidth: '1',
+							}),
+						);
 
 						y += c3.width;
 					}
 
 					if (c2.subclasses.length) {
 						if (c2.idealSubclasses.length) {
-							svg.appendChild(svgElement(
-								'path',
-								{ 
-									d: `M${startTlX},${~~tlY + .5 + 25} l25,0`,
+							svg.appendChild(
+								svgElement('path', {
+									d: `M${startTlX},${~~tlY + 0.5 + 25} l25,0`,
 									fill: 'none',
 									stroke: c2.idealSubclasses.length ? 'var(--text)' : 'var(--red)',
 									strokeWidth: '1',
-								},
-							));
+								}),
+							);
 						}
 
 						const unidealSubs = c2.subclasses.length - c2.idealSubclasses.length;
@@ -1096,40 +1158,43 @@ window.initRtti = () => {
 								// split between the main branch line, top side and bottom side
 								const numTopSpaces = Math.ceil(unidealSubs / 2) + 1;
 								for (let i = 0; i < numTopSpaces - 1; ++i) {
-									const y = ~~(tlY + ((i + 1) * (25 / numTopSpaces))) + .5;
+									const y = ~~(tlY + (i + 1) * (25 / numTopSpaces)) + 0.5;
 									path.push(`M${startTlX},${y} l15,0`);
 								}
 
 								const numBottomSpaces = Math.floor(unidealSubs / 2) + 1;
 								for (let i = 0; i < numBottomSpaces - 1; ++i) {
-									const y = ~~(tlY + ((i + 1) * (25 / numBottomSpaces))) + .5 + 25;
+									const y = ~~(tlY + (i + 1) * (25 / numBottomSpaces)) + 0.5 + 25;
 									path.push(`M${startTlX},${y} l15,0`);
 								}
 							} else {
 								// no split
 								const numSpaces = unidealSubs + 1;
 								for (let i = 0; i < numSpaces - 1; ++i) {
-									const y = ~~(tlY + ((i + 1) * (50 / numSpaces))) + .5;
+									const y = ~~(tlY + (i + 1) * (50 / numSpaces)) + 0.5;
 									path.push(`M${startTlX},${y} l15,0`);
 								}
 							}
 
-							svg.appendChild(svgElement(
-								'path',
-								{ d: path.join(' '), fill: 'none', stroke: 'var(--red)', strokeWidth: '1' },
-							));
+							svg.appendChild(
+								svgElement('path', {
+									d: path.join(' '),
+									fill: 'none',
+									stroke: 'var(--red)',
+									strokeWidth: '1',
+								}),
+							);
 						}
 
 						if (branchMinY !== branchMaxY) {
-							svg.appendChild(svgElement(
-								'path',
-								{
-									d: `M${~~startTlX + .5 + 25},${~~branchMinY + .5} L${~~startTlX + .5 + 25},${~~branchMaxY + .5}`,
+							svg.appendChild(
+								svgElement('path', {
+									d: `M${~~startTlX + 0.5 + 25},${~~branchMinY + 0.5} L${~~startTlX + 0.5 + 25},${~~branchMaxY + 0.5}`,
 									fill: 'none',
 									stroke: 'var(--text)',
 									strokeWidth: '1',
-								},
-							));
+								}),
+							);
 						}
 					}
 
