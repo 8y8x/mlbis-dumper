@@ -80,11 +80,11 @@
 			canvas { display: block; image-rendering: pixelated; }
 
 			section { border-bottom: 1px solid var(--line); position: relative; width: 100vw; }
-			section .reveal { line-height: 31px; user-select: none; padding: 0 5px; }
+			section .reveal { line-height: 31px; user-select: none; -webkit-user-select: none; padding: 0 5px; }
 			section .reveal:hover { color: var(--fg-strong); }
 			section .content { width: calc(100% - 32px); padding: 20px; padding-left: 52px; }
 
-			label { padding: 0 5px; user-select: none; }
+			label { padding: 0 5px; user-select: none; -webkit-user-select: none; }
 
 			code { font-family: 'Red Hat Mono'; }
 
@@ -95,14 +95,14 @@
 			}
 			button:hover { color: #9cf; }
 
-			.dropdown * { user-select: none; }
+			.dropdown * { user-select: none; -webkit-user-select: none; }
 			.dropdown .left:hover, .dropdown .selection:hover, .dropdown .right:hover {
 				color: var(--dropdown-fg-hover);
 			}
 			.dropdown:has(.selection:hover) .vee { color: var(--dropdown-fg-hover); }
 			.dropdown .option:hover { color: var(--dropdown-opt-fg-hover); }
 
-			.checkbox { border: 1px solid var(--checkbox-not-fg); user-select: none; }
+			.checkbox { border: 1px solid var(--checkbox-not-fg); user-select: none; -webkit-user-select: none; }
 			.checkbox * { color: var(--checkbox-not-fg); }
 			.checkbox .check { opacity: 0; }
 			.checkbox:hover * { color: var(--checkbox-not-fg-hover); }
