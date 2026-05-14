@@ -255,8 +255,6 @@
 		return arr.join('');
 	});
 
-	const textEncoder = new TextEncoder();
-
 	const shiftJisDecoder = new TextDecoder('shift_jis');
 	const shiftJis = (window.shiftJis = (dat, o) => {
 		let end = o;
