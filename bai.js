@@ -47,9 +47,6 @@ window.initBai = () => {
 			return entry[2].segments.map((x, i) => `${i}. (len 0x${x.byteLength.toString(16)})`);
 		});
 
-		const scriptRenderer = dropdown(['Renderer: simple', 'Renderer: pretty'], 1, () => updateScript());
-		section.appendChild(scriptRenderer);
-
 		let updateScript;
 		let scriptSelect = dropdown([''], 0, () => updateScript());
 		section.appendChild(scriptSelect);
@@ -65,6 +62,13 @@ window.initBai = () => {
 		section.appendChild(preview);
 
 		bai.parse = script => {
+			const labels = {
+				default: script.getUint16(0, true) + 2,
+				
+			};
+		};
+
+		/* bai.parse = script => {
 			const headerU16 = bufToU16(script);
 			const scriptU8 = bufToU8(script);
 
@@ -122,7 +126,7 @@ window.initBai = () => {
 				parsed.push({ opcode: -1, args: [], offsetLeft: o, offsetRight: script.byteLength });
 
 			return parsed;
-		};
+		}; */
 
 		bai.scan = () => {
 			// #1 : discover the monsters using any particular script
@@ -1000,7 +1004,9 @@ window.initBai = () => {
 				const script = segments[scriptSelect.value];
 				preview.innerHTML = '';
 
-				if (scriptRenderer.value === 0) {
+
+
+				/* if (scriptRenderer.value === 0) {
 					// Renderer: basic
 					const eventOffsets = new Map();
 					eventOffsets.set(14, 'default_init'); // might be overwritten by a *real* handler
@@ -1126,9 +1132,9 @@ window.initBai = () => {
 						tree.splice(i, 0, {
 							separators: [`${keyword('def')} ${fn(label)}() {`, `}`],
 							content: [children],
-							offsetLeft: undefined /* children[0].offsetLeft */,
+							offsetLeft: undefined /* children[0].offsetLeft * /,
 							offsetsMiddle: [],
-							offsetRight: undefined /* children[children.length - 1].offsetRight */,
+							offsetRight: undefined /* children[children.length - 1].offsetRight * /,
 						});
 
 						const explore = branch => {
@@ -1192,7 +1198,7 @@ window.initBai = () => {
 													content: [childrenIf, childrenElse],
 													offsetLeft: outer.offsetLeft,
 													offsetsMiddle: [right.offsetLeft],
-													offsetRight: undefined /* elseRight.offsetRight */,
+													offsetRight: undefined /* elseRight.offsetRight * /,
 												});
 												branch.splice(j + 1, 1); // delete the "else" command
 
@@ -1233,7 +1239,7 @@ window.initBai = () => {
 										content: [children],
 										offsetLeft: outer.offsetLeft,
 										offsetsMiddle: [],
-										offsetRight: undefined /*right.offsetRight*/,
+										offsetRight: undefined /*right.offsetRight* /,
 									};
 									explore(children);
 								}
@@ -1288,6 +1294,7 @@ window.initBai = () => {
 						`<div style="color: var(--overlay2);"><code>${explore(tree, 0).join('<br>')}</code></div>`,
 					);
 				}
+				*/
 			};
 			updateScript();
 		};
