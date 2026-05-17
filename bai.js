@@ -1,6 +1,8 @@
 'use strict';
 
 window.initBai = () => {
+	const shiftJisDecoder = new TextDecoder('shift_jis');
+
 	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Battle Scripts                                                                                       |
 	// +---------------------------------------------------------------------------------------------------------------+
@@ -8,7 +10,7 @@ window.initBai = () => {
 	const bai = (window.bai = createSection('Battle Scripts', section => {
 		const bai = {};
 
-		// preprocess commands
+		// preprocess dialect
 		bai.dialect = [];
 		for (const block of fsext.baiCommands) {
 			const argc = block.getUint8(0);
@@ -20,6 +22,10 @@ window.initBai = () => {
 
 			bai.dialect.push({ returns: !!(argc & 0x80), args });
 		}
+
+		const topbar = document.createElement('div');
+		topbar.style.cssText = 'position: sticky; top: 0; z-index: 5; background: var(--bg);';
+		section.appendChild(topbar);
 
 		const options = [
 			['/BAI/BAI_atk_hk.dat', 0xd000, fsext.bai_atk_hk],
@@ -40,7 +46,7 @@ window.initBai = () => {
 			0,
 			() => update(),
 		);
-		section.appendChild(fileSelect);
+		topbar.appendChild(fileSelect);
 
 		const scriptSelectNames = options.map(entry => {
 			if (!entry[2].segments?.length) return ['(?)'];
@@ -49,84 +55,497 @@ window.initBai = () => {
 
 		let updateScript;
 		let scriptSelect = dropdown([''], 0, () => updateScript());
-		section.appendChild(scriptSelect);
+		topbar.appendChild(scriptSelect);
 
 		const refScanButton = button('Scan for References', () => {
 			bai.scan();
 			refScanButton.remove();
 			update();
 		});
-		section.appendChild(refScanButton);
+		topbar.appendChild(refScanButton);
 
-		const preview = document.createElement('div');
-		section.appendChild(preview);
+		const metaPreview = document.createElement('div');
+		section.appendChild(metaPreview);
 
-		bai.parse = script => {
-			const labels = {
-				default: script.getUint16(0, true) + 2,
-				
+		const codePreview = document.createElement('div');
+		codePreview.style.fontFamily = 'Red Hat Mono';
+		section.appendChild(codePreview);
+
+		bai.isValidRegister = id => {
+			const scope = id >> 12;
+			const idx = id & 0xfff;
+			if (scope === 0) return idx < 0x40;
+			if (scope === 1) return idx < 8;
+			if (scope === 4) return idx <= 0x53;
+			if (scope === 5) return idx < 16;
+			if (scope === 6) return idx < 152;
+			if (scope === 9) return idx < 32;
+			if (scope === 0xa) return idx < 16;
+			if (scope === 0xb) return idx < 512; // stack is 16 * 32 bits
+			if (scope === 0xc) return idx < 5;
+			if (scope === 0xd) return idx < 1088;
+			if (scope === 0xe) return true; // all 4096 elements are valid
+			return false;
+		};
+
+		bai.decompiler = {};
+
+		// Decompiles a single array or returns undefined if invalid.
+		bai.decompiler.singleArray = (dat, left, right, allowPadding) => {
+			let o = left;
+			if (allowPadding) {
+				// arrays start on 4-byte boundaries, using FF bytes for padding
+				while (o & 3) {
+					if (o + 1 > right) return;
+					if (dat.getUint8(o) !== 0xff) return;
+					++o;
+				}
+			}
+
+			if (o + 2 > right) return;
+			const length = dat.getUint8(o);
+			const headerByte = dat.getUint8(o + 1);
+			if ((headerByte & 0xf0) !== 0x80) return; // highest bit must be 1, don't know why
+
+			const elementType = headerByte & 0xf;
+			const elementSize = [1, 2, 4, 1, 2, 4, 2, 4][elementType];
+			const elements = [];
+
+			let o2 = o + 2;
+			for (let i = 0; i < length; ++i) {
+				if (o2 + elementSize > right) return;
+
+				if (elementType === 0) elements.push(dat.getUint8(o2));
+				else if (elementType === 1) elements.push(dat.getUint16(o2, true));
+				else if (elementType === 2) elements.push(dat.getUint32(o2, true));
+				else if (elementType === 3) elements.push(dat.getInt8(o2));
+				else if (elementType === 4) elements.push(dat.getInt16(o2, true));
+				else if (elementType === 5) elements.push(dat.getInt32(o2, true));
+				else if (elementType === 6) elements.push(dat.getInt16(o2, true) / 256);
+				else if (elementType === 7) elements.push(dat.getInt32(o2, true) / 4096);
+
+				o2 += elementSize;
+			}
+
+			if (o2 > right) return;
+
+			return {
+				type: 'array',
+				left: o,
+				right: o2,
+				prev: undefined,
+				next: undefined,
+				length,
+				elementType,
+				elements,
 			};
 		};
 
-		/* bai.parse = script => {
-			const headerU16 = bufToU16(script);
-			const scriptU8 = bufToU8(script);
+		// Decompiles a single BA_ or CM_ command, or returns undefined if invalid.
+		bai.decompiler.singleCommand = (dat, left, right) => {
+			if (right - left < 6) return;
 
-			const parsed = [];
-			let o = 14;
-			for (; o + 5 < script.byteLength; ) {
-				if (script.getUint8(o + 1) >= 3) {
-					// array
-					const offsetLeft = o;
+			const opcode = dat.getUint16(left, true);
+			const registers = dat.getUint32(left + 2, true);
+			if (opcode >= bai.dialect.length) return;
 
-					while (scriptU8[o] === 0xff) ++o;
-					const composite = script.getUint16(o, true);
-					o += 2;
-					if (composite >>> 12 !== 8) break;
-					const type = (composite >> 8) & 0xf;
-					if (type >= 8) break;
-					const elements = composite & 0xff;
-					o += [1, 2, 4, 1, 2, 4, 2, 4][type] * elements;
+			const info = bai.dialect[opcode];
+			// register flags must not be set for out-of-bounds arguments
+			if (registers >>> info.args.length) return;
 
-					while (scriptU8[o] === 0xff) ++o;
-
-					parsed.push({ opcode: -1, args: [], offsetLeft, offsetRight: o });
-					continue;
-				}
-
-				const opcode = script.getUint16(o, true);
-				const variables = script.getUint32(o + 2, true);
-				const command = bai.dialect[opcode];
-				if (!command) break;
-				const offsetLeft = o;
-
-				o += 6;
-
-				let returnTarget;
-				if (command.returns) ((returnTarget = script.getUint16(o, true)), (o += 2));
-
-				const args = [];
-				for (let i = 0; i < command.args.length; ++i) {
-					const type = command.args[i];
-					if (variables & (1 << i)) (args.push({ type: 'var', x: script.getUint16(o, true) }), (o += 2));
-					else if (type === 0) args.push({ type: 'u8', x: script.getUint8(o++) });
-					else if (type === 1) (args.push({ type: 'u16', x: script.getUint16(o, true) }), (o += 2));
-					else if (type === 2) (args.push({ type: 'u32', x: script.getUint32(o, true) }), (o += 4));
-					else if (type === 3) args.push({ type: 's8', x: script.getInt8(o++) });
-					else if (type === 4) (args.push({ type: 's16', x: script.getInt16(o, true) }), (o += 2));
-					else if (type === 5) (args.push({ type: 's32', x: script.getInt32(o, true) }), (o += 4));
-					else if (type === 6) (args.push({ type: 'fp88', x: script.getInt16(o, true) / 256 }), (o += 2));
-					else if (type === 7) (args.push({ type: 'fp2012', x: script.getInt32(o, true) / 4096 }), (o += 4));
-				}
-
-				parsed.push({ opcode, returnTarget, args, offsetLeft, offsetRight: o });
+			let outputRegister;
+			let o = left + 6;
+			if (info.returns) {
+				outputRegister = dat.getUint16(o, true);
+				o += 2;
+				if (!bai.isValidRegister(outputRegister)) return;
 			}
 
-			if (o < script.byteLength)
-				parsed.push({ opcode: -1, args: [], offsetLeft: o, offsetRight: script.byteLength });
+			const args = [];
+			for (let i = 0; i < info.args.length; ++i) {
+				if (registers & (1 << i)) {
+					const register = dat.getUint16(o, true);
+					if (!bai.isValidRegister(register)) return;
+					args.push(register);
+					o += 2;
+				} else {
+					const type = info.args[i];
+					// unsigned int
+					if (type === 0) (args.push(dat.getUint8(o, true)), ++o);
+					else if (type === 1) (args.push(dat.getUint16(o, true)), (o += 2));
+					else if (type === 2) (args.push(dat.getUint32(o, true)), (o += 4));
+					// signed int
+					else if (type === 3) (args.push(dat.getInt8(o, true)), ++o);
+					else if (type === 4) (args.push(dat.getInt16(o, true)), (o += 2));
+					else if (type === 5) (args.push(dat.getInt32(o, true)), (o += 4));
+					// fixed point (note, the divisions here are not lossy)
+					else if (type === 6) (args.push(dat.getInt16(o, true) / 256), (o += 2));
+					else if (type === 7) (args.push(dat.getInt32(o, true) / 4096), (o += 4));
+				}
+			}
 
-			return parsed;
-		}; */
+			if (o > right) return;
+
+			return {
+				type: 'cmd',
+				left,
+				right: o,
+				prev: undefined,
+				next: undefined,
+				opcode,
+				registers,
+				outputRegister,
+				args,
+			};
+		};
+
+		// "Decompiles" a single null-terminated Shift-JIS string, or returns undefined if not likely valid.
+		bai.decompiler.singleString = (dat, left, right) => {
+			let o2 = left;
+			while (o2 < right) {
+				const byte = dat.getUint8(o2++);
+				if (byte === 0) break; // null-terminator
+				if (1 <= byte && byte <= 0x1f && byte !== 0xa) return; // unexpected control character (0a = \n)
+				if (0xfd <= byte) return; // unused byte in Shift-JIS (there are more, but this is good enough)
+			}
+
+			if (o2 - left <= 1) return; // no empty strings allowed
+
+			return {
+				type: 'string',
+				left,
+				right: o2,
+				prev: undefined,
+				next: undefined,
+				decoded: shiftJisDecoder.decode(sliceDataView(dat, left, o2 - 1)),
+			};
+		};
+
+		// Converts a script's binary into a linked-list of commands (type "cmd") or unknowns (type "unknown").
+		// This is the representation that other decompiler steps work with.
+		bai.decompiler.first = dat => {
+			// the first u16 of a script doesn't seem to be used (it's always 6), but it matches the # of events
+
+			const eventLocation = eventIdx => {
+				const o = eventIdx * 2 + 2;
+				const jumpOffset = dat.getUint16(o, true); // unsigned offset, NOT signed
+				if (jumpOffset === 0) return 0; // nothing bound
+				return jumpOffset + o;
+			};
+			const events = {
+				default: dat.getUint16(0, true) ? 14 : 0,
+				otherMonsterTurn: eventLocation(0),
+				init: eventLocation(1),
+				monsterTurn: eventLocation(2),
+				playerTurn: eventLocation(3),
+				unknown5: eventLocation(4),
+				unknown6: eventLocation(5),
+			};
+
+			const locationStack = [];
+			if (events.default) locationStack.push(events.default);
+			for (let i = 0; i < 6; ++i) {
+				const location = eventLocation(i);
+				if (location) locationStack.push(location);
+			}
+
+			// the "tail" node is temporary, it just makes things easier
+			const head = { type: 'head', left: 0, right: 14, prev: undefined, next: undefined };
+			const middle = { type: 'unknown', left: 14, right: dat.byteLength, prev: undefined, next: undefined };
+			const tail = { type: 'tail', left: dat.byteLength, right: dat.byteLength, prev: undefined, next: undefined };
+			head.next = middle;
+			middle.prev = head;
+			middle.next = tail;
+			tail.prev = middle;
+
+			let searches = 0;
+			while (locationStack.length) {
+				if (++searches >= 1000) {
+					console.log(locationStack);
+					console.log(head);
+					throw 'nope';
+				}
+				let o = locationStack.pop();
+				const startOffset = o;
+
+				// find the node that contains this offset
+				let node = head;
+				while (node) {
+					if (node.left <= o && o < node.right) break;
+					node = node.next;
+				}
+				if (node.type !== 'unknown') continue; // already searched
+
+				// this "unknown" node currently looks like: (--------------------------------------)
+				// break it up into 3+ nodes:                (-----) (cmd1) (cmd2) ... (cmdN) (-----)
+				let prev = node.prev;
+				let next = node.next;
+				if (node.left < o) {
+					const newLeftUnknown = { type: 'unknown', left: node.left, right: o, prev, next, dead: true };
+					prev.next = newLeftUnknown;
+					next.prev = newLeftUnknown;
+					prev = newLeftUnknown;
+				}
+				if (o < node.right) {
+					const newRightUnknown = { type: 'unknown', left: o, right: node.right, prev, next, dead: true };
+					prev.next = newRightUnknown;
+					next.prev = newRightUnknown;
+					next = newRightUnknown;
+				}
+
+				while (o < dat.byteLength) {
+					const newNode = bai.decompiler.singleCommand(dat, o, node.right);
+					if (!newNode) throw new Error('INVALID COMMAND IDK WHAT TO DO');
+					newNode.prev = prev;
+					newNode.next = next;
+					prev.next = newNode;
+					next.prev = newNode;
+					prev = newNode;
+
+					o = newNode.right;
+
+					let terminates = false;
+					next.left = o;
+					if (next.left === next.right) {
+						// no more "unknown" data left, remove this empty node and terminate this path
+						prev.next = next.next;
+						if (next.next) next.next.prev = prev;
+						terminates = true;
+					}
+
+					// see if this command goes anywhere
+					const { opcode, args } = newNode;
+					if (opcode === 0) terminates = true; // terminate
+					else if (opcode === 1) terminates = true; // return from function
+					else if (opcode === 2) locationStack.push(o + args[4]); // conditional jump
+					else if (opcode === 3) {
+						// unconditional jump: mode 1 is a function call that *can* return
+						if (args[0] !== 1) terminates = true;
+						locationStack.push(o + args[1]);
+					} else if (opcode === 7) locationStack.push(o + args[3]); // stack-conditional jump
+					else if (opcode === 0x47) locationStack.push(o + args[2]); // actor threads
+					else if (opcode === 0x48) locationStack.push(o + args[2]); // ^
+					else if (opcode === 0x49) locationStack.push(o + args[2]); // ^
+					else if (opcode === 0x204) locationStack.push(o + args[5]); // alternative if's
+					else if (opcode === 0x205) locationStack.push(o + args[4]); // ^
+					else if (opcode === 0x206) locationStack.push(o + args[2]); // ^
+					else if (opcode === 0x207) locationStack.push(o + args[3]); // ^
+					else if (opcode === 0x208) locationStack.push(o + args[2]); // ^
+					else if (opcode === 0x209) locationStack.push(o + args[3]); // ^
+
+					if (terminates) break;
+				}
+			}
+
+			tail.prev.next = undefined; // the tail node is temporary, but not the head node
+			return { dat, events, head, tail: tail.prev };
+		};
+
+		// Discovers arrays and Shift-JIS strings from commands that use them. Breaks apart "unknown" types.
+		// Handles these node types: head, cmd, unknown
+		bai.decompiler.findStaticReferences = decomp => {
+			const stringReferences = new Set();
+			const arrayReferences = new Set();
+
+			// first pass: find references
+			let node = decomp.head;
+			while (node) {
+				if (node.type === 'cmd') {
+					if (node.opcode === 0x39 || node.opcode === 0x3a) {
+						arrayReferences.add(node.right + node.args[0]);
+					} else if (node.opcode === 0x3b || node.opcode === 0x3c) {
+						stringReferences.add(node.right + node.args[0]);
+					}
+				}
+
+				node = node.next;
+			}
+
+			// second pass: break apart "unknown"s that contain references
+			node = decomp.head;
+			while (node) {
+				if (node.type === 'unknown') {
+					for (let o = node.left; o < node.right; ++o) {
+						let newNode;
+						if (stringReferences.has(o)) newNode = bai.decompiler.singleString(decomp.dat, o, node.right);
+						else if (arrayReferences.has(o)) newNode = bai.decompiler.singleArray(decomp.dat, o, node.right, false);
+
+						if (newNode) {
+							// replace node with newNode
+							let prev = node.prev;
+							let next = node.next;
+							newNode.prev = prev;
+							newNode.next = next;
+							if (prev) prev.next = newNode;
+							if (next) next.prev = newNode;
+
+							// insert padding "unknown"s around newNode if necessary
+							if (node.left < newNode.left) {
+								const paddingLeft = {
+									type: 'unknown',
+									left: node.left,
+									right: newNode.left,
+									prev,
+									next: newNode,
+								};
+								if (prev) prev.next = paddingLeft;
+								newNode.prev = paddingLeft;
+							}
+
+							if (newNode.right < node.right) {
+								const paddingRight = {
+									type: 'unknown',
+									left: newNode.right,
+									right: node.right,
+									prev: newNode,
+									next,
+								};
+								if (next) next.prev = paddingRight;
+								newNode.next = paddingRight;
+							}
+
+							node = newNode;
+							o = node.right;
+						}
+					}
+				}
+
+				node = node.next;
+			}
+		};
+
+		// Finds commands, strings, or arrays inside of "unknown" blocks, without any help from references.
+		// Some structures generate dead code: for example, in the "if" part of an if-else block, there needs to be a
+		// jump out of it, so that the "else" block is skipped. However if the "if" part contains a return (CM_0001),
+		// the jump will become unreachable and dead.
+		// Not detecting dead code as actual code pretty much destroys all control-flow pattern recognition from working
+		// so this is necessary. Dead code will have its "dead" attribute set to true.
+		bai.decompiler.decompDeadCode = decomp => {
+			const { dat } = decomp;
+
+			let node = decomp.head;
+			while (node) {
+				if (node.type === 'unknown') {
+					const commandNode = bai.decompiler.singleCommand(dat, node.left, node.right);
+					const arrayNode = bai.decompiler.singleArray(dat, node.left, node.right, true);
+					const stringNode = bai.decompiler.singleString(dat, node.left, node.right);
+
+					// a stringNode is likely to appear (for example, CM_0040 would generate bytes 40 00, which is a
+					// valid 1-byte string); however those aren't really useful so if a command is valid, we will prefer
+					// that instead. commands > arrays > strings.
+					const newNode = commandNode || arrayNode || stringNode;
+					if (newNode) {
+						newNode.prev = node.prev;
+						newNode.prev.next = newNode;
+						newNode.next = node;
+						node.prev = newNode;
+						node.left = newNode.right; // !
+
+						if (node.left === node.right) {
+							// this "unknown" is now empty, remove it
+							node.prev.next = node.next;
+							if (node.next) node.next.prev = node.prev;
+							node.prev = node.next = undefined;
+						}
+
+						node = newNode;
+
+						// singleArray can skip over padding bytes; we want to preserve those in the decompilation
+						if (newNode.prev.right < newNode.left) {
+							const newUnknown = {
+								type: 'unknown',
+								left: newNode.prev.right,
+								right: newNode.left,
+								prev: newNode.prev,
+								next: newNode,
+							};
+							newNode.prev.next = newUnknown;
+							newNode.prev = newUnknown;
+						}
+					}
+				}
+
+				node = node.next;
+			}
+		};
+
+		// Creates functions using all CM_0003 (mode 1), BA_0047, BA_0048, and BA_0049 references.
+		// Handles these node types: head, cmd, unknown
+		bai.decompiler.guaranteedFunctions = decomp => {
+			const functionLabels = new Map();
+			const addFunctionLabel = (location, name) => {
+				if (!location) return; // for unbound events
+				if (!name) name = `fun_${str16(location)}`;
+
+				const others = functionLabels.get(location);
+				if (others) others.add(name);
+				else functionLabels.set(location, new Set([name]));
+			};
+
+			// 1. add event functions
+			addFunctionLabel(decomp.events.otherMonsterTurn, 'event_other_monster_turn');
+			addFunctionLabel(decomp.events.init, 'event_init');
+			addFunctionLabel(decomp.events.monsterTurn, 'event_monster_turn');
+			addFunctionLabel(decomp.events.playerTurn, 'event_player_turn');
+			addFunctionLabel(decomp.events.unknown5, 'event_unknown5');
+			addFunctionLabel(decomp.events.unknown6, 'event_unknown6');
+
+			// add the default event last, because in mon scripts it points to some other event instead
+			if (!functionLabels.has(decomp.events.default)) addFunctionLabel(decomp.events.default, 'event_default');
+
+			// 2. add functions from commands that are known to work with functions (and not just jump offsets)
+			let node = decomp.head;
+			while (node) {
+				if (node.type === 'cmd') {
+					if (node.opcode === 3 && node.args[0] === 1) {
+						// CM_0003 mode 1 is a function call (it pushes a return address to the stack)
+						addFunctionLabel(node.right + node.args[1], undefined);
+					} else if (node.opcode === 0x47 || node.opcode === 0x48 || node.opcode === 0x49) {
+						// BA_0047 - BA_0049 work with actor threads that start at a function
+						addFunctionLabel(node.right + node.args[2], undefined);
+					}
+				}
+
+				node = node.next;
+			}
+
+			// 3. with function labels known, put all commands into a function. note the function labels act more like
+			// separators between known functions.
+			node = decomp.head;
+			while (node) {
+				if (node.type === 'cmd') {
+					let names = functionLabels.get(node.left);
+					if (!names) names = new Set([`fun_${str16(node.left)}_implicit`]);
+
+					let innerHead = node;
+					let innerTail = node;
+					while (true) {
+						const next = innerTail.next;
+						if (next?.type !== 'cmd') break;
+						if (functionLabels.get(next.left)) break;
+						innerTail = next;
+					}
+
+					node = {
+						type: 'fn',
+						names,
+						left: innerHead.left,
+						right: innerTail.right,
+						prev: innerHead.prev,
+						next: innerTail.next,
+						innerHead,
+						innerTail,
+					};
+					if (node.prev) node.prev.next = node;
+					if (node.next) node.next.prev = node;
+					innerHead.prev = innerTail.next = undefined; // these inner nodes are no longer part of the outside
+				}
+
+				const next = node.next;
+				if (!next) decomp.tail = node;
+				node = next;
+			}
+		};
 
 		bai.scan = () => {
 			// #1 : discover the monsters using any particular script
@@ -652,7 +1071,7 @@ window.initBai = () => {
 				case 0x43:
 					return rp + builtin('get_item_amount') + `(${arg(0)})`;
 				case 0x44:
-					return rp + builtin('add_items') + `(${arg(0)})`;
+					return rp + builtin('add_items') + `(${arg(0)})`; // TODO: this takes 2 args, not 1!!!
 				case 0x45:
 					return rp + builtin('get_player_stat') + `(${arg(0)}, ${arg(1)})`;
 				case 0x46:
@@ -988,11 +1407,11 @@ window.initBai = () => {
 		};
 
 		const update = () => {
-			preview.innerHTML = '';
+			metaPreview.innerHTML = codePreview.innerHTML = '';
 
 			const segments = options[fileSelect.value]?.[2]?.segments;
 			if (!segments) {
-				preview.innerHTML = 'No segments/offsets for this file for this game version';
+				metaPreview.innerHTML = 'No segments/offsets for this file for this game version';
 				scriptSelect.style.display = 'none';
 				return;
 			}
@@ -1002,9 +1421,51 @@ window.initBai = () => {
 
 			updateScript = () => {
 				const script = segments[scriptSelect.value];
-				preview.innerHTML = '';
+				metaPreview.innerHTML = codePreview.innerHTML = '';
 
+				const decomp = bai.decompiler.first(script);
+				bai.decompiler.findStaticReferences(decomp);
+				bai.decompiler.decompDeadCode(decomp);
+				bai.decompiler.guaranteedFunctions(decomp);
 
+				let node = decomp.head;
+				let containerStack = [];
+				let indent = 0;
+				while (node) {
+					console.log(node.type);
+					const indentPrint = () => '&nbsp;'.repeat(indent * 4);
+
+					if (node.type === 'head') {
+						addHTML(codePreview, `<div>HEADER: ${bytes(node.left, node.right - node.left, script)}</div>`);
+					} else if (node.type === 'unknown') {
+						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} ${bytes(node.left, node.right - node.left, script)}</div>`);
+					} else if (node.type === 'cmd') {
+						const ns = node.opcode <= 0x46 ? 'CM' : 'BA';
+						const args = node.args.map((x,i) => (node.varflags & (1 << i)) ? `reg${str16(x)}` : x);
+						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} ${ns}_${str16(node.opcode)}(${args})</div>`);
+					} else if (node.type === 'string') {
+						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} "${node.decoded}"</div>`);
+					} else if (node.type === 'array') {
+						const typeName = ['u8', 'u16', 'u32', 's8', 's16', 's32', 'fx16', 'fx32'][node.elementType];
+						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} ${typeName} array_${str16(node.left)}[${node.length}] = { ${node.elements.join(', ')} }</div>`);
+					} else if (node.type === 'fn') {
+						const names = [...node.names];
+						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} def ${names[0]}() {</div>`);
+						++indent;
+						const fnNode = node;
+						node = node.innerHead;
+						containerStack.push(() => {
+							--indent;
+							addHTML(codePreview, `<div>----${indentPrint()} }</div>`);
+							return fnNode.next;
+						});
+					} else throw new Error(`unhandled node type ${node.type}`);
+
+					node = node.next;
+					if (!node) {
+						node = containerStack.pop()?.();
+					}
+				}
 
 				/* if (scriptRenderer.value === 0) {
 					// Renderer: basic
