@@ -82,6 +82,10 @@
 				transform: translate(-50%, -50%);
 			}
 
+			#title-noscript {
+				border: 1px solid var(--red); bottom: 20px; color: var(--red); left: 20px; padding: 10px; position: absolute; text-align: center; width: calc(100vw - 40px);
+			}
+
 			canvas { display: block; image-rendering: pixelated; }
 
 			section { border-bottom: 1px solid var(--line); position: relative; width: 100vw; }
@@ -155,6 +159,9 @@
 		</div>
 
 		<div id="title-bottom">
+			<noscript>
+				<div id="title-noscript">Please enable JavaScript to use mlbis-dumper, it runs offline in your browser (no uploads, tracking, analytics, etc.). If you'd like, you can easily run your own local copy of the source code without any setup.</div>
+			</noscript>
 		</div>
 
 		<template id="dropdown">
