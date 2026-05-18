@@ -635,42 +635,58 @@ window.initBai = () => {
 				else if (path.includes('_mon_')) type = 'mon';
 				else if (path.includes('_scn_')) type = 'scn';
 
-				for (let i = 0; i < segments.length; ++i) {
+				for (let i = 0; i < segments.length - 1; ++i) {
 					const script = scriptSpace + i;
-					for (const cmd of bai.parse(segments[i])) {
-						if (cmd.opcode === 0x66) {
-							// load attack script
-							if (cmd.args[0].type === 'var') continue;
+					console.log('decompiling', path, i);
+					const decomp = bai.decompiler.first(segments[i]);
+					bai.decompiler.findStaticReferences(decomp);
+					bai.decompiler.decompDeadCode(decomp);
 
-							const atkScript = cmd.args[0].x;
-							const ref = attackToInvokerReferences.get(atkScript);
-							if (ref) ref[type].add(script);
-							else
-								attackToInvokerReferences.set(atkScript, {
-									atk: new Set(),
-									mon: new Set(),
-									scn: new Set(),
-									[type]: new Set([script]),
-								});
-						} else if (cmd.opcode === 0x65) {
-							// create monster from description id
-							if (cmd.args[1].type === 'var') continue;
+					let node = decomp.head;
+					while (node) {
+						if (node.type === 'cmd') {
+							if (node.opcode === 0x66) {
+								// load attack script
+								if (node.registers & (1 << 0)) {
+									node = node.next;
+									continue;
+								}
 
-							const monsterId = cmd.args[1].x;
-							const ref = monsterToCreatorReferences.get(monsterId);
-							if (ref) ref[type].add(script);
-							else
-								monsterToCreatorReferences.set(monsterId, {
-									atk: new Set(),
-									mon: new Set(),
-									scn: new Set(),
-									[type]: new Set([script]),
-								});
+								const atkScript = node.args[0];
+								const ref = attackToInvokerReferences.get(atkScript);
+								if (ref) ref[type].add(script);
+								else
+									attackToInvokerReferences.set(atkScript, {
+										atk: new Set(),
+										mon: new Set(),
+										scn: new Set(),
+										[type]: new Set([script]),
+									});
+							} else if (node.opcode === 0x65) {
+								// create monster from description id
+								if (node.registers & (1 << 1)) {
+									node = node.next;
+									continue;
+								}
 
-							const ref2 = creatorToMonsterReferences.get(script);
-							if (ref2) ref2.add(monsterId);
-							else creatorToMonsterReferences.set(script, new Set([monsterId]));
+								const monsterId = node.args[1];
+								const ref = monsterToCreatorReferences.get(monsterId);
+								if (ref) ref[type].add(script);
+								else
+									monsterToCreatorReferences.set(monsterId, {
+										atk: new Set(),
+										mon: new Set(),
+										scn: new Set(),
+										[type]: new Set([script]),
+									});
+
+								const ref2 = creatorToMonsterReferences.get(script);
+								if (ref2) ref2.add(monsterId);
+								else creatorToMonsterReferences.set(script, new Set([monsterId]));
+							}
 						}
+
+						node = node.next;
 					}
 				}
 			}
