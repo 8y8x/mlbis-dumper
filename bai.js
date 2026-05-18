@@ -57,6 +57,10 @@ window.initBai = () => {
 		let scriptSelect = dropdown([''], 0, () => updateScript());
 		topbar.appendChild(scriptSelect);
 
+		let updateDisplay;
+		const useCustomNames = checkbox('Custom Names', true, () => updateDisplay());
+		topbar.appendChild(useCustomNames);
+
 		const refScanButton = button('Scan for References', () => {
 			bai.scan();
 			refScanButton.remove();
@@ -68,14 +72,28 @@ window.initBai = () => {
 		section.appendChild(metaPreview);
 
 		const codePreview = document.createElement('div');
-		codePreview.style.fontFamily = 'Red Hat Mono';
+		codePreview.style.cssText = 'color: var(--overlay1); font-family: "Red Hat Mono"';
 		section.appendChild(codePreview);
+
+		bai.compare = (operator, left, right, opDecorate) => {
+			if (operator === 0) return `${left} ${opDecorate('==')} ${right}`;
+			if (operator === 1) return `${left} ${opDecorate('!=')} ${right}`;
+			if (operator === 2) return `${left} ${opDecorate('<')} ${right}`;
+			if (operator === 3) return `${left} ${opDecorate('>')} ${right}`;
+			if (operator === 4) return `${left} ${opDecorate('<=')} ${right}`;
+			if (operator === 5) return `${left} ${opDecorate('>=')} ${right}`;
+			if (operator === 6) return `${left} ${opDecorate('&')} ${right}`;
+			if (operator === 7) return `${left} ${opDecorate('|')} ${right}`;
+			if (operator === 8) return `${left} ${opDecorate('^')} ${right}`;
+			if (operator === 9) return `${opDecorate('!')}${left}`;
+			if (operator === 10) return `${opDecorate('~')}${left}`;
+		};
 
 		bai.isValidRegister = id => {
 			const scope = id >> 12;
 			const idx = id & 0xfff;
-			if (scope === 0) return idx < 0x40;
 			if (scope === 1) return idx < 8;
+			if (scope === 2) return idx < 0x40;
 			if (scope === 4) return idx <= 0x53;
 			if (scope === 5) return idx < 16;
 			if (scope === 6) return idx < 152;
@@ -86,6 +104,47 @@ window.initBai = () => {
 			if (scope === 0xd) return idx < 1088;
 			if (scope === 0xe) return true; // all 4096 elements are valid
 			return false;
+		};
+
+		bai.registerName = id => {
+			if (id === 0x4000) return 'brg_self';
+			if (id === 0x4002) return 'brg_target';
+			if (id === 0x4003) return 'brg_turntaker';
+			return `reg_${str16(id)}`;
+		};
+
+		bai.typeNames = ['u8', 'u16', 'u32', 's8', 's16', 's32', 'fx16', 'fx32'];
+		bai.typeSizes = [1, 2, 4, 1, 2, 4, 2, 4];
+
+		const mapify = arr => new Map(arr.map((x,i) => [i,x]));
+		bai.enumTypes = {
+			operator: mapify(['EQ', 'NE', 'LT', 'GT', 'LE', 'GE', 'AND', 'OR', 'XOR', 'EQ_ZERO', 'NOT']),
+		};
+		bai.cmdDetails = new Map([
+			[0x4, { name: 'wait', args: ['ticks'] }],
+		]);
+
+		// for debugging only: very slow!
+		const VALIDATE_LINKED_LIST = (head, label) => {
+			const seen = new Set();
+			let node = head;
+			while (node) {
+				if (seen.has(node)) {
+					console.error(node);
+					throw new Error(`DUPLICATE NODE`);
+				}
+				seen.add(node);
+
+				if (Number.isNaN(node.left)) throw new Error(`NAN LEFT - ${label}`);
+				if (Number.isNaN(node.right)) throw new Error(`NAN RIGHT - ${label}`);
+				if (node.next && node.next.prev !== node) throw new Error(`BAD NEXT.PREV - ${label}`);
+				if (node.prev && node.prev.next !== node) throw new Error(`BAD PREV.NEXT - ${label}`);
+				if (node.next && node.next.left !== node.right) throw new Error(`BAD .RIGHT <=> NEXT.LEFT - ${label}`);
+				if (node.prev && node.prev.right !== node.left) throw new Error(`BAD .LEFT <=> PREV.RIGHT - ${label}`);
+				node = node.next;
+			}
+
+			console.log('VALIDATE_LINKED_LIST OK');
 		};
 
 		bai.decompiler = {};
@@ -108,13 +167,15 @@ window.initBai = () => {
 			if ((headerByte & 0xf0) !== 0x80) return; // highest bit must be 1, don't know why
 
 			const elementType = headerByte & 0xf;
-			const elementSize = [1, 2, 4, 1, 2, 4, 2, 4][elementType];
+			if (elementType >= 8) return;
+
+			const elementSize = bai.typeSizes[elementType];
+			if (o + 2 + elementSize * length > right) return;
+
 			const elements = [];
 
 			let o2 = o + 2;
 			for (let i = 0; i < length; ++i) {
-				if (o2 + elementSize > right) return;
-
 				if (elementType === 0) elements.push(dat.getUint8(o2));
 				else if (elementType === 1) elements.push(dat.getUint16(o2, true));
 				else if (elementType === 2) elements.push(dat.getUint32(o2, true));
@@ -127,14 +188,13 @@ window.initBai = () => {
 				o2 += elementSize;
 			}
 
-			if (o2 > right) return;
-
 			return {
 				type: 'array',
 				left: o,
 				right: o2,
 				prev: undefined,
 				next: undefined,
+				name: `array_${str16(o)}`,
 				length,
 				elementType,
 				elements,
@@ -233,9 +293,9 @@ window.initBai = () => {
 				return jumpOffset + o;
 			};
 			const events = {
-				default: dat.getUint16(0, true) ? 14 : 0,
+				default: dat.getUint16(0, true) * 2 + 2, // clBtlAIBase virtual fun_0x28
 				otherMonsterTurn: eventLocation(0),
-				init: eventLocation(1),
+				monsterInit: eventLocation(1),
 				monsterTurn: eventLocation(2),
 				playerTurn: eventLocation(3),
 				unknown5: eventLocation(4),
@@ -295,7 +355,13 @@ window.initBai = () => {
 
 				while (o < dat.byteLength) {
 					const newNode = bai.decompiler.singleCommand(dat, o, node.right);
-					if (!newNode) throw new Error('INVALID COMMAND IDK WHAT TO DO');
+					if (!newNode) {
+						console.error('BEFORE:', bytes(o - 32, 32, dat));
+						console.error('AFTER:', bytes(o, 32, dat));
+						console.error('CONTEXT:', o, node.left, node.right);
+						throw new Error('INVALID COMMAND IDK WHAT TO DO');
+					}
+
 					newNode.prev = prev;
 					newNode.next = next;
 					prev.next = newNode;
@@ -484,7 +550,7 @@ window.initBai = () => {
 
 			// 1. add event functions
 			addFunctionLabel(decomp.events.otherMonsterTurn, 'event_other_monster_turn');
-			addFunctionLabel(decomp.events.init, 'event_init');
+			addFunctionLabel(decomp.events.monsterInit, 'event_monster_init');
 			addFunctionLabel(decomp.events.monsterTurn, 'event_monster_turn');
 			addFunctionLabel(decomp.events.playerTurn, 'event_player_turn');
 			addFunctionLabel(decomp.events.unknown5, 'event_unknown5');
@@ -1406,6 +1472,179 @@ window.initBai = () => {
 			else return rp + fn('BA_' + str16(opcode)) + `(${argsConcat()})`;
 		};
 
+		bai.decompiler.stringify = (decomp, isHtml) => {
+			const output = [];
+
+			const builtin = isHtml ? (x => `<span style="color: var(--peach);">${x}</span>`) : x => x;
+			const fn = isHtml ? (x => `<span style="color: var(--blue);">${x}</span>`) : x => x;
+			const keyword = isHtml ? (x => `<span style="color: var(--mauve);">${x}</span>`) : x => x;
+			const constant = isHtml ? (x => `<span style="color: var(--peach);">${x}</span>`) : x => x;
+			const storage = isHtml ? (x => `<span style="color: var(--yellow);">${x}</span>`) : x => x;
+			const operator = isHtml ? (x => `<span style="color: var(--teal);">${x}</span>`) : x => x;
+			const text = isHtml ? (x => `<span style="color: var(--text);">${x}</span>`) : x => x;
+			const location = isHtml ? (x => `<span style="color: var(--sapphire);">${x}</span>`) : x => x;
+			const string = isHtml ? (x => `<span style="color: var(--green);">${x}</span>`) : x => x;
+			const comment = isHtml ? (x => '<span style="color:var(--overlay2)">' + x + '</span>') : x => x;
+			const pad = isHtml ? '&nbsp;' : ' ';
+
+			const labelNames = new Map();
+			let node = decomp.head;
+			while (node) {
+				if (node.type === 'fn') {
+					labelNames.set(node.left, fn([...node.names][0]));
+				} else if (node.type === 'array') {
+					labelNames.set(node.left, storage(node.name));
+				} else if (node.type === 'string') {
+					labelNames.set(node.left, string('"' + node.decoded + '"'));
+				}
+
+				node = node.next;
+			}
+
+			node = decomp.head;
+			const containerStack = [];
+			let indent = 0;
+			while (node) {
+				const prefix = str16(node.left) + pad.repeat(indent * 4 + 1);
+				const getFakePrefix = () => '----' + pad.repeat(indent * 4 + 1);
+
+				if (node.type === 'head') {
+					const formatLocation = location => location ? str16(location) : 'n/a';
+					output.push([
+						`0000 // event_default @ ${formatLocation(decomp.events.default)}`,
+						`0002 // event_other_monster_turn @ ${formatLocation(decomp.events.otherMonsterTurn)}`,
+						`0004 // event_monster_init @ ${formatLocation(decomp.events.monsterInit)}`,
+						`0006 // event_monster_turn @ ${formatLocation(decomp.events.monsterTurn)}`,
+						`0008 // event_player_turn @ ${formatLocation(decomp.events.playerTurn)}`,
+						`000a // event_unknown5 @ ${formatLocation(decomp.events.unknown5)}`,
+						`000c // event_unknown6 @ ${formatLocation(decomp.events.unknown6)}`,
+					].join('<br>'));
+				} else if (node.type === 'unknown') {
+					output.push(prefix + bytes(node.left, node.right - node.left, decomp.dat));
+				} else if (node.type === 'cmd') {
+					const op = node.opcode;
+					const info = bai.dialect[op];
+					const details = bai.cmdDetails.get(op);
+
+					const argF = (i, enumType) => {
+						const x = node.args[i];
+						if (node.registers & (1 << i)) {
+							return text(useCustomNames.checked ? bai.registerName(x) : `reg_${str16(x)}`);
+						}
+
+						if (enumType === 'location') {
+							const to = node.right + x;
+							return labelNames.get(to) ?? location(str16(to));
+						}
+
+						const type = info.args[i];
+						if (type <= 5) {
+							// u8, u16, u32, s8, s16, s32
+							if (x <= -128) return constant('-0x' + (-x).toString(16));
+							if (x <= 127) return constant(String(x));
+							return constant('0x' + x.toString(16));
+						}
+						return constant(String(x)); // fx16, fx32 (leave as-is)
+					};
+
+					const outF = () => {
+						if (info.returns) {
+							let regName;
+							if (useCustomNames.checked) regName = bai.registerName(node.outputRegister);
+							else regName = `reg_${str16(node.outputRegister)}`;
+							return `${text(regName)} ${operator('=')} `;
+						}
+						return '';
+					};
+
+					const distF = dist => (dist >= 0 ? '+' : '') + String(dist);
+
+					let str;
+					// custom syntax
+					if (useCustomNames.checked) {
+						if (op === 1) str = keyword('return');
+						if (op === 2) {
+							let comp = '(' + bai.compare(node.args[0], argF(1), argF(2), operator) + ')';
+							if (!node.args[3]) comp = operator('!') + comp;
+							str = `${keyword('if')} ${comp} ${keyword('goto')} ${argF(4, 'location')} ` +
+								`// (${distF(node.args[4])})`;
+						}
+						if (op === 3) {
+							if (node.args[0] === 1) str = `${argF(1, 'location')}()`;
+							else str = `${keyword('goto')} ${argF(1, 'location')} ` +
+								`// (${distF(node.args[1])} mode ${node.args[0]})`;
+						}
+						if (op === 8) str = outF() + argF(0);
+						if (op === 9) str = outF() + argF(0) + operator(' + ') + argF(1);
+						if (op === 0xa) str = outF() + argF(0) + operator(' - ') + argF(1);
+						if (op === 0xb) str = outF() + argF(0) + operator(' * ') + argF(1);
+						if (op === 0xc) str = outF() + argF(0) + operator(' / ') + argF(1);
+						if (op === 0xd) str = outF() + argF(0) + operator(' % ') + argF(1);
+						if (op === 0xe) str = outF() + argF(0) + operator(' << ') + argF(1);
+						if (op === 0xf) str = outF() + argF(0) + operator(' >> ') + argF(1);
+						if (op === 0x10) str = outF() + argF(0) + operator(' & ') + argF(1);
+						if (op === 0x11) str = outF() + argF(0) + operator(' | ') + argF(1);
+						if (op === 0x12) str = outF() + argF(0) + operator(' ^ ') + argF(1);
+						if (op === 0x13) str = outF() + operator('-') + argF(0);
+						if (op === 0x15) str = outF() + operator('~') + argF(0);
+						if (0x16 <= op && op <= 0x21) {
+							const target = text(bai.registerName(node.outputRegister));
+							if (op === 0x16) str = target + operator('++');
+							if (op === 0x17) str = target + operator('--');
+							if (op === 0x18) str = target + operator(' += ') + argF(0);
+							if (op === 0x19) str = target + operator(' -= ') + argF(0);
+							if (op === 0x1a) str = target + operator(' *= ') + argF(0);
+							if (op === 0x1b) str = target + operator(' /= ') + argF(0);
+							if (op === 0x1c) str = target + operator(' %= ') + argF(0);
+							if (op === 0x1d) str = target + operator(' <<= ') + argF(0);
+							if (op === 0x1e) str = target + operator(' >>= ') + argF(0);
+							if (op === 0x1f) str = target + operator(' &= ') + argF(0);
+							if (op === 0x20) str = target + operator(' |= ') + argF(0);
+							if (op === 0x21) str = target + operator(' ^= ') + argF(0);
+						}
+						if (op === 0x39) str = outF() + `${argF(0, 'location')}[${argF(1)}]`;
+					}
+
+					// standard syntax
+					const common = op < 0x46;
+					if (!str) {
+						const argsF = [];
+						for (let i = 0; i < info.args.length; ++i) argsF.push(argF(i));
+
+						let name = useCustomNames.checked && details?.name;
+						name ||= `${common ? 'CM' : 'BA'}_${str16(op).toUpperCase()}`;
+						str = outF() + `${(common ? builtin : fn)(name)}(${argsF.join(', ')})`;
+					}
+					output.push(prefix + str);
+				} else if (node.type === 'string') {
+					output.push(prefix + string('"' + node.decoded + '"'));
+				} else if (node.type === 'array') {
+					const typeName = bai.typeNames[node.elementType];
+					const els = node.elements.join(', '); // TODO: pretty-print
+					output.push(prefix + `${typeName} ${node.name}[${node.length}] = { ${els} }`);
+				} else if (node.type === 'fn') {
+					const names = [...node.names];
+					output.push(prefix + `${keyword('def')} ${fn(names[0])}() {`);
+					++indent;
+					const fnNode = node;
+					node = node.innerHead;
+					containerStack.push(() => {
+						--indent;
+						output.push(getFakePrefix() + `}`);
+						return fnNode.next;
+					});
+					continue; // do not go to node.next yet
+				}
+
+				node = node.next;
+				if (!node) {
+					node = containerStack.pop()?.();
+				}
+			}
+
+			return output.join('<br>');
+		};
+
 		const update = () => {
 			metaPreview.innerHTML = codePreview.innerHTML = '';
 
@@ -1428,44 +1667,13 @@ window.initBai = () => {
 				bai.decompiler.decompDeadCode(decomp);
 				bai.decompiler.guaranteedFunctions(decomp);
 
-				let node = decomp.head;
-				let containerStack = [];
-				let indent = 0;
-				while (node) {
-					console.log(node.type);
-					const indentPrint = () => '&nbsp;'.repeat(indent * 4);
+				bai.decomp = decomp;
 
-					if (node.type === 'head') {
-						addHTML(codePreview, `<div>HEADER: ${bytes(node.left, node.right - node.left, script)}</div>`);
-					} else if (node.type === 'unknown') {
-						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} ${bytes(node.left, node.right - node.left, script)}</div>`);
-					} else if (node.type === 'cmd') {
-						const ns = node.opcode <= 0x46 ? 'CM' : 'BA';
-						const args = node.args.map((x,i) => (node.varflags & (1 << i)) ? `reg${str16(x)}` : x);
-						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} ${ns}_${str16(node.opcode)}(${args})</div>`);
-					} else if (node.type === 'string') {
-						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} "${node.decoded}"</div>`);
-					} else if (node.type === 'array') {
-						const typeName = ['u8', 'u16', 'u32', 's8', 's16', 's32', 'fx16', 'fx32'][node.elementType];
-						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} ${typeName} array_${str16(node.left)}[${node.length}] = { ${node.elements.join(', ')} }</div>`);
-					} else if (node.type === 'fn') {
-						const names = [...node.names];
-						addHTML(codePreview, `<div>${str16(node.left)}${indentPrint()} def ${names[0]}() {</div>`);
-						++indent;
-						const fnNode = node;
-						node = node.innerHead;
-						containerStack.push(() => {
-							--indent;
-							addHTML(codePreview, `<div>----${indentPrint()} }</div>`);
-							return fnNode.next;
-						});
-					} else throw new Error(`unhandled node type ${node.type}`);
-
-					node = node.next;
-					if (!node) {
-						node = containerStack.pop()?.();
-					}
-				}
+				updateDisplay = () => {
+					codePreview.innerHTML = bai.decompiler.stringify(decomp, true);
+				};
+				updateDisplay();
+				return;
 
 				/* if (scriptRenderer.value === 0) {
 					// Renderer: basic
