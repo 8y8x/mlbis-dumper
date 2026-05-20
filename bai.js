@@ -121,10 +121,60 @@ window.initBai = () => {
 			operator: mapify(['EQ', 'NE', 'LT', 'GT', 'LE', 'GE', 'AND', 'OR', 'XOR', 'EQ_ZERO', 'NOT']),
 		};
 		bai.cmdDetails = new Map([
+			// 0x1 : return syntactic sugar
+			// 0x2 : if/elif/else goto/tailcall
+			// 0x3 : break/continue/tailcall/call/goto
 			[0x4, { name: 'wait' }],
+			[0x5, { name: 'stack_push' }],
+			[0x6, { name: 'stack_pop' }],
+			[0x7, { name: 'stack_compare', args: ['u16', 'u16', 's16', 'location'] }],
+			// 0x8 : literal value
+			// 0x9 - 0x12 : binary operator syntactic sugar
+			// 0x13 : unary negation
+			[0x14, { name: 'bool' }],
+			// 0x15 : bitwise NOT
+			// 0x16 - 0x21 : operator assignment syntactic sugar
+			[0x22, { name: 'sqrt' }],
+			[0x23, { name: 'invsqrt' }],
+			[0x24, { name: 'reciprocal' }],
+			[0x25, { name: 'sin' }],
+			[0x26, { name: 'cos' }],
+			[0x27, { name: 'atan' }],
+			[0x28, { name: 'atan2' }],
+			[0x29, { name: 'random' }],
+			[0x2a, { name: 'fx32' }],
+			[0x2b, { name: 'fx32_add' }],
+			[0x2c, { name: 'fx32_subtract' }],
+			[0x2d, { name: 'fx32_mul' }],
+			[0x2e, { name: 'fx32_div' }],
+			[0x2f, { name: 'fx32_remainder' }],
+			[0x30, { name: 'fx32_to_int' }],
+			[0x31, { name: 'fx32_trunc' }],
+			[0x32, { name: 'fx32_sqrt' }],
+			[0x33, { name: 'fx32_invsqrt' }],
+			[0x34, { name: 'fx32_reciprocal' }],
+			[0x35, { name: 'fx32_sin' }],
+			[0x36, { name: 'fx32_cos' }],
+			[0x37, { name: 'fx32_atan' }],
+			[0x38, { name: 'fx32_atan2' }],
+			// 0x39 : array access syntactic sugar
+			[0x3a, { name: 'array_len' }],
+			[0x3b, { name: 'debugln', args: ['location'] }],
+			[0x3c, { name: 'debug', args: ['location'] }],
+			[0x3d, { name: 'debug_bin' }],
+			[0x3e, { name: 'debug_dec' }],
+			[0x3f, { name: 'debug_hex' }],
+			[0x40, { name: 'reset_game' }],
+			[0x41, { name: 'add_coins' }],
+			[0x43, { name: 'get_item_count', args: ['item'] }],
+			[0x44, { name: 'add_items', args: ['item', 's8'] }],
+			[0x45, { name: 'get_player_stat' }],
+			[0x46, { name: 'set_player_stat' }],
 			[0x47, { name: 'BA_0047_thread', args: ['slot', 'u8', 'location'] }],
 			[0x48, { name: 'BA_0048_thread', args: ['slot', 'u8', 'location'] }],
 			[0x49, { name: 'BA_0049_thread', args: ['slot', 'u8', 'location'] }],
+			[0x4a, { name: 'thread_join', args: ['slot'] }],
+			[0x4e, { args: ['slot'] }],
 		]);
 
 		// for debugging only: very slow!
@@ -638,7 +688,9 @@ window.initBai = () => {
 							if (!exitNode) return;
 
 							// pattern is valid: build out newNode
+							const emptyIfBlock = lastIfNode.prev === node;
 							const emptyElseBlock = exitOffset === 0;
+							const firstIfNode = node.next;
 							const lastElseNode = exitNode.prev;
 							const prev = node.prev;
 
@@ -649,9 +701,17 @@ window.initBai = () => {
 
 							const ifBlockHead = llNode('head', node.right, node.right, { parent: newNode });
 							const ifBlockTail = llNode('tail', lastIfNode.right, lastIfNode.right, { parent: newNode });
-							llLink(undefined, ifBlockHead, node.next);
-							llLink(lastIfNode, ifBlockTail, undefined);
-							newNode.conditionBlocks.push({ cmd: node, innerHead: ifBlockHead, innerTail: ifBlockTail });
+							if (emptyIfBlock) {
+								llLink(ifBlockHead, lastIfNode, ifBlockTail); // move lastIfNode into "if" block
+								llLink(undefined, ifBlockHead, ifBlockTail); // remove it from "if" block
+							} else {
+								llLink(undefined, ifBlockHead, firstIfNode);
+								llLink(lastIfNode, ifBlockTail, undefined); // move lastIfNode into "if" block
+								llLink(lastIfNode.prev, ifBlockTail, undefined);  // remove it from "if" block
+							}
+							newNode.conditionBlocks.push(
+								{ cmd: node, exit: lastIfNode, innerHead: ifBlockHead, innerTail: ifBlockTail },
+							);
 
 							const elseBlockHead = llNode('head', elseNode.left, elseNode.left, { parent: newNode });
 							const elseBlockTail = llNode('tail', exitNode.left, exitNode.left, { parent: newNode });
@@ -669,6 +729,176 @@ window.initBai = () => {
 								{ node: elseBlockHead, left: elseBlockHead.left, right: elseBlockTail.right },
 								{ node: exitNode, left, right },
 							);
+							node = undefined;
+						})();
+
+						// from here on, `node` could be undefined if it already matched something
+						// switch match:
+						// reg_1000 = ...
+						// CM_0003(2, @a)
+						// ... (unknown if there is ever code in this part)
+						// CM_0003(2, @exit)
+						// @a CM_0002(1, left, reg_1000, 1, @b)
+						// ...
+						// CM_0003(2, @exit)
+						// @b CM_0002(1, left, reg_1000, 1, @c)
+						// ...
+						// CM_0003(2, @exit)
+						// (there could be even more cases in between here)
+						// @z CM_0002(1, left, reg_1000, 1, @exit)
+						// ...
+						// CM_0003(2, @exit)
+						// @exit 
+						if (node && node.outputRegister === 0x1000) (() => {
+							let entry = true;
+							let exitNode;
+							let conditionNode = node.next;
+
+							let STEP = 1;
+
+							let entryBlock;
+							const conditionBlocks = [];
+							const breakNodes = new Set();
+							let defaultBlock;
+							while (conditionNode) {
+								console.debug(STEP, conditionNode);
+								let nextConditionNode;
+								if (entry) {
+									// match CM_0003(2, @a); must skip at least one instruction (the exit)
+									if (conditionNode.type !== 'cmd' || conditionNode.opcode !== 3) return;
+									if (conditionNode.registers & 0b11) return; // all arguments must be constant
+									if (conditionNode.args[0] !== 2 || conditionNode.args[1] <= 0) return;
+
+									nextConditionNode = locationToNode.get(conditionNode.right + conditionNode.args[1]);
+								} else {
+									(() => {
+										// match CM_0002(1, left, reg_1000, @b); must skip at least one instruction
+										if (conditionNode.type !== 'cmd' || conditionNode.opcode !== 2) return;
+
+										const [operator, left, right, targetBool, jumpOffset] = conditionNode.args;
+										// operator, targetBool, and jumpLocation must be constant
+										if (conditionNode.registers & 0b11001) return;
+										// must jump forward
+										if (operator !== 1 || targetBool !== 1 || jumpOffset <= 0) return;
+										// right must be reg_1000
+										if (!(conditionNode.registers & 0b00100) || right !== 0x1000) return;
+
+										nextConditionNode = locationToNode.get(conditionNode.right + jumpOffset);
+									})();
+
+									if (!nextConditionNode) {
+										// this is a default case
+										defaultBlock = { innerFirst: conditionNode, innerLast: exitNode.prev };
+										break;
+									}
+								}
+
+								console.debug(STEP, 'next condition node', nextConditionNode);
+								if (!nextConditionNode) return;
+
+								// must match CM_0003(2, @exit); jump offset can be zero, but not negative
+								const breakNode = (() => {
+									const breakNode = nextConditionNode.prev;
+									if (breakNode.type !== 'cmd' || breakNode.opcode !== 3) return;
+									if (breakNode.registers & 0b11) return; // all arguments must be constant
+									if (breakNode.args[0] !== 2 || breakNode.args[1] < 0) return;
+
+									console.debug(STEP, 'break found');
+									if (entry) {
+										exitNode = locationToNode.get(breakNode.right + breakNode.args[1]);
+										if (!exitNode) return;
+									} else {
+										if (breakNode.right + breakNode.args[1] !== exitNode.left) return;
+									}
+
+									return breakNode;
+								})();
+								if (breakNode) breakNodes.add(breakNode);
+
+								const block = { cmd: conditionNode, innerFirst: conditionNode.next, innerLast: nextConditionNode.prev };
+								if (entry) entryBlock = block;
+								else conditionBlocks.push(block);
+
+								if (nextConditionNode === exitNode) break; // no more *blocks*
+								if (!breakNode) return; // still got more blocks to go, so there has to be a break node
+
+								entry = false;
+								conditionNode = nextConditionNode;
+								++STEP;
+							}
+
+							console.log('switch:', entryBlock, conditionBlocks, defaultBlock);
+							if (!conditionBlocks.length) return;
+
+							// this is a switch statement, now make it
+							console.debug('making switch');
+							const prev = node;
+							const next = exitNode;
+
+							const tryReplaceBreak = breakNode => {
+								if (!breakNodes.has(breakNode)) return;
+
+								const newBreakNode = llNode('switch-break', breakNode.left, breakNode.right, {
+									cmd: breakNode,
+								});
+								llLink(breakNode.prev, newBreakNode, breakNode.next);
+							};
+
+							const newNode = llNode('switch', entryBlock.cmd.left, exitNode.left, { 
+								entryBlock: undefined, conditionBlocks: [], defaultBlock: undefined,
+							});
+
+							const entryHead = llNode('head', entryBlock.innerFirst.left, entryBlock.innerFirst.left, {
+								parent: newNode,
+							});
+							const entryTail = llNode('tail', entryBlock.innerLast.right, entryBlock.innerLast.right, {
+								parent: newNode,
+							});
+							llLink(undefined, entryHead, entryBlock.innerFirst);
+							llLink(entryBlock.innerLast, entryTail, undefined);
+							tryReplaceBreak(entryBlock.innerLast);
+							newNode.entryBlock = { innerHead: entryHead, innerTail: entryTail };
+
+							for (let i = 0; i < conditionBlocks.length; ++i) {
+								const block = conditionBlocks[i];
+								const condHead = llNode('head', block.innerFirst.left, block.innerFirst.left, {
+									parent: newNode,
+								});
+								const condTail = llNode('tail', block.innerLast.right, block.innerLast.right, {
+									parent: newNode,
+								});
+								llLink(undefined, condHead, block.innerFirst);
+								llLink(block.innerLast, condTail, undefined);
+								tryReplaceBreak(block.innerLast);
+								newNode.conditionBlocks.push(
+									{ cmd: block.cmd, innerHead: condHead, innerTail: condTail },
+								);
+							}
+
+							if (defaultBlock) {
+								const { innerFirst, innerLast } = defaultBlock;
+								const defaultHead = llNode('head', innerFirst.left, innerFirst.left, {
+									parent: newNode,
+								});
+								const defaultTail = llNode('tail', innerLast.right, innerLast.right, {
+									parent: newNode,
+								});
+								llLink(undefined, defaultHead, innerFirst);
+								llLink(innerLast, defaultTail, undefined);
+								tryReplaceBreak(innerLast);
+								newNode.defaultBlock = { innerHead: defaultHead, innerTail: defaultTail };
+							}
+
+							llLink(prev, newNode, next);
+							searchStack.push({ node: entryHead, left: entryHead.left, right: entryTail.right });
+							for (const { innerHead, innerTail } of newNode.conditionBlocks) {
+								searchStack.push({ node: innerHead, left: innerHead.left, right: innerTail.right });
+							}
+							if (newNode.defaultBlock) {
+								const { innerHead, innerTail } = newNode.defaultBlock;
+								searchStack.push({ node: innerHead, left: innerHead.left, right: innerHead.right });
+							}
+							searchStack.push({ node: next, left, right });
 							node = undefined;
 						})();
 					}
@@ -1664,6 +1894,8 @@ window.initBai = () => {
 				return '';
 			};
 
+			const distF = dist => (dist >= 0 ? '+' : '') + String(dist);
+
 			const containerStack = [];
 			while (node) {
 				if (node.type === 'head' || node.type === 'tail') {
@@ -1674,8 +1906,6 @@ window.initBai = () => {
 					const op = node.opcode;
 					const info = bai.dialect[op];
 					const details = bai.cmdDetails.get(op);
-
-					const distF = dist => (dist >= 0 ? '+' : '') + String(dist);
 
 					let str;
 					// custom syntax
@@ -1795,6 +2025,50 @@ window.initBai = () => {
 						}
 					};
 					node = step();
+				} else if (node.type === 'switch') {
+					const localNode = node;
+					let index = 0;
+					const step = () => {
+						if (index === 0) {
+							output.push(prefix(undefined) + `${keyword('switch')} (${text(bai.registerName(0x1000))}) {`);
+							++indent;
+							++index;
+							containerStack.push(step);
+							return localNode.entryBlock.innerHead;
+						} else if (index - 1 < localNode.conditionBlocks.length) {
+							const block = localNode.conditionBlocks[index - 1];
+							--indent;
+							output.push(prefix(block.cmd) + `${keyword('case')} ${argF(1, undefined, block.cmd)}:`);
+							++indent;
+							++index;
+							containerStack.push(step);
+							return block.innerHead;
+						} else if (index === localNode.conditionBlocks.length + 1 && localNode.defaultBlock) {
+							const block = localNode.defaultBlock;
+							--indent;
+							output.push(prefix(block.cmd) + `${keyword('default')}:`);
+							++indent;
+							++index;
+							containerStack.push(step);
+							return block.innerHead;
+						} else {
+							--indent;
+							output.push(prefix(undefined) + '}');
+							return localNode.next;
+						}
+					};
+					node = step();
+				} else if (node.type === 'switch-break') {
+					if (useCustomNames.checked) {
+						output.push(prefix() + keyword('break'));
+					} else {
+						const argsF = [];
+						for (let i = 0; i < info.args.length; ++i) argsF.push(argF(i, details?.args?.[i]));
+
+						let name = useCustomNames.checked && details?.name;
+						name ||= `${common ? 'CM' : 'BA'}_${str16(op).toUpperCase()}`;
+						str = outF() + `${(common ? builtin : fn)(name)}(${argsF.join(', ')})`;
+					}
 				} else {
 					output.push(prefix() + error(`&lt;UNSUPPORTED NODE TYPE: ${node.type}&gt;`));
 				}
