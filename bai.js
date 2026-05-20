@@ -121,30 +121,54 @@ window.initBai = () => {
 			operator: mapify(['EQ', 'NE', 'LT', 'GT', 'LE', 'GE', 'AND', 'OR', 'XOR', 'EQ_ZERO', 'NOT']),
 		};
 		bai.cmdDetails = new Map([
-			[0x4, { name: 'wait', args: ['ticks'] }],
+			[0x4, { name: 'wait' }],
+			[0x47, { name: 'BA_0047_thread', args: ['slot', 'u8', 'location'] }],
+			[0x48, { name: 'BA_0048_thread', args: ['slot', 'u8', 'location'] }],
+			[0x49, { name: 'BA_0049_thread', args: ['slot', 'u8', 'location'] }],
 		]);
 
 		// for debugging only: very slow!
 		const VALIDATE_LINKED_LIST = (head, label) => {
 			const seen = new Set();
-			let node = head;
-			while (node) {
-				if (seen.has(node)) {
-					console.error(node);
-					throw new Error(`DUPLICATE NODE`);
-				}
-				seen.add(node);
 
-				if (Number.isNaN(node.left)) throw new Error(`NAN LEFT - ${label}`);
-				if (Number.isNaN(node.right)) throw new Error(`NAN RIGHT - ${label}`);
-				if (node.next && node.next.prev !== node) throw new Error(`BAD NEXT.PREV - ${label}`);
-				if (node.prev && node.prev.next !== node) throw new Error(`BAD PREV.NEXT - ${label}`);
-				if (node.next && node.next.left !== node.right) throw new Error(`BAD .RIGHT <=> NEXT.LEFT - ${label}`);
-				if (node.prev && node.prev.right !== node.left) throw new Error(`BAD .LEFT <=> PREV.RIGHT - ${label}`);
-				node = node.next;
-			}
+			const check = node => {
+				while (node) {
+					if (seen.has(node)) {
+						console.error(node);
+						throw new Error(`DUPLICATE NODE`);
+					}
+					seen.add(node);
+
+					if (node.type === 'fn') {
+						check(node.innerHead);
+						if (!seen.has(node.innerTail)) throw new Error(`FN UNUSED TAIL - ${label}`);
+					}
+
+					if (Number.isNaN(node.left)) throw new Error(`NAN LEFT - ${label}`);
+					if (Number.isNaN(node.right)) throw new Error(`NAN RIGHT - ${label}`);
+					if (node.next && node.next.prev !== node) throw new Error(`BAD NEXT.PREV - ${label}`);
+					if (node.prev && node.prev.next !== node) throw new Error(`BAD PREV.NEXT - ${label}`);
+					if (node.next && node.next.left !== node.right) throw new Error(`BAD .RIGHT <=> NEXT.LEFT - ${label}`);
+					if (node.prev && node.prev.right !== node.left) throw new Error(`BAD .LEFT <=> PREV.RIGHT - ${label}`);
+					node = node.next;
+				}
+			};
 
 			console.log('VALIDATE_LINKED_LIST OK');
+		};
+
+		// leftNode and rightNode are optional, node is required
+		const llLink = (leftNode, node, rightNode) => {
+			if (leftNode?.next) leftNode.next.prev = undefined;
+			if (rightNode?.prev) rightNode.prev.next = undefined;
+			if (leftNode) leftNode.next = node;
+			if (rightNode) rightNode.prev = node;
+			node.prev = leftNode;
+			node.next = rightNode;
+		};
+		// shorthand for making a node
+		const llNode = (type, left, right, fields) => {
+			return { type, left, right, prev: undefined, next: undefined, ...fields };
 		};
 
 		bai.decompiler = {};
@@ -188,17 +212,7 @@ window.initBai = () => {
 				o2 += elementSize;
 			}
 
-			return {
-				type: 'array',
-				left: o,
-				right: o2,
-				prev: undefined,
-				next: undefined,
-				name: `array_${str16(o)}`,
-				length,
-				elementType,
-				elements,
-			};
+			return llNode('array', o, o2, { name: `array_${str16(o)}`, length, elementType, elements });
 		};
 
 		// Decompiles a single BA_ or CM_ command, or returns undefined if invalid.
@@ -246,17 +260,7 @@ window.initBai = () => {
 
 			if (o > right) return;
 
-			return {
-				type: 'cmd',
-				left,
-				right: o,
-				prev: undefined,
-				next: undefined,
-				opcode,
-				registers,
-				outputRegister,
-				args,
-			};
+			return llNode('cmd', left, o, { opcode, registers, outputRegister, args });
 		};
 
 		// "Decompiles" a single null-terminated Shift-JIS string, or returns undefined if not likely valid.
@@ -270,15 +274,7 @@ window.initBai = () => {
 			}
 
 			if (o2 - left <= 1) return; // no empty strings allowed
-
-			return {
-				type: 'string',
-				left,
-				right: o2,
-				prev: undefined,
-				next: undefined,
-				decoded: shiftJisDecoder.decode(sliceDataView(dat, left, o2 - 1)),
-			};
+			return llNode('string', left, o2, { decoded: shiftJisDecoder.decode(sliceDataView(dat, left, o2 - 1)) });
 		};
 
 		// Converts a script's binary into a linked-list of commands (type "cmd") or unknowns (type "unknown").
@@ -308,15 +304,12 @@ window.initBai = () => {
 				const location = eventLocation(i);
 				if (location) locationStack.push(location);
 			}
+			const headerEnd = Math.min(...locationStack);
 
-			// the "tail" node is temporary, it just makes things easier
-			const head = { type: 'head', left: 0, right: 14, prev: undefined, next: undefined };
-			const middle = { type: 'unknown', left: 14, right: dat.byteLength, prev: undefined, next: undefined };
-			const tail = { type: 'tail', left: dat.byteLength, right: dat.byteLength, prev: undefined, next: undefined };
-			head.next = middle;
-			middle.prev = head;
-			middle.next = tail;
-			tail.prev = middle;
+			const head = llNode('head', headerEnd, headerEnd, { parent: undefined });
+			const middle = llNode('unknown', 14, dat.byteLength, {});
+			const tail = llNode('tail', dat.byteLength, dat.byteLength, { parent: undefined });
+			llLink(head, middle, tail);
 
 			let searches = 0;
 			while (locationStack.length) {
@@ -341,15 +334,13 @@ window.initBai = () => {
 				let prev = node.prev;
 				let next = node.next;
 				if (node.left < o) {
-					const newLeftUnknown = { type: 'unknown', left: node.left, right: o, prev, next, dead: true };
-					prev.next = newLeftUnknown;
-					next.prev = newLeftUnknown;
+					const newLeftUnknown = llNode('unknown', node.left, o, {});
+					llLink(prev, newLeftUnknown, next);
 					prev = newLeftUnknown;
 				}
 				if (o < node.right) {
-					const newRightUnknown = { type: 'unknown', left: o, right: node.right, prev, next, dead: true };
-					prev.next = newRightUnknown;
-					next.prev = newRightUnknown;
+					const newRightUnknown = llNode('unknown', o, node.right, {});
+					llLink(prev, newRightUnknown, next);
 					next = newRightUnknown;
 				}
 
@@ -362,12 +353,8 @@ window.initBai = () => {
 						throw new Error('INVALID COMMAND IDK WHAT TO DO');
 					}
 
-					newNode.prev = prev;
-					newNode.next = next;
-					prev.next = newNode;
-					next.prev = newNode;
+					llLink(prev, newNode, next);
 					prev = newNode;
-
 					o = newNode.right;
 
 					let terminates = false;
@@ -403,8 +390,7 @@ window.initBai = () => {
 				}
 			}
 
-			tail.prev.next = undefined; // the tail node is temporary, but not the head node
-			return { dat, events, head, tail: tail.prev };
+			return { dat, events, head, tail };
 		};
 
 		// Discovers arrays and Shift-JIS strings from commands that use them. Breaks apart "unknown" types.
@@ -438,36 +424,19 @@ window.initBai = () => {
 
 						if (newNode) {
 							// replace node with newNode
-							let prev = node.prev;
-							let next = node.next;
-							newNode.prev = prev;
-							newNode.next = next;
-							if (prev) prev.next = newNode;
-							if (next) next.prev = newNode;
+							const prev = node.prev;
+							const next = node.next;
+							llLink(node.prev, newNode, node.next);
 
 							// insert padding "unknown"s around newNode if necessary
 							if (node.left < newNode.left) {
-								const paddingLeft = {
-									type: 'unknown',
-									left: node.left,
-									right: newNode.left,
-									prev,
-									next: newNode,
-								};
-								if (prev) prev.next = paddingLeft;
-								newNode.prev = paddingLeft;
+								const paddingLeft = llNode('unknown', node.left, newNode.left);
+								llLink(prev, paddingLeft, newNode);
 							}
 
 							if (newNode.right < node.right) {
-								const paddingRight = {
-									type: 'unknown',
-									left: newNode.right,
-									right: node.right,
-									prev: newNode,
-									next,
-								};
-								if (next) next.prev = paddingRight;
-								newNode.next = paddingRight;
+								const paddingRight = llNode('unknown', newNode.right, node.right);
+								llLink(newNode, paddingRight, next);
 							}
 
 							node = newNode;
@@ -486,6 +455,7 @@ window.initBai = () => {
 		// the jump will become unreachable and dead.
 		// Not detecting dead code as actual code pretty much destroys all control-flow pattern recognition from working
 		// so this is necessary. Dead code will have its "dead" attribute set to true.
+		// Handles these node types: head, cmd, array, string, unknown
 		bai.decompiler.decompDeadCode = decomp => {
 			const { dat } = decomp;
 
@@ -501,16 +471,13 @@ window.initBai = () => {
 					// that instead. commands > arrays > strings.
 					const newNode = commandNode || arrayNode || stringNode;
 					if (newNode) {
-						newNode.prev = node.prev;
-						newNode.prev.next = newNode;
-						newNode.next = node;
-						node.prev = newNode;
+						llLink(node.prev, newNode, node);
 						node.left = newNode.right; // !
 
 						if (node.left === node.right) {
 							// this "unknown" is now empty, remove it
 							node.prev.next = node.next;
-							if (node.next) node.next.prev = node.prev;
+							node.next.prev = node.prev;
 							node.prev = node.next = undefined;
 						}
 
@@ -536,7 +503,7 @@ window.initBai = () => {
 		};
 
 		// Creates functions using all CM_0003 (mode 1), BA_0047, BA_0048, and BA_0049 references.
-		// Handles these node types: head, cmd, unknown
+		// Handles these node types: head, cmd, array, string, unknown
 		bai.decompiler.guaranteedFunctions = decomp => {
 			const functionLabels = new Map();
 			const addFunctionLabel = (location, name) => {
@@ -566,8 +533,8 @@ window.initBai = () => {
 					if (node.opcode === 3 && node.args[0] === 1) {
 						// CM_0003 mode 1 is a function call (it pushes a return address to the stack)
 						addFunctionLabel(node.right + node.args[1], undefined);
-					} else if (node.opcode === 0x47 || node.opcode === 0x48 || node.opcode === 0x49) {
-						// BA_0047 - BA_0049 work with actor threads that start at a function
+					} else if (node.opcode === 0x49) {
+						// BA_0049 starts a new actor thread at a function
 						addFunctionLabel(node.right + node.args[2], undefined);
 					}
 				}
@@ -583,33 +550,175 @@ window.initBai = () => {
 					let names = functionLabels.get(node.left);
 					if (!names) names = new Set([`fun_${str16(node.left)}_implicit`]);
 
-					let innerHead = node;
-					let innerTail = node;
+					const prev = node.prev;
+
+					let innerFirst = node;
+					let innerLast = node;
 					while (true) {
-						const next = innerTail.next;
+						const next = innerLast.next;
 						if (next?.type !== 'cmd') break;
 						if (functionLabels.get(next.left)) break;
-						innerTail = next;
+						innerLast = next;
 					}
 
-					node = {
-						type: 'fn',
-						names,
-						left: innerHead.left,
-						right: innerTail.right,
-						prev: innerHead.prev,
-						next: innerTail.next,
-						innerHead,
-						innerTail,
-					};
-					if (node.prev) node.prev.next = node;
-					if (node.next) node.next.prev = node;
-					innerHead.prev = innerTail.next = undefined; // these inner nodes are no longer part of the outside
+					const next = innerLast.next;
+
+					const innerHead = llNode('head', innerFirst.left, innerFirst.left, { parent: undefined });
+					const innerTail = llNode('tail', innerLast.right, innerLast.right, { parent: undefined });
+					llLink(undefined, innerHead, innerFirst);
+					llLink(innerLast, innerTail, undefined);
+
+					const newNode = llNode('fn', innerHead.left, innerTail.right, { names, innerHead, innerTail });
+					innerHead.parent = innerTail.parent = newNode;
+					llLink(prev, newNode, next);
+
+					node = newNode;
 				}
 
-				const next = node.next;
-				if (!next) decomp.tail = node;
-				node = next;
+				node = node.next;
+			}
+		};
+
+		// Detects if..else.
+		// Handles these node types: head, cmd, array, string, unknown, fn
+		bai.decompiler.controlFlow = decomp => {
+			const searchStack = [{ node: decomp.head, left: decomp.head.left, right: decomp.tail.right }];
+			while (searchStack.length) {
+				let { node, left, right } = searchStack.pop();
+				const startNode = node;
+
+				// preprocess
+				const locationToNode = new Map();
+				while (node) {
+					locationToNode.set(node.left, node);
+					node = node.next;
+				}
+
+				node = startNode;
+				while (node) {
+					if (node.type === 'fn') {
+						searchStack.push(
+							{ node: node.innerHead, left: node.left, right: node.right },
+							{ node: node.next, left, right },
+						);
+						node = undefined;
+					} else if (node.type === 'cmd') {
+						// if-else match:
+						//    CM_0002(operator, left, right, false, @a)
+						//    ...
+						//    CM_0003(2, @b)
+						// @a ...
+						//    ...
+						// @b ...
+						// The target boolean must be false. When it's true, it's some other structure.
+						// If the "else" block ends up only containing an "if" node: (head) (if) (tail)
+						// Then it will be collapsed into newNode (turning it into an if-elif-elif-...-else node).
+						if (node.opcode === 2 && !(node.registers & 0b11001)) (() => {
+							// operator, targetBool, jumpOffset must be constant
+							const [operator, valueLeft, valueRight, targetBool, elseOffset] = node.args;
+							// condition must be false (i.e. SKIP if condition is false), must jump forward and skip at
+							// least one command (CM_0003)
+							if (targetBool !== 0 || elseOffset <= 0) return;
+
+							const elseLocation = node.right + elseOffset;
+							const elseNode = locationToNode.get(elseLocation);
+							if (!elseNode) return;
+
+							const lastIfNode = elseNode.prev; // guaranteed to not be `node`
+							// lastIfMode and exitOffset must be constant
+							if (lastIfNode.type !== 'cmd' || lastIfNode.opcode !== 3 || (lastIfNode.registers & 0b11)) {
+								return;
+							}
+
+							// must be mode 2 and a non-negative offset (0 is okay too)
+							const [exitMode, exitOffset] = lastIfNode.args;
+							if (exitMode !== 2 || exitOffset < 0) return;
+
+							const exitNode = locationToNode.get(lastIfNode.right + exitOffset);
+							if (!exitNode) return;
+
+							// pattern is valid: build out newNode
+							const emptyElseBlock = exitOffset === 0;
+							const lastElseNode = exitNode.prev;
+							const prev = node.prev;
+
+							const newNode = llNode('if', node.left, exitNode.left, {
+								conditionBlocks: [],
+								elseBlock: undefined,
+							});
+
+							const ifBlockHead = llNode('head', node.right, node.right, { parent: newNode });
+							const ifBlockTail = llNode('tail', lastIfNode.right, lastIfNode.right, { parent: newNode });
+							llLink(undefined, ifBlockHead, node.next);
+							llLink(lastIfNode, ifBlockTail, undefined);
+							newNode.conditionBlocks.push({ cmd: node, innerHead: ifBlockHead, innerTail: ifBlockTail });
+
+							const elseBlockHead = llNode('head', elseNode.left, elseNode.left, { parent: newNode });
+							const elseBlockTail = llNode('tail', exitNode.left, exitNode.left, { parent: newNode });
+							if (emptyElseBlock) {
+								llLink(undefined, elseBlockHead, elseBlockTail);
+							} else {
+								llLink(undefined, elseBlockHead, elseNode);
+								llLink(lastElseNode, elseBlockTail, undefined);
+							}
+							newNode.elseBlock = { innerHead: elseBlockHead, innerTail: elseBlockTail };
+
+							llLink(prev, newNode, exitNode);
+							searchStack.push(
+								{ node: ifBlockHead, left: ifBlockHead.left, right: ifBlockTail.right },
+								{ node: elseBlockHead, left: elseBlockHead.left, right: elseBlockTail.right },
+								{ node: exitNode, left, right },
+							);
+							node = undefined;
+						})();
+					}
+
+					if (node) node = node.next;
+				}
+			}
+		};
+
+		// Collapses all: if { ... } else { if { ... } } patterns into: if { ... } else if { ... }.
+		// Handles these node types: head, cmd, array, string, unknown, fn
+		bai.decompiler.collapseIfElse = decomp => {
+			const ifs = [];
+
+			const searchStack = [decomp.head];
+			while (searchStack.length) {
+				let node = searchStack.pop();
+				while (node) {
+					if (node.type === 'fn') {
+						searchStack.push(node.innerHead, node.next);
+						node = undefined;
+					} else if (node.type === 'if') {
+						ifs.push(node);
+						for (let i = 0; i < node.conditionBlocks.length; ++i) {
+							searchStack.push(node.conditionBlocks[i].innerHead);
+						}
+						if (node.elseBlock) searchStack.push(node.elseBlock.innerHead);
+						searchStack.push(node.next);
+						node = undefined;
+					}
+
+					if (node) node = node.next;
+				}
+			}
+
+			// find "if" nodes that only have a single "if" node in their else block
+			// iterate backwards, that way nested "if"s are handled first
+			for (let i = ifs.length - 1; i >= 0; --i) {
+				const node = ifs[i];
+				if (!node.elseBlock) continue;
+
+				const innerFirst = node.elseBlock.innerHead.next;
+				if (innerFirst !== node.elseBlock.innerTail.prev) continue;
+				if (innerFirst.type !== 'if') continue;
+
+				for (let j = 0; j < innerFirst.conditionBlocks.length; ++j) {
+					node.conditionBlocks.push(innerFirst.conditionBlocks[j]);
+				}
+
+				node.elseBlock = innerFirst.elseBlock;
 			}
 		};
 
@@ -637,7 +746,6 @@ window.initBai = () => {
 
 				for (let i = 0; i < segments.length - 1; ++i) {
 					const script = scriptSpace + i;
-					console.log('decompiling', path, i);
 					const decomp = bai.decompiler.first(segments[i]);
 					bai.decompiler.findStaticReferences(decomp);
 					bai.decompiler.decompDeadCode(decomp);
@@ -1501,6 +1609,7 @@ window.initBai = () => {
 			const location = isHtml ? (x => `<span style="color: var(--sapphire);">${x}</span>`) : x => x;
 			const string = isHtml ? (x => `<span style="color: var(--green);">${x}</span>`) : x => x;
 			const comment = isHtml ? (x => '<span style="color:var(--overlay2)">' + x + '</span>') : x => x;
+			const error = isHtml ? (x => '<span style="color:var(--red)">' + x + '</span>') : x => x;
 			const pad = isHtml ? '&nbsp;' : ' ';
 
 			const labelNames = new Map();
@@ -1518,60 +1627,53 @@ window.initBai = () => {
 			}
 
 			node = decomp.head;
-			const containerStack = [];
-			let indent = 0;
-			while (node) {
-				const prefix = str16(node.left) + pad.repeat(indent * 4 + 1);
-				const getFakePrefix = () => '----' + pad.repeat(indent * 4 + 1);
 
-				if (node.type === 'head') {
-					const formatLocation = location => location ? str16(location) : 'n/a';
-					output.push([
-						`0000 // event_default @ ${formatLocation(decomp.events.default)}`,
-						`0002 // event_other_monster_turn @ ${formatLocation(decomp.events.otherMonsterTurn)}`,
-						`0004 // event_monster_init @ ${formatLocation(decomp.events.monsterInit)}`,
-						`0006 // event_monster_turn @ ${formatLocation(decomp.events.monsterTurn)}`,
-						`0008 // event_player_turn @ ${formatLocation(decomp.events.playerTurn)}`,
-						`000a // event_unknown5 @ ${formatLocation(decomp.events.unknown5)}`,
-						`000c // event_unknown6 @ ${formatLocation(decomp.events.unknown6)}`,
-					].join('<br>'));
+			let indent = 0;
+			const prefix = (localNode = node) => {
+				return (localNode ? str16(localNode.left) : '----') + pad.repeat(indent * 4 + 1);
+			};
+
+			const argF = (i, enumType, localNode = node) => {
+				const x = localNode.args[i];
+				if (localNode.registers & (1 << i)) {
+					return text(useCustomNames.checked ? bai.registerName(x) : `reg_${str16(x)}`);
+				}
+
+				if (enumType === 'location') {
+					const to = localNode.right + x;
+					return labelNames.get(to) ?? location(str16(to));
+				}
+
+				const type = bai.dialect[localNode.opcode].args[i];
+				if (type <= 5) {
+					// u8, u16, u32, s8, s16, s32
+					if (x <= -128) return constant('-0x' + (-x).toString(16));
+					if (x <= 127) return constant(String(x));
+					return constant('0x' + x.toString(16));
+				}
+				return constant(String(x)); // fx16, fx32 (leave as-is)
+			};
+
+			const outF = (localNode = node) => {
+				if (bai.dialect[localNode.opcode].returns) {
+					let regName;
+					if (useCustomNames.checked) regName = bai.registerName(localNode.outputRegister);
+					else regName = `reg_${str16(localNode.outputRegister)}`;
+					return `${text(regName)} ${operator('=')} `;
+				}
+				return '';
+			};
+
+			const containerStack = [];
+			while (node) {
+				if (node.type === 'head' || node.type === 'tail') {
+					// don't render heads or tails
 				} else if (node.type === 'unknown') {
-					output.push(prefix + bytes(node.left, node.right - node.left, decomp.dat));
+					output.push(prefix() + bytes(node.left, node.right - node.left, decomp.dat));
 				} else if (node.type === 'cmd') {
 					const op = node.opcode;
 					const info = bai.dialect[op];
 					const details = bai.cmdDetails.get(op);
-
-					const argF = (i, enumType) => {
-						const x = node.args[i];
-						if (node.registers & (1 << i)) {
-							return text(useCustomNames.checked ? bai.registerName(x) : `reg_${str16(x)}`);
-						}
-
-						if (enumType === 'location') {
-							const to = node.right + x;
-							return labelNames.get(to) ?? location(str16(to));
-						}
-
-						const type = info.args[i];
-						if (type <= 5) {
-							// u8, u16, u32, s8, s16, s32
-							if (x <= -128) return constant('-0x' + (-x).toString(16));
-							if (x <= 127) return constant(String(x));
-							return constant('0x' + x.toString(16));
-						}
-						return constant(String(x)); // fx16, fx32 (leave as-is)
-					};
-
-					const outF = () => {
-						if (info.returns) {
-							let regName;
-							if (useCustomNames.checked) regName = bai.registerName(node.outputRegister);
-							else regName = `reg_${str16(node.outputRegister)}`;
-							return `${text(regName)} ${operator('=')} `;
-						}
-						return '';
-					};
 
 					const distF = dist => (dist >= 0 ? '+' : '') + String(dist);
 
@@ -1625,31 +1727,76 @@ window.initBai = () => {
 					const common = op < 0x46;
 					if (!str) {
 						const argsF = [];
-						for (let i = 0; i < info.args.length; ++i) argsF.push(argF(i));
+						for (let i = 0; i < info.args.length; ++i) argsF.push(argF(i, details?.args?.[i]));
 
 						let name = useCustomNames.checked && details?.name;
 						name ||= `${common ? 'CM' : 'BA'}_${str16(op).toUpperCase()}`;
 						str = outF() + `${(common ? builtin : fn)(name)}(${argsF.join(', ')})`;
 					}
-					output.push(prefix + str);
+					output.push(prefix() + str);
 				} else if (node.type === 'string') {
-					output.push(prefix + string('"' + node.decoded + '"'));
+					output.push(prefix() + string('"' + node.decoded + '"'));
 				} else if (node.type === 'array') {
 					const typeName = bai.typeNames[node.elementType];
 					const els = node.elements.join(', '); // TODO: pretty-print
-					output.push(prefix + `${typeName} ${node.name}[${node.length}] = { ${els} }`);
+					output.push(prefix() + `${typeName} ${node.name}[${node.length}] = { ${els} }`);
 				} else if (node.type === 'fn') {
+					const localNode = node;
 					const names = [...node.names];
-					output.push(prefix + `${keyword('def')} ${fn(names[0])}() {`);
+					output.push(prefix() + `${keyword('def')} ${fn(names[0])}() {`);
 					++indent;
-					const fnNode = node;
 					node = node.innerHead;
 					containerStack.push(() => {
 						--indent;
-						output.push(getFakePrefix() + `}`);
-						return fnNode.next;
+						output.push(prefix(undefined) + `}`);
+						return localNode.next;
 					});
-					continue; // do not go to node.next yet
+				} else if (node.type === 'if') {
+					const localNode = node;
+					let index = 0;
+					const step = () => {
+						if (index > 0) --indent;
+
+						if (index < localNode.conditionBlocks.length) {
+							let condition;
+							const block = localNode.conditionBlocks[index];
+							if (block.cmd.opcode === 2) {
+								condition = bai.compare(
+									block.cmd.args[0],
+									argF(1, undefined, block.cmd),
+									argF(2, undefined, block.cmd),
+									operator,
+								);
+							} else {
+								operator = error(`&lt;UNSUPPORTED CONDITION CMD: ${str16(block.cmd.opcode)}&gt;`);
+							}
+
+							if (index === 0) {
+								output.push(prefix(block.cmd) + `${keyword('if')} (${condition}) {`);
+							} else {
+								output.push(prefix(block.cmd) + `} ${keyword('else if')} (${condition}) {`);
+							}
+
+							++indent;
+							++index;
+							containerStack.push(step);
+							return block.innerHead;
+						} else if (index === localNode.conditionBlocks.length && localNode.elseBlock) {
+							// else block
+							output.push(prefix(undefined) + `} ${keyword('else')} {`);
+							++indent;
+							++index;
+							containerStack.push(step);
+							return localNode.elseBlock.innerHead;
+						} else {
+							// exit
+							output.push(prefix(undefined) + '}');
+							return localNode.next;
+						}
+					};
+					node = step();
+				} else {
+					output.push(prefix() + error(`&lt;UNSUPPORTED NODE TYPE: ${node.type}&gt;`));
 				}
 
 				node = node.next;
@@ -1658,7 +1805,7 @@ window.initBai = () => {
 				}
 			}
 
-			return output.join('<br>');
+			return output.map(x => '<div>' + x + '</div>').join(''); // <div></div> faster than <br>
 		};
 
 		const update = () => {
@@ -1678,15 +1825,39 @@ window.initBai = () => {
 				const script = segments[scriptSelect.value];
 				metaPreview.innerHTML = codePreview.innerHTML = '';
 
+				const startTimestamp = performance.now();
+
 				const decomp = bai.decompiler.first(script);
 				bai.decompiler.findStaticReferences(decomp);
 				bai.decompiler.decompDeadCode(decomp);
 				bai.decompiler.guaranteedFunctions(decomp);
+				bai.decompiler.controlFlow(decomp);
+				bai.decompiler.collapseIfElse(decomp);
+				VALIDATE_LINKED_LIST(decomp.head);
+
+				const decompTimestamp = performance.now();
 
 				bai.decomp = decomp;
 
 				updateDisplay = () => {
+					const startPreviewTimestamp = performance.now();
+
+					const formatLocation = location => location ? str16(location) : 'n/a';
+					metaPreview.innerHTML = '<code>' + [
+						`0000 // event_default @ ${formatLocation(decomp.events.default)}`,
+						`0002 // event_other_monster_turn @ ${formatLocation(decomp.events.otherMonsterTurn)}`,
+						`0004 // event_monster_init @ ${formatLocation(decomp.events.monsterInit)}`,
+						`0006 // event_monster_turn @ ${formatLocation(decomp.events.monsterTurn)}`,
+						`0008 // event_player_turn @ ${formatLocation(decomp.events.playerTurn)}`,
+						`000a // event_unknown5 @ ${formatLocation(decomp.events.unknown5)}`,
+						`000c // event_unknown6 @ ${formatLocation(decomp.events.unknown6)}`,
+					].join('<br>') + '</code>';
+
 					codePreview.innerHTML = bai.decompiler.stringify(decomp, true);
+
+					const previewTimestamp = performance.now();
+					addHTML(metaPreview, `<div>decomp: ${(decompTimestamp - startTimestamp).toFixed(1)}ms</div>`);
+					addHTML(metaPreview, `<div>render: ${(previewTimestamp - startPreviewTimestamp).toFixed(1)}ms</div>`);
 				};
 				updateDisplay();
 				return;
