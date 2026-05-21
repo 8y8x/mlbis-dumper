@@ -119,6 +119,27 @@ window.initBai = () => {
 		const mapify = arr => new Map(arr.map((x,i) => [i,x]));
 		bai.enumTypes = {
 			operator: mapify(['EQ', 'NE', 'LT', 'GT', 'LE', 'GE', 'AND', 'OR', 'XOR', 'EQ_ZERO', 'NOT']),
+			slot: (() => {
+				const map = new Map();
+				map.set(0x1000, 'MARIO');
+				map.set(0x1001, 'LUIGI');
+				map.set(0x1002, 'KOOPA');
+
+				const fill = (start, length, prefix) => {
+					for (let i = 0; i < length; ++i) map.set(start + i, `${prefix}_${i}`);
+					map.set(start + length, `${prefix}_MAX`);
+				};
+				fill(0x2000, 8, 'MONSTER');
+				fill(0x3000, 32, 'ATK_OBJ');
+				fill(0x4000, 16, 'OBJ');
+				fill(0x5000, 24, 'OBJ_5XXX');
+				// 6xxx is for abnormals
+				fill(0xa000, 20, 'ATK_DESC');
+				fill(0xb000, 12, 'DESC');
+				fill(0xc000, 28, 'DESC_CXXX');
+
+				return map;
+			})(),
 		};
 		bai.cmdDetails = new Map([
 			// 0x1 : return syntactic sugar
@@ -754,14 +775,11 @@ window.initBai = () => {
 							let exitNode;
 							let conditionNode = node.next;
 
-							let STEP = 1;
-
 							let entryBlock;
 							const conditionBlocks = [];
 							const breakNodes = new Set();
 							let defaultBlock;
 							while (conditionNode) {
-								console.debug(STEP, conditionNode);
 								let nextConditionNode;
 								if (entry) {
 									// match CM_0003(2, @a); must skip at least one instruction (the exit)
@@ -793,7 +811,6 @@ window.initBai = () => {
 									}
 								}
 
-								console.debug(STEP, 'next condition node', nextConditionNode);
 								if (!nextConditionNode) return;
 
 								// must match CM_0003(2, @exit); jump offset can be zero, but not negative
@@ -803,7 +820,6 @@ window.initBai = () => {
 									if (breakNode.registers & 0b11) return; // all arguments must be constant
 									if (breakNode.args[0] !== 2 || breakNode.args[1] < 0) return;
 
-									console.debug(STEP, 'break found');
 									if (entry) {
 										exitNode = locationToNode.get(breakNode.right + breakNode.args[1]);
 										if (!exitNode) return;
@@ -824,14 +840,11 @@ window.initBai = () => {
 
 								entry = false;
 								conditionNode = nextConditionNode;
-								++STEP;
 							}
 
-							console.log('switch:', entryBlock, conditionBlocks, defaultBlock);
 							if (!conditionBlocks.length) return;
 
 							// this is a switch statement, now make it
-							console.debug('making switch');
 							const prev = node;
 							const next = exitNode;
 
@@ -1874,6 +1887,14 @@ window.initBai = () => {
 					return labelNames.get(to) ?? location(str16(to));
 				}
 
+				if (useCustomNames.checked) {
+					const enums = bai.enumTypes[enumType];
+					if (enums) {
+						const name = enums.get(x);
+						if (name) return constant(name);
+					}
+				}
+
 				const type = bai.dialect[localNode.opcode].args[i];
 				if (type <= 5) {
 					// u8, u16, u32, s8, s16, s32
@@ -1954,7 +1975,7 @@ window.initBai = () => {
 					}
 
 					// standard syntax
-					const common = op < 0x46;
+					const common = op <= 0x46;
 					if (!str) {
 						const argsF = [];
 						for (let i = 0; i < info.args.length; ++i) argsF.push(argF(i, details?.args?.[i]));
@@ -2059,16 +2080,7 @@ window.initBai = () => {
 					};
 					node = step();
 				} else if (node.type === 'switch-break') {
-					if (useCustomNames.checked) {
-						output.push(prefix() + keyword('break'));
-					} else {
-						const argsF = [];
-						for (let i = 0; i < info.args.length; ++i) argsF.push(argF(i, details?.args?.[i]));
-
-						let name = useCustomNames.checked && details?.name;
-						name ||= `${common ? 'CM' : 'BA'}_${str16(op).toUpperCase()}`;
-						str = outF() + `${(common ? builtin : fn)(name)}(${argsF.join(', ')})`;
-					}
+					output.push(prefix() + keyword('break'));
 				} else {
 					output.push(prefix() + error(`&lt;UNSUPPORTED NODE TYPE: ${node.type}&gt;`));
 				}
