@@ -1133,7 +1133,7 @@ window.initBai = () => {
 					let refs = creatorToMonsterReferences.get(script);
 					if (refs) invokerPart = `→ ${[...refs].map(id => monsterNames[id]).join('; ')}`;
 
-					const parts = [`${j}. (len ${segments[j].byteLength}) `];
+					const parts = [`${j}. (len 0x${segments[j].byteLength.toString(16)}) `];
 					if (receiverParts.length) parts.push('← ' + receiverParts.join('; '));
 					if (receiverParts.length && invokerPart) parts.push('; ');
 					if (invokerPart) parts.push(invokerPart);
