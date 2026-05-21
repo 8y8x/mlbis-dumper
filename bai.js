@@ -283,6 +283,16 @@ window.initBai = () => {
 				o2 += elementSize;
 			}
 
+			let o3 = o2;
+			if (allowPadding) {
+				// arrays take up multiples of 4 bytes in size, the remaining padding bytes are FF
+				while (o3 & 3) {
+					if (o3 + 1 > right) return;
+					if (dat.getUint8(o3) !== 0xff) return;
+					++o3;
+				}
+			}
+
 			return llNode('array', o, o2, { name: `array_${str16(o)}`, length, elementType, elements });
 		};
 
@@ -1989,8 +1999,25 @@ window.initBai = () => {
 					output.push(prefix() + string('"' + node.decoded + '"'));
 				} else if (node.type === 'array') {
 					const typeName = bai.typeNames[node.elementType];
-					const els = node.elements.join(', '); // TODO: pretty-print
-					output.push(prefix() + `${typeName} ${node.name}[${node.length}] = { ${els} }`);
+
+					const elementsF = [];
+					for (let i = 0; i < node.elements.length; ++i) {
+						const x = node.elements[i];
+						if (node.elementType <= 5) {
+							// u8, u16, u32, s8, s16, s32
+							const slotName = bai.enumTypes.slot.get(x);
+							if (slotName) elementsF.push(constant(slotName));
+							else if (x <= -128) elementsF.push(constant('-0x' + (-x).toString(16)));
+							else if (x <= 127) elementsF.push(constant(String(x)));
+							else elementsF.push(constant('0x' + x.toString(16)));
+						} else {
+							// fx16, fx32
+							elementsF.push(constant(String(x)));
+						}
+					}
+
+					const decl = `${storage(typeName)} ${text(node.name)}[${constant(node.length)}]`;
+					output.push(prefix() + `${decl} ${operator('=')} { ${elementsF.join(', ')} }`);
 				} else if (node.type === 'fn') {
 					const localNode = node;
 					const names = [...node.names];
