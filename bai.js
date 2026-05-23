@@ -210,8 +210,8 @@ window.initBai = () => {
 
 		bai.cmdDetails = new Map([
 			// 0x1 : return syntactic sugar
-			// 0x2 : if/elif/else goto/tailcall
-			// 0x3 : break/continue/tailcall/call/goto
+			[0x2, { args: ['operator', 's32', 's32', 's32', 'location'] }], // 0x2 : if/elif/else goto/tailcall
+			[0x3, { args: ['u8', 'location'] }], // 0x3 : break/continue/tailcall/call/goto
 			[0x4, { name: 'wait' }],
 			[0x5, { name: 'stack_push' }],
 			[0x6, { name: 'stack_pop' }],
