@@ -113,12 +113,65 @@ window.initBai = () => {
 			return `reg_${str16(id)}`;
 		};
 
+		bai.spriteFile = x => {
+			if (x >>> 24 === 0xc0) return `BObjPc[0x${(x & 0xffff).toString(16)}]`;
+			if (x >>> 24 === 0xc1) return `BObjMon[0x${(x & 0xffff).toString(16)}]`;
+			if (x >>> 24 === 0xc2) return `BObjUI[0x${(x & 0xffff).toString(16)}]`;
+			return '(?)';
+		};
+
+		bai.scriptFile = x => {
+			const name = [
+				undefined, // 0xxx
+				'scn_yo', // 1xxx
+				'mon_yo', // 2xxx
+				'scn_ji', // 3xxx
+				'mon_ji', // 4xxx
+				'item_ji', // 5xxx
+				'scn_cf', // 6xxx
+				'mon_cf', // 7xxx
+				undefined, // 8xxx
+				undefined, // 9xxx
+				'atk_nh', // Axxx
+				undefined, // Bxxx
+				'atk_yy', // Cxxx
+				'atk_hk', // Dxxx
+				undefined, // Exxx
+				undefined, // Fxxx
+			][x >> 12];
+			if (name) return `${name}[${x & 0xfff}]`;
+		};
+
 		bai.typeNames = ['u8', 'u16', 'u32', 's8', 's16', 's32', 'fx16', 'fx32'];
 		bai.typeSizes = [1, 2, 4, 1, 2, 4, 2, 4];
 
 		const mapify = arr => new Map(arr.map((x,i) => [i,x]));
 		bai.enumTypes = {
+			action_block: mapify(['0', 'JUMP', 'HAMMER', 'FLEE', 'ITEM', 'SPECIAL', 'PUNCH', '7', '8', '9']),
+			attribute: new Map([
+				[3, 'X'],
+				[4, 'Y'],
+				[5, 'Z'],
+				[9, 'HOME_X'],
+				[10, 'HOME_Y'],
+				[11, 'HOME_Z'],
+				[24, 'ANIMATION'],
+				[32, 'LEVEL'],
+				[33, 'MAX_HP'],
+				[34, 'HP'],
+				[35, 'SPD'],
+				[36, 'POW'],
+				[37, 'DEF'],
+				[47, 'INVINCIBLE'],
+				[63, 'SPRITE'],
+			]),
+			attribute_monster: new Map([
+				[2, 'SPRITE'],
+				[12, 'FLYING'],
+			]),
+			counterattack: mapify(['NONE', 'JUMP', 'HAMMER', 'PUNCH', 'SHELL']),
 			operator: mapify(['EQ', 'NE', 'LT', 'GT', 'LE', 'GE', 'AND', 'OR', 'XOR', 'EQ_ZERO', 'NOT']),
+			positioning: mapify(['ABSOLUTE', 'RELATIVE']),
 			slot: (() => {
 				const map = new Map();
 				map.set(0x1000, 'MARIO');
@@ -141,6 +194,7 @@ window.initBai = () => {
 				return map;
 			})(),
 		};
+
 		bai.cmdDetails = new Map([
 			// 0x1 : return syntactic sugar
 			// 0x2 : if/elif/else goto/tailcall
@@ -196,37 +250,118 @@ window.initBai = () => {
 			[0x49, { name: 'BA_0049_thread', args: ['slot', 'u8', 'location'] }],
 			[0x4a, { name: 'thread_join', args: ['slot'] }],
 			[0x4e, { args: ['slot'] }],
+			[0x58, { name: 'party_turn_check' }],
+			[0x59, { name: 'party_turn_wait' }],
+			[0x63, {
+				name: 'desc_by_sprite_id',
+				args: ['slot', 'u32', 's8'],
+				note: cmd => {
+					if (cmd.registers & 0b10) return;
+					return bai.spriteFile(cmd.args[1]);
+				},
+			}],
+			[0x65, {
+				name: 'desc_by_monster_id',
+				args: ['slot', 'u16'],
+				note: cmd => {
+					if (cmd.registers & 0b10) return;
+					return monsters.monsters[cmd.args[1]] ?? '(?)';
+				},
+			}],
+			[0x66, {
+				name: 'load_atk_script',
+				args: ['u16'],
+				note: cmd => {
+					if (cmd.registers & 1) return;
+					return bai.scriptFile(cmd.args[0]);
+				},
+			}],
+			[0x68, { name: 'desc_by_sprite_id_load', args: ['slot'] }],
+			[0x69, { name: 'desc_by_monster_id_load', args: ['slot'] }],
+			[0x6a, { name: 'load_atk_script2' }],
+			[0x6d, { name: 'npc_init', args: ['slot'] }],
+			[0x6f, { name: 'monster_apply_desc', args: ['slot'] }],
+			[0x71, {
+				name: 'set_bmap',
+				note: cmd => {
+					if (cmd.registers & 0b11) return;
+					const bmap1P = cmd.args[0] === -1 ? 'default' : cmd.args[0];
+					const bmap2P = cmd.args[1] === -1 ? 'default' : cmd.args[1];
+					return `1 player = 0x${bmap1P.toString(16)}, 2 player = 0x${bmap2P.toString(16)}`;
+				},
+			}],
+			[0x73, { name: 'counterattack_set', args: ['slot', 'counterattack'] }],
+			[0x7b, { name: 'action_block_disable', args: ['action_block'] }],
+			[0x7e, { name: 'end_battle' }],
+			[0xbf, { name: 'attribute_get', args: ['slot', 'attribute'] }],
+			[0xc0, { name: 'attribute_set', args: ['slot', 'attribute', 's32'] }],
+			[0xc1, { name: 'attribute_set_fx32', args: ['slot', 'attribute', 'fx32'] }],
+			[0xc6, { name: 'attribute_monster_get', args: ['slot', 'attribute_monster'] }],
+			[0xc8, { name: 'kill', args: ['slot'] }],
+			[0xc9, { name: 'destroy', args: ['slot'] }],
+			[0xd3, { name: 'npc_apply_desc', args: ['slot'] }],
+			[0xe7, { name: 'obj_move', args: ['slot', 'u8', 'positioning', 's16', 's16', 's16', 'speed:fx32'] }],
+			[0xe8, { name: 'obj_move_timed', args: ['slot', 'u8', 'positioning', 's16', 's16', 's16', 'duration:u16'] }],
+			[0xe9, { name: 'obj_move_around_obj', args: ['slot', 'u8', 'slot', 's16', 's16', 's16', 'speed:fx32'] }],
+			[0xea, { name: 'obj_move_around_obj_timed', args: ['slot', 'u8', 'slot', 's16', 's16', 's16', 'duration:u16'] }],
+			[0xeb, { name: 'obj_move_wait', args: ['slot', 'u8'] }],
+			[0xef, { name: 'obj_set_position', args: ['slot', 'positioning', 's16', 's16', 's16'] }],
+			[0xf0, { name: 'obj_set_position_around_obj', args: ['slot', 'slot', 's16', 's16', 's16'] }],
+			[0xf3, { name: 'obj_set_home', args: ['slot', 'positioning', 's16', 's16', 's16'] }],
+			[0x10f, { name: 'obj_jump', args: ['slot', 'u8', 's16', 's16', 'fx32'] }],
+			[0x121, { name: 'spawn_monster_atk_thread', args: ['slot', 'slot'] }],
+			[0x122, { name: 'join_monster_atk_thread', args: ['slot'] }],
+			[0x124, { name: 'monster_set_damage_victim', args: ['slot', 'u8', 'slot', 'fx16'] }],
+			[0x125, { name: 'monster_set_damage_victims', args: ['slot', 'u8', 'fx16'] }],
+			[0x126, { name: 'monster_clear_damage_victims', args: ['slot'] }],
+			[0x1ee, {
+				name: 'load_messages',
+				note: cmd => {
+					if (cmd.registers & 0b11) return;
+					if (cmd.args[0] === 22) return `BMes_yo[0x${cmd.args[1].toString(16)}]`;
+					if (cmd.args[0] === 23) return `BMes_ji[0x${cmd.args[1].toString(16)}]`;
+					if (cmd.args[0] === 24) return `BMes_cf[0x${cmd.args[1].toString(16)}]`;
+				},
+			}],
+			[0x1ef, { name: 'load_messages2' }],
+			[0x1f1, { name: 'textbox_say' }],
+			[0x1f2, { name: 'textbox_wait' }],
+			[0x1fc, { name: 'sound_play_directional', args: ['slot', 'u32', 's16', 's16', 's16', 'u8', 'u8'] }],
+			[0x1fd, { name: 'sound_play_directional_handle', args: ['slot', 'u32', 's16', 's16', 's16', 'u8', 'u8'] }],
+			[0x1fe, { name: 'sound_play', args: ['slot', 'u32', 's16', 's16', 's16', 'u8', 'u8'] }],
+			[0x1ff, { name: 'sound_play_handle', args: ['slot', 'u32', 's16', 's16', 's16', 'u8', 'u8'] }],
+			[0x200, { name: 'sound_stop' }],
+			[0x201, { 
+				name: 'music_set',
+				note: cmd => {
+					if (cmd.registers & 1) return;
+					return sound.names[cmd.args[0]];
+				},
+			}],
+			[0x202, {
+				name: 'music_set2',
+				note: cmd => {
+					if (cmd.registers & 1) return;
+					return sound.names[cmd.args[0]];
+				},
+			}],
+			[0x203, { name: 'music_fade_out' }],
+			[0x204, { args: ['operator', 's32', 's32', 's32', 's32', 'location'] }],
+			[0x205, { args: ['operator', 'slot', 'attribute', 's32', 'location'] }],
+			[0x206, { args: ['slot', 's8', 'location'] }],
+			[0x207, { args: ['slot', 'u8', 's32', 'location'] }],
+			[0x208, { args: ['slot', 's32', 'location'] }],
+			[0x209, { args: ['slot', 's8', 's32', 'location'] }],
+			// 0x204 - 0x209 : syntactic sugar for different "if" variants
+			[0x213, { name: 'random_attack_target' }],
+			[0x216, { name: 'is_monster', args: ['slot'] }],
+			[0x219, { name: 'monster_next_slot' }],
+			[0x21a, { name: 'desc_next_slot' }],
+			[0x21b, { name: 'desc_by_sprite_id_cached' }],
+			[0x21c, { name: 'desc_by_monster_id_cached' }],
+			[0x221, { name: 'add_item_reward' }],
+			[0x222, { name: 'add_coin_reward' }],
 		]);
-
-		// for debugging only: very slow!
-		const VALIDATE_LINKED_LIST = (head, label) => {
-			const seen = new Set();
-
-			const check = node => {
-				while (node) {
-					if (seen.has(node)) {
-						console.error(node);
-						throw new Error(`DUPLICATE NODE`);
-					}
-					seen.add(node);
-
-					if (node.type === 'fn') {
-						check(node.innerHead);
-						if (!seen.has(node.innerTail)) throw new Error(`FN UNUSED TAIL - ${label}`);
-					}
-
-					if (Number.isNaN(node.left)) throw new Error(`NAN LEFT - ${label}`);
-					if (Number.isNaN(node.right)) throw new Error(`NAN RIGHT - ${label}`);
-					if (node.next && node.next.prev !== node) throw new Error(`BAD NEXT.PREV - ${label}`);
-					if (node.prev && node.prev.next !== node) throw new Error(`BAD PREV.NEXT - ${label}`);
-					if (node.next && node.next.left !== node.right) throw new Error(`BAD .RIGHT <=> NEXT.LEFT - ${label}`);
-					if (node.prev && node.prev.right !== node.left) throw new Error(`BAD .LEFT <=> PREV.RIGHT - ${label}`);
-					node = node.next;
-				}
-			};
-
-			console.log('VALIDATE_LINKED_LIST OK');
-		};
 
 		// leftNode and rightNode are optional, node is required
 		const llLink = (leftNode, node, rightNode) => {
@@ -242,6 +377,7 @@ window.initBai = () => {
 			return { type, left, right, prev: undefined, next: undefined, ...fields };
 		};
 
+		bai.decomp = undefined; // decompilation output
 		bai.decompiler = {};
 
 		// Decompiles a single array or returns undefined if invalid.
@@ -475,7 +611,7 @@ window.initBai = () => {
 		};
 
 		// Discovers arrays and Shift-JIS strings from commands that use them. Breaks apart "unknown" types.
-		// Handles these node types: head, cmd, unknown
+		// Handles these node types: cmd, unknown
 		bai.decompiler.findStaticReferences = decomp => {
 			const stringReferences = new Set();
 			const arrayReferences = new Set();
@@ -536,7 +672,7 @@ window.initBai = () => {
 		// the jump will become unreachable and dead.
 		// Not detecting dead code as actual code pretty much destroys all control-flow pattern recognition from working
 		// so this is necessary. Dead code will have its "dead" attribute set to true.
-		// Handles these node types: head, cmd, array, string, unknown
+		// Handles these node types: unknown
 		bai.decompiler.decompDeadCode = decomp => {
 			const { dat } = decomp;
 
@@ -584,7 +720,7 @@ window.initBai = () => {
 		};
 
 		// Creates functions using all CM_0003 (mode 1), BA_0047, BA_0048, and BA_0049 references.
-		// Handles these node types: head, cmd, array, string, unknown
+		// Handles these node types: cmd
 		bai.decompiler.guaranteedFunctions = decomp => {
 			const functionLabels = new Map();
 			const addFunctionLabel = (location, name) => {
@@ -660,8 +796,8 @@ window.initBai = () => {
 			}
 		};
 
-		// Detects if..else.
-		// Handles these node types: head, cmd, array, string, unknown, fn
+		// Detects if..else and switch.
+		// Handles these node types: fn, cmd
 		bai.decompiler.controlFlow = decomp => {
 			const searchStack = [{ node: decomp.head, left: decomp.head.left, right: decomp.tail.right }];
 			while (searchStack.length) {
@@ -733,15 +869,20 @@ window.initBai = () => {
 							const ifBlockHead = llNode('head', node.right, node.right, { parent: newNode });
 							const ifBlockTail = llNode('tail', lastIfNode.right, lastIfNode.right, { parent: newNode });
 							if (emptyIfBlock) {
-								llLink(ifBlockHead, lastIfNode, ifBlockTail); // move lastIfNode into "if" block
-								llLink(undefined, ifBlockHead, ifBlockTail); // remove it from "if" block
+								llLink(ifBlockHead, lastIfNode, ifBlockTail);
+								llLink(undefined, ifBlockHead, ifBlockTail);
 							} else {
 								llLink(undefined, ifBlockHead, firstIfNode);
-								llLink(lastIfNode, ifBlockTail, undefined); // move lastIfNode into "if" block
-								llLink(lastIfNode.prev, ifBlockTail, undefined);  // remove it from "if" block
+								llLink(lastIfNode, ifBlockTail, undefined);
 							}
+
+							const newLastIfNode = llNode('if-exit', lastIfNode.left, lastIfNode.right, {
+								cmd: lastIfNode,
+							});
+							llLink(lastIfNode.prev, newLastIfNode, lastIfNode.next);
+
 							newNode.conditionBlocks.push(
-								{ cmd: node, exit: lastIfNode, innerHead: ifBlockHead, innerTail: ifBlockTail },
+								{ cmd: node, innerHead: ifBlockHead, innerTail: ifBlockTail },
 							);
 
 							const elseBlockHead = llNode('head', elseNode.left, elseNode.left, { parent: newNode });
@@ -932,7 +1073,7 @@ window.initBai = () => {
 		};
 
 		// Collapses all: if { ... } else { if { ... } } patterns into: if { ... } else if { ... }.
-		// Handles these node types: head, cmd, array, string, unknown, fn
+		// Handles these node types: fn, if, switch
 		bai.decompiler.collapseIfElse = decomp => {
 			const ifs = [];
 
@@ -949,6 +1090,12 @@ window.initBai = () => {
 							searchStack.push(node.conditionBlocks[i].innerHead);
 						}
 						if (node.elseBlock) searchStack.push(node.elseBlock.innerHead);
+						searchStack.push(node.next);
+						node = undefined;
+					} else if (node.type === 'switch') {
+						searchStack.push(node.entryBlock.innerHead);
+						for (const block of node.conditionBlocks) searchStack.push(block.innerHead);
+						if (node.defaultBlock) searchStack.push(node.defaultBlock.innerHead);
 						searchStack.push(node.next);
 						node = undefined;
 					}
@@ -972,6 +1119,114 @@ window.initBai = () => {
 				}
 
 				node.elseBlock = innerFirst.elseBlock;
+			}
+		};
+
+		// Matches much simpler if's from CM_0002 and BA_0204 - BA_0209 (no "else" block).
+		// Done last, when there is no other justification for these "if"s to exist.
+		// Handles these node types: cmd, fn, if, switch
+		bai.decompiler.simpleIfBlock = decomp => {
+			const searchStack = [decomp.head];
+			while (searchStack.length) {
+				let node = searchStack.pop();
+				const startNode = node;
+
+				// preprocess
+				const locationToNode = new Map();
+				while (node) {
+					locationToNode.set(node.left, node);
+					node = node.next;
+				}
+
+				node = startNode;
+				while (node) {
+					if (node.type === 'cmd') {
+						// match plain "if":
+						// CM_0002(operator, left, right, 0, @a)
+						// ...
+						// @a ...
+						if (node.opcode === 2 || (0x204 <= node.opcode && node.opcode <= 0x209)) (() => {
+							// operator, targetBool, and jumpOffset must be constant
+							let targetBool, jumpOffset;
+							if (node.opcode === 2) {
+								if (node.registers & 0b11001) return;
+								targetBool = node.args[3];
+								jumpOffset = node.args[4];
+							} else if (node.opcode === 0x204) {
+								if (node.registers & 0b110001) return;
+								targetBool = node.args[4];
+								jumpOffset = node.args[5];
+							} /* else if (node.opcode === 0x205) {
+								if (node.registers & 0b11001) return;
+								targetBool = node.args[3]; // technically "targetValue"
+								jumpOffset = node.args[4];
+							} else if (node.opcode === 0x206) {
+								if (node.registers & 0b110) return;
+								targetBool = node.args[1];
+								jumpOffset = node.args[2];
+							} else if (node.opcode === 0x207) {
+								if (node.registers & 0b1100) return;
+								targetBool = node.args[2];
+								jumpOffset = node.args[3];
+							} else if (node.opcode === 0x208) {
+								if (node.registers & 0b110) return;
+								targetBool = node.args[1];
+								jumpOffset = node.args[2];
+							} else if (node.opcode === 0x209) {
+								if (node.registers & 0b1100) return;
+								targetBool = node.args[2]; // technically "targetValue"
+								jumpOffset = node.args[3];
+							} */
+
+							// targetBool must be 0 (SKIP if condition is false), must not jump backwards
+							if (targetBool !== 0 || jumpOffset < 0) return;
+
+							const exitNode = locationToNode.get(node.right + jumpOffset);
+							if (!exitNode) return;
+
+							const newNode = llNode('if', node.left, exitNode.left, {
+								conditionBlocks: [],
+								elseBlock: undefined,
+							});
+
+							const prev = node.prev;
+							const next = exitNode;
+							const innerFirst = node.next;
+							const innerLast = exitNode.prev;
+							const innerHead = llNode('head', innerFirst.left, innerFirst.left, { parent: newNode });
+							const innerTail = llNode('tail', innerLast.right, innerLast.right, { parent: newNode });
+							if (jumpOffset === 0) {
+								// empty block
+								llLink(undefined, innerHead, innerTail);
+							} else {
+								llLink(undefined, innerHead, innerFirst);
+								llLink(innerLast, innerTail, undefined);
+							}
+
+							llLink(undefined, node, undefined);
+							newNode.conditionBlocks.push({ cmd: node, innerHead, innerTail });
+							llLink(prev, newNode, next);
+							searchStack.push(innerHead, next);
+							node = undefined;
+						})();
+					} else if (node.type === 'fn') {
+						searchStack.push(node.innerHead, node.next);
+						node = undefined;
+					} else if (node.type === 'if') {
+						for (const block of node.conditionBlocks) searchStack.push(block.innerHead);
+						if (node.elseBlock) searchStack.push(node.elseBlock.innerHead);
+						searchStack.push(node.next);
+						node = undefined;
+					} else if (node.type === 'switch') {
+						searchStack.push(node.entryBlock.innerHead);
+						for (const block of node.conditionBlocks) searchStack.push(block.innerHead);
+						if (node.defaultBlock) searchStack.push(node.defaultBlock.innerHead);
+						searchStack.push(node.next);
+						node = undefined;
+					}
+
+					if (node) node = node.next;
+				}
 			}
 		};
 
@@ -1304,13 +1559,6 @@ window.initBai = () => {
 			[2, 'sprite'],
 			[12, 'flying'],
 		]);
-
-		bai.spriteFile = x => {
-			if (x >>> 24 === 0xc0) return `BObjPc[0x${(x & 0xffff).toString(16)}]`;
-			if (x >>> 24 === 0xc1) return `BObjMon[0x${(x & 0xffff).toString(16)}]`;
-			if (x >>> 24 === 0xc2) return `BObjUI[0x${(x & 0xffff).toString(16)}]`;
-			return '(?)';
-		};
 
 		const operators = ['==', '!=', '<', '>', '<=', '>=', '&', '|', '^']; // unary operators are unused
 		const builtin = x => `<span style="color: var(--peach);">${x}</span>`;
@@ -1887,32 +2135,39 @@ window.initBai = () => {
 			};
 
 			const argF = (i, enumType, localNode = node) => {
+				let prefix = '';
+				if (enumType && enumType.includes(':')) {
+					let [label, actualEnumType] = enumType.split(':');
+					prefix = `${label}=`;
+					enumType = actualEnumType;
+				}
+
 				const x = localNode.args[i];
 				if (localNode.registers & (1 << i)) {
-					return text(useCustomNames.checked ? bai.registerName(x) : `reg_${str16(x)}`);
+					return prefix + text(useCustomNames.checked ? bai.registerName(x) : `reg_${str16(x)}`);
 				}
 
 				if (enumType === 'location') {
 					const to = localNode.right + x;
-					return labelNames.get(to) ?? location(str16(to));
+					return prefix + (labelNames.get(to) ?? location(str16(to)));
 				}
 
 				if (useCustomNames.checked) {
 					const enums = bai.enumTypes[enumType];
 					if (enums) {
 						const name = enums.get(x);
-						if (name) return constant(name);
+						if (name) return prefix + constant(name);
 					}
 				}
 
 				const type = bai.dialect[localNode.opcode].args[i];
 				if (type <= 5) {
 					// u8, u16, u32, s8, s16, s32
-					if (x <= -128) return constant('-0x' + (-x).toString(16));
-					if (x <= 127) return constant(String(x));
-					return constant('0x' + x.toString(16));
+					if (x <= -128) return prefix + constant('-0x' + (-x).toString(16));
+					if (x <= 127) return prefix + constant(String(x));
+					return prefix + constant('0x' + x.toString(16));
 				}
-				return constant(String(x)); // fx16, fx32 (leave as-is)
+				return prefix + constant(String(x)); // fx16, fx32 (leave as-is)
 			};
 
 			const outF = (localNode = node) => {
@@ -1994,6 +2249,10 @@ window.initBai = () => {
 						name ||= `${common ? 'CM' : 'BA'}_${str16(op).toUpperCase()}`;
 						str = outF() + `${(common ? builtin : fn)(name)}(${argsF.join(', ')})`;
 					}
+
+					const note = details?.note?.(node);
+					if (note) str += ' // ' + note;
+
 					output.push(prefix() + str);
 				} else if (node.type === 'string') {
 					output.push(prefix() + string('"' + node.decoded + '"'));
@@ -2038,15 +2297,42 @@ window.initBai = () => {
 						if (index < localNode.conditionBlocks.length) {
 							let condition;
 							const block = localNode.conditionBlocks[index];
-							if (block.cmd.opcode === 2) {
+							const cmd = block.cmd;
+							if (cmd.opcode === 2) {
 								condition = bai.compare(
-									block.cmd.args[0],
-									argF(1, undefined, block.cmd),
-									argF(2, undefined, block.cmd),
+									cmd.args[0],
+									argF(1, undefined, cmd),
+									argF(2, undefined, cmd),
 									operator,
 								);
-							} else {
-								operator = error(`&lt;UNSUPPORTED CONDITION CMD: ${str16(block.cmd.opcode)}&gt;`);
+							} else if (cmd.opcode === 0x204) {
+								const comparator = bai.compare(
+									cmd.args[0],
+									argF(1, undefined, cmd),
+									argF(2, undefined, cmd),
+									operator,
+								);
+								condition = `(${comparator}) ${operator('==')} ${argF(3, undefined, cmd)}`;
+							} /* else if (cmd.opcode === 0x205) {
+								// this command only gets turned into an "if" if the jump occurs if falsy (i.e. block
+								// is only entered if the attribute is truthy)
+								const slot = argF(0, 'slot', cmd);
+								const attr = argF(1, 'attribute', cmd);
+								condition = `${fn('attribute_get')}(${slot}, ${attr})`;
+							} else if (cmd.opcode === 0x206) {
+								// unknown what this does
+								condition = `!${fn('BA_0206')}(${argF(0, 'slot', cmd)})`;
+							} else if (cmd.opcode === 0x207) {
+								// unknown what this does
+								condition = `!${fn('BA_0207')}(${argF(0, 'slot', cmd)}, ${argF(1, undefined, cmd)})`;
+							} else if (cmd.opcode === 0x208) {
+								condition = `${operator('!')}${fn('BA_0208')}(${argF(0, 'slot', cmd)})`;
+							} else if (cmd.opcode === 0x209) {
+								const slot = argF(0, 'slot', cmd);
+								const contextState = argF(1, undefined, cmd);
+								condition = `${operator('!')}${fn('BA_0209')}(${slot}, ${contextState})`;
+							} */ else {
+								condition = error(`&lt;UNSUPPORTED CONDITION CMD: ${str16(cmd.opcode)}&gt;`);
 							}
 
 							if (index === 0) {
@@ -2073,6 +2359,8 @@ window.initBai = () => {
 						}
 					};
 					node = step();
+				} else if (node.type === 'if-exit') {
+					// display nothing
 				} else if (node.type === 'switch') {
 					const localNode = node;
 					let index = 0;
@@ -2140,17 +2428,15 @@ window.initBai = () => {
 
 				const startTimestamp = performance.now();
 
-				const decomp = bai.decompiler.first(script);
+				const decomp = bai.decomp = bai.decompiler.first(script);
 				bai.decompiler.findStaticReferences(decomp);
 				bai.decompiler.decompDeadCode(decomp);
 				bai.decompiler.guaranteedFunctions(decomp);
 				bai.decompiler.controlFlow(decomp);
 				bai.decompiler.collapseIfElse(decomp);
-				VALIDATE_LINKED_LIST(decomp.head);
+				bai.decompiler.simpleIfBlock(decomp);
 
 				const decompTimestamp = performance.now();
-
-				bai.decomp = decomp;
 
 				updateDisplay = () => {
 					const startPreviewTimestamp = performance.now();
