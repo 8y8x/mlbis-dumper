@@ -158,7 +158,7 @@ window.initBai = () => {
 		bai.typeNames = ['u8', 'u16', 'u32', 's8', 's16', 's32', 'fx16', 'fx32'];
 		bai.typeSizes = [1, 2, 4, 1, 2, 4, 2, 4];
 
-		const mapify = arr => new Map(arr.map((x,i) => [i,x]));
+		const mapify = arr => new Map(arr.map((x, i) => [i, x]));
 		bai.enumTypes = {
 			action_block: mapify(['0', 'JUMP', 'HAMMER', 'FLEE', 'ITEM', 'SPECIAL', 'PUNCH', '7', '8', '9']),
 			attribute: new Map([
@@ -265,44 +265,56 @@ window.initBai = () => {
 			[0x4e, { args: ['slot'] }],
 			[0x58, { name: 'party_turn_check' }],
 			[0x59, { name: 'party_turn_wait' }],
-			[0x63, {
-				name: 'desc_by_sprite_id',
-				args: ['slot', 'u32', 's8'],
-				note: cmd => {
-					if (cmd.registers & 0b10) return;
-					return bai.spriteFile(cmd.args[1]);
+			[
+				0x63,
+				{
+					name: 'desc_by_sprite_id',
+					args: ['slot', 'u32', 's8'],
+					note: cmd => {
+						if (cmd.registers & 0b10) return;
+						return bai.spriteFile(cmd.args[1]);
+					},
 				},
-			}],
-			[0x65, {
-				name: 'desc_by_monster_id',
-				args: ['slot', 'u16'],
-				note: cmd => {
-					if (cmd.registers & 0b10) return;
-					return monsters.monsters[cmd.args[1]].name ?? '(?)';
+			],
+			[
+				0x65,
+				{
+					name: 'desc_by_monster_id',
+					args: ['slot', 'u16'],
+					note: cmd => {
+						if (cmd.registers & 0b10) return;
+						return monsters.monsters[cmd.args[1]].name ?? '(?)';
+					},
 				},
-			}],
-			[0x66, {
-				name: 'load_atk_script',
-				args: ['u16'],
-				note: cmd => {
-					if (cmd.registers & 1) return;
-					return bai.scriptFile(cmd.args[0]);
+			],
+			[
+				0x66,
+				{
+					name: 'load_atk_script',
+					args: ['u16'],
+					note: cmd => {
+						if (cmd.registers & 1) return;
+						return bai.scriptFile(cmd.args[0]);
+					},
 				},
-			}],
+			],
 			[0x68, { name: 'desc_by_sprite_id_load', args: ['slot'] }],
 			[0x69, { name: 'desc_by_monster_id_load', args: ['slot'] }],
 			[0x6a, { name: 'load_atk_script2' }],
 			[0x6d, { name: 'npc_init', args: ['slot'] }],
 			[0x6f, { name: 'monster_apply_desc', args: ['slot'] }],
-			[0x71, {
-				name: 'set_bmap',
-				note: cmd => {
-					if (cmd.registers & 0b11) return;
-					const bmap1P = cmd.args[0] === -1 ? 'default' : cmd.args[0];
-					const bmap2P = cmd.args[1] === -1 ? 'default' : cmd.args[1];
-					return `1 player = 0x${bmap1P.toString(16)}, 2 player = 0x${bmap2P.toString(16)}`;
+			[
+				0x71,
+				{
+					name: 'set_bmap',
+					note: cmd => {
+						if (cmd.registers & 0b11) return;
+						const bmap1P = cmd.args[0] === -1 ? 'default' : cmd.args[0];
+						const bmap2P = cmd.args[1] === -1 ? 'default' : cmd.args[1];
+						return `1 player = 0x${bmap1P.toString(16)}, 2 player = 0x${bmap2P.toString(16)}`;
+					},
 				},
-			}],
+			],
 			[0x73, { name: 'counterattack_set', args: ['slot', 'counterattack'] }],
 			[0x7b, { name: 'action_block_disable', args: ['action_block'] }],
 			[0x7e, { name: 'end_battle' }],
@@ -314,9 +326,18 @@ window.initBai = () => {
 			[0xc9, { name: 'destroy', args: ['slot'] }],
 			[0xd3, { name: 'npc_apply_desc', args: ['slot'] }],
 			[0xe7, { name: 'obj_move', args: ['slot', 'u8', 'positioning', 's16', 's16', 's16', 'speed:fx32'] }],
-			[0xe8, { name: 'obj_move_timed', args: ['slot', 'u8', 'positioning', 's16', 's16', 's16', 'duration:u16'] }],
+			[
+				0xe8,
+				{ name: 'obj_move_timed', args: ['slot', 'u8', 'positioning', 's16', 's16', 's16', 'duration:u16'] },
+			],
 			[0xe9, { name: 'obj_move_around_obj', args: ['slot', 'u8', 'slot', 's16', 's16', 's16', 'speed:fx32'] }],
-			[0xea, { name: 'obj_move_around_obj_timed', args: ['slot', 'u8', 'slot', 's16', 's16', 's16', 'duration:u16'] }],
+			[
+				0xea,
+				{
+					name: 'obj_move_around_obj_timed',
+					args: ['slot', 'u8', 'slot', 's16', 's16', 's16', 'duration:u16'],
+				},
+			],
 			[0xeb, { name: 'obj_move_wait', args: ['slot', 'u8'] }],
 			[0xef, { name: 'obj_set_position', args: ['slot', 'positioning', 's16', 's16', 's16'] }],
 			[0xf0, { name: 'obj_set_position_around_obj', args: ['slot', 'slot', 's16', 's16', 's16'] }],
@@ -327,15 +348,18 @@ window.initBai = () => {
 			[0x124, { name: 'monster_set_damage_victim', args: ['slot', 'u8', 'slot', 'fx16'] }],
 			[0x125, { name: 'monster_set_damage_victims', args: ['slot', 'u8', 'fx16'] }],
 			[0x126, { name: 'monster_clear_damage_victims', args: ['slot'] }],
-			[0x1ee, {
-				name: 'load_messages',
-				note: cmd => {
-					if (cmd.registers & 0b11) return;
-					if (cmd.args[0] === 22) return `BMes_yo[0x${cmd.args[1].toString(16)}]`;
-					if (cmd.args[0] === 23) return `BMes_ji[0x${cmd.args[1].toString(16)}]`;
-					if (cmd.args[0] === 24) return `BMes_cf[0x${cmd.args[1].toString(16)}]`;
+			[
+				0x1ee,
+				{
+					name: 'load_messages',
+					note: cmd => {
+						if (cmd.registers & 0b11) return;
+						if (cmd.args[0] === 22) return `BMes_yo[0x${cmd.args[1].toString(16)}]`;
+						if (cmd.args[0] === 23) return `BMes_ji[0x${cmd.args[1].toString(16)}]`;
+						if (cmd.args[0] === 24) return `BMes_cf[0x${cmd.args[1].toString(16)}]`;
+					},
 				},
-			}],
+			],
 			[0x1ef, { name: 'load_messages2' }],
 			[0x1f1, { name: 'textbox_say' }],
 			[0x1f2, { name: 'textbox_wait' }],
@@ -344,20 +368,26 @@ window.initBai = () => {
 			[0x1fe, { name: 'sound_play', args: ['slot', 'u32', 's16', 's16', 's16', 'u8', 'u8'] }],
 			[0x1ff, { name: 'sound_play_handle', args: ['slot', 'u32', 's16', 's16', 's16', 'u8', 'u8'] }],
 			[0x200, { name: 'sound_stop' }],
-			[0x201, { 
-				name: 'music_set',
-				note: cmd => {
-					if (cmd.registers & 1) return;
-					return sound.names[cmd.args[0]];
+			[
+				0x201,
+				{
+					name: 'music_set',
+					note: cmd => {
+						if (cmd.registers & 1) return;
+						return sound.names[cmd.args[0]];
+					},
 				},
-			}],
-			[0x202, {
-				name: 'music_set2',
-				note: cmd => {
-					if (cmd.registers & 1) return;
-					return sound.names[cmd.args[0]];
+			],
+			[
+				0x202,
+				{
+					name: 'music_set2',
+					note: cmd => {
+						if (cmd.registers & 1) return;
+						return sound.names[cmd.args[0]];
+					},
 				},
-			}],
+			],
 			[0x203, { name: 'music_fade_out' }],
 			[0x204, { args: ['operator', 's32', 's32', 's32', 's32', 'location'] }],
 			[0x205, { args: ['operator', 'slot', 'attribute', 's32', 'location'] }],
@@ -370,20 +400,26 @@ window.initBai = () => {
 			[0x216, { name: 'is_monster', args: ['slot'] }],
 			[0x219, { name: 'monster_next_slot' }],
 			[0x21a, { name: 'desc_next_slot' }],
-			[0x21b, {
-				name: 'desc_by_sprite_id_cached',
-				note: cmd => {
-					if (cmd.registers & 0b10) return;
-					return bai.spriteFile(cmd.args[1]);
+			[
+				0x21b,
+				{
+					name: 'desc_by_sprite_id_cached',
+					note: cmd => {
+						if (cmd.registers & 0b10) return;
+						return bai.spriteFile(cmd.args[1]);
+					},
 				},
-			}],
-			[0x21c, {
-				name: 'desc_by_monster_id_cached',
-				note: cmd => {
-					if (cmd.registers & 0b1) return;
-					return monsters.monsters[cmd.args[0]].name ?? '(?)';
+			],
+			[
+				0x21c,
+				{
+					name: 'desc_by_monster_id_cached',
+					note: cmd => {
+						if (cmd.registers & 0b1) return;
+						return monsters.monsters[cmd.args[0]].name ?? '(?)';
+					},
 				},
-			}],
+			],
 			[0x221, { name: 'add_item_reward' }],
 			[0x222, { name: 'add_coin_reward' }],
 		]);
@@ -612,22 +648,34 @@ window.initBai = () => {
 
 					// see if this command goes anywhere
 					const { opcode, args } = newNode;
-					if (opcode === 0) terminates = true; // terminate
-					else if (opcode === 1) terminates = true; // return from function
-					else if (opcode === 2) locationStack.push(o + args[4]); // conditional jump
+					if (opcode === 0)
+						terminates = true; // terminate
+					else if (opcode === 1)
+						terminates = true; // return from function
+					else if (opcode === 2)
+						locationStack.push(o + args[4]); // conditional jump
 					else if (opcode === 3) {
 						// unconditional jump: mode 1 is a function call that *can* return
 						if (args[0] !== 1) terminates = true;
 						locationStack.push(o + args[1]);
-					} else if (opcode === 7) locationStack.push(o + args[3]); // stack-conditional jump
-					else if (opcode === 0x47) locationStack.push(o + args[2]); // actor threads
-					else if (opcode === 0x48) locationStack.push(o + args[2]); // ^
-					else if (opcode === 0x49) locationStack.push(o + args[2]); // ^
-					else if (opcode === 0x204) locationStack.push(o + args[5]); // alternative if's
-					else if (opcode === 0x205) locationStack.push(o + args[4]); // ^
-					else if (opcode === 0x206) locationStack.push(o + args[2]); // ^
-					else if (opcode === 0x207) locationStack.push(o + args[3]); // ^
-					else if (opcode === 0x208) locationStack.push(o + args[2]); // ^
+					} else if (opcode === 7)
+						locationStack.push(o + args[3]); // stack-conditional jump
+					else if (opcode === 0x47)
+						locationStack.push(o + args[2]); // actor threads
+					else if (opcode === 0x48)
+						locationStack.push(o + args[2]); // ^
+					else if (opcode === 0x49)
+						locationStack.push(o + args[2]); // ^
+					else if (opcode === 0x204)
+						locationStack.push(o + args[5]); // alternative if's
+					else if (opcode === 0x205)
+						locationStack.push(o + args[4]); // ^
+					else if (opcode === 0x206)
+						locationStack.push(o + args[2]); // ^
+					else if (opcode === 0x207)
+						locationStack.push(o + args[3]); // ^
+					else if (opcode === 0x208)
+						locationStack.push(o + args[2]); // ^
 					else if (opcode === 0x209) locationStack.push(o + args[3]); // ^
 
 					if (terminates) break;
@@ -664,7 +712,8 @@ window.initBai = () => {
 					for (let o = node.left; o < node.right; ++o) {
 						let newNode;
 						if (stringReferences.has(o)) newNode = bai.decompiler.singleString(decomp.dat, o, node.right);
-						else if (arrayReferences.has(o)) newNode = bai.decompiler.singleArray(decomp.dat, o, node.right, false);
+						else if (arrayReferences.has(o))
+							newNode = bai.decompiler.singleArray(decomp.dat, o, node.right, false);
 
 						if (newNode) {
 							// replace node with newNode
@@ -857,79 +906,88 @@ window.initBai = () => {
 						// The target boolean must be false. When it's true, it's some other structure.
 						// If the "else" block ends up only containing an "if" node: (head) (if) (tail)
 						// Then it will be collapsed into newNode (turning it into an if-elif-elif-...-else node).
-						if (node.opcode === 2 && !(node.registers & 0b11001)) (() => {
-							// operator, targetBool, jumpOffset must be constant
-							const [operator, valueLeft, valueRight, targetBool, elseOffset] = node.args;
-							// condition must be false (i.e. SKIP if condition is false), must jump forward and skip at
-							// least one command (CM_0003)
-							if (targetBool !== 0 || elseOffset <= 0) return;
+						if (node.opcode === 2 && !(node.registers & 0b11001))
+							(() => {
+								// operator, targetBool, jumpOffset must be constant
+								const [operator, valueLeft, valueRight, targetBool, elseOffset] = node.args;
+								// condition must be false (i.e. SKIP if condition is false), must jump forward and skip at
+								// least one command (CM_0003)
+								if (targetBool !== 0 || elseOffset <= 0) return;
 
-							const elseLocation = node.right + elseOffset;
-							const elseNode = locationToNode.get(elseLocation);
-							if (!elseNode) return;
+								const elseLocation = node.right + elseOffset;
+								const elseNode = locationToNode.get(elseLocation);
+								if (!elseNode) return;
 
-							const lastIfNode = elseNode.prev; // guaranteed to not be `node`
-							// lastIfMode and exitOffset must be constant
-							if (lastIfNode.type !== 'cmd' || lastIfNode.opcode !== 3 || (lastIfNode.registers & 0b11)) {
-								return;
-							}
+								const lastIfNode = elseNode.prev; // guaranteed to not be `node`
+								// lastIfMode and exitOffset must be constant
+								if (
+									lastIfNode.type !== 'cmd' ||
+									lastIfNode.opcode !== 3 ||
+									lastIfNode.registers & 0b11
+								) {
+									return;
+								}
 
-							// must be mode 2 and a non-negative offset (0 is okay too)
-							const [exitMode, exitOffset] = lastIfNode.args;
-							if (exitMode !== 2 || exitOffset < 0) return;
+								// must be mode 2 and a non-negative offset (0 is okay too)
+								const [exitMode, exitOffset] = lastIfNode.args;
+								if (exitMode !== 2 || exitOffset < 0) return;
 
-							const exitNode = locationToNode.get(lastIfNode.right + exitOffset);
-							if (!exitNode) return;
+								const exitNode = locationToNode.get(lastIfNode.right + exitOffset);
+								if (!exitNode) return;
 
-							// pattern is valid: build out newNode
-							const emptyIfBlock = lastIfNode.prev === node;
-							const emptyElseBlock = exitOffset === 0;
-							const firstIfNode = node.next;
-							const lastElseNode = exitNode.prev;
-							const prev = node.prev;
+								// pattern is valid: build out newNode
+								const emptyIfBlock = lastIfNode.prev === node;
+								const emptyElseBlock = exitOffset === 0;
+								const firstIfNode = node.next;
+								const lastElseNode = exitNode.prev;
+								const prev = node.prev;
 
-							const newNode = llNode('if', node.left, exitNode.left, {
-								conditionBlocks: [],
-								elseBlock: undefined,
-							});
+								const newNode = llNode('if', node.left, exitNode.left, {
+									conditionBlocks: [],
+									elseBlock: undefined,
+								});
 
-							const ifBlockHead = llNode('head', node.right, node.right, { parent: newNode });
-							const ifBlockTail = llNode('tail', lastIfNode.right, lastIfNode.right, { parent: newNode });
-							if (emptyIfBlock) {
-								llLink(ifBlockHead, lastIfNode, ifBlockTail);
-								llLink(undefined, ifBlockHead, ifBlockTail);
-							} else {
-								llLink(undefined, ifBlockHead, firstIfNode);
-								llLink(lastIfNode, ifBlockTail, undefined);
-							}
+								const ifBlockHead = llNode('head', node.right, node.right, { parent: newNode });
+								const ifBlockTail = llNode('tail', lastIfNode.right, lastIfNode.right, {
+									parent: newNode,
+								});
+								if (emptyIfBlock) {
+									llLink(ifBlockHead, lastIfNode, ifBlockTail);
+									llLink(undefined, ifBlockHead, ifBlockTail);
+								} else {
+									llLink(undefined, ifBlockHead, firstIfNode);
+									llLink(lastIfNode, ifBlockTail, undefined);
+								}
 
-							const newLastIfNode = llNode('if-exit', lastIfNode.left, lastIfNode.right, {
-								cmd: lastIfNode,
-							});
-							llLink(lastIfNode.prev, newLastIfNode, lastIfNode.next);
+								const newLastIfNode = llNode('if-exit', lastIfNode.left, lastIfNode.right, {
+									cmd: lastIfNode,
+								});
+								llLink(lastIfNode.prev, newLastIfNode, lastIfNode.next);
 
-							newNode.conditionBlocks.push(
-								{ cmd: node, innerHead: ifBlockHead, innerTail: ifBlockTail },
-							);
+								newNode.conditionBlocks.push({
+									cmd: node,
+									innerHead: ifBlockHead,
+									innerTail: ifBlockTail,
+								});
 
-							const elseBlockHead = llNode('head', elseNode.left, elseNode.left, { parent: newNode });
-							const elseBlockTail = llNode('tail', exitNode.left, exitNode.left, { parent: newNode });
-							if (emptyElseBlock) {
-								llLink(undefined, elseBlockHead, elseBlockTail);
-							} else {
-								llLink(undefined, elseBlockHead, elseNode);
-								llLink(lastElseNode, elseBlockTail, undefined);
-							}
-							newNode.elseBlock = { innerHead: elseBlockHead, innerTail: elseBlockTail };
+								const elseBlockHead = llNode('head', elseNode.left, elseNode.left, { parent: newNode });
+								const elseBlockTail = llNode('tail', exitNode.left, exitNode.left, { parent: newNode });
+								if (emptyElseBlock) {
+									llLink(undefined, elseBlockHead, elseBlockTail);
+								} else {
+									llLink(undefined, elseBlockHead, elseNode);
+									llLink(lastElseNode, elseBlockTail, undefined);
+								}
+								newNode.elseBlock = { innerHead: elseBlockHead, innerTail: elseBlockTail };
 
-							llLink(prev, newNode, exitNode);
-							searchStack.push(
-								{ node: ifBlockHead, left: ifBlockHead.left, right: ifBlockTail.right },
-								{ node: elseBlockHead, left: elseBlockHead.left, right: elseBlockTail.right },
-								{ node: exitNode, left, right },
-							);
-							node = undefined;
-						})();
+								llLink(prev, newNode, exitNode);
+								searchStack.push(
+									{ node: ifBlockHead, left: ifBlockHead.left, right: ifBlockTail.right },
+									{ node: elseBlockHead, left: elseBlockHead.left, right: elseBlockTail.right },
+									{ node: exitNode, left, right },
+								);
+								node = undefined;
+							})();
 
 						// from here on, `node` could be undefined if it already matched something
 						// switch match:
@@ -947,151 +1005,168 @@ window.initBai = () => {
 						// @z CM_0002(1, left, reg_1000, 1, @exit)
 						// ...
 						// CM_0003(2, @exit)
-						// @exit 
-						if (node && node.outputRegister === 0x1000) (() => {
-							let entry = true;
-							let exitNode;
-							let conditionNode = node.next;
+						// @exit
+						if (node && node.outputRegister === 0x1000)
+							(() => {
+								let entry = true;
+								let exitNode;
+								let conditionNode = node.next;
 
-							let entryBlock;
-							const conditionBlocks = [];
-							const breakNodes = new Set();
-							let defaultBlock;
-							while (conditionNode) {
-								let nextConditionNode;
-								if (entry) {
-									// match CM_0003(2, @a); must skip at least one instruction (the exit)
-									if (conditionNode.type !== 'cmd' || conditionNode.opcode !== 3) return;
-									if (conditionNode.registers & 0b11) return; // all arguments must be constant
-									if (conditionNode.args[0] !== 2 || conditionNode.args[1] <= 0) return;
+								let entryBlock;
+								const conditionBlocks = [];
+								const breakNodes = new Set();
+								let defaultBlock;
+								while (conditionNode) {
+									let nextConditionNode;
+									if (entry) {
+										// match CM_0003(2, @a); must skip at least one instruction (the exit)
+										if (conditionNode.type !== 'cmd' || conditionNode.opcode !== 3) return;
+										if (conditionNode.registers & 0b11) return; // all arguments must be constant
+										if (conditionNode.args[0] !== 2 || conditionNode.args[1] <= 0) return;
 
-									nextConditionNode = locationToNode.get(conditionNode.right + conditionNode.args[1]);
-								} else {
-									(() => {
-										// match CM_0002(1, left, reg_1000, @b); must skip at least one instruction
-										if (conditionNode.type !== 'cmd' || conditionNode.opcode !== 2) return;
+										nextConditionNode = locationToNode.get(
+											conditionNode.right + conditionNode.args[1],
+										);
+									} else {
+										(() => {
+											// match CM_0002(1, left, reg_1000, @b); must skip at least one instruction
+											if (conditionNode.type !== 'cmd' || conditionNode.opcode !== 2) return;
 
-										const [operator, left, right, targetBool, jumpOffset] = conditionNode.args;
-										// operator, targetBool, and jumpLocation must be constant
-										if (conditionNode.registers & 0b11001) return;
-										// must jump forward
-										if (operator !== 1 || targetBool !== 1 || jumpOffset <= 0) return;
-										// right must be reg_1000
-										if (!(conditionNode.registers & 0b00100) || right !== 0x1000) return;
+											const [operator, left, right, targetBool, jumpOffset] = conditionNode.args;
+											// operator, targetBool, and jumpLocation must be constant
+											if (conditionNode.registers & 0b11001) return;
+											// must jump forward
+											if (operator !== 1 || targetBool !== 1 || jumpOffset <= 0) return;
+											// right must be reg_1000
+											if (!(conditionNode.registers & 0b00100) || right !== 0x1000) return;
 
-										nextConditionNode = locationToNode.get(conditionNode.right + jumpOffset);
-									})();
+											nextConditionNode = locationToNode.get(conditionNode.right + jumpOffset);
+										})();
 
-									if (!nextConditionNode) {
-										// this is a default case
-										defaultBlock = { innerFirst: conditionNode, innerLast: exitNode.prev };
-										break;
+										if (!nextConditionNode) {
+											// this is a default case
+											defaultBlock = { innerFirst: conditionNode, innerLast: exitNode.prev };
+											break;
+										}
 									}
+
+									if (!nextConditionNode) return;
+
+									// must match CM_0003(2, @exit); jump offset can be zero, but not negative
+									const breakNode = (() => {
+										const breakNode = nextConditionNode.prev;
+										if (breakNode.type !== 'cmd' || breakNode.opcode !== 3) return;
+										if (breakNode.registers & 0b11) return; // all arguments must be constant
+										if (breakNode.args[0] !== 2 || breakNode.args[1] < 0) return;
+
+										if (entry) {
+											exitNode = locationToNode.get(breakNode.right + breakNode.args[1]);
+											if (!exitNode) return;
+										} else {
+											if (breakNode.right + breakNode.args[1] !== exitNode.left) return;
+										}
+
+										return breakNode;
+									})();
+									if (breakNode) breakNodes.add(breakNode);
+
+									const block = {
+										cmd: conditionNode,
+										innerFirst: conditionNode.next,
+										innerLast: nextConditionNode.prev,
+									};
+									if (entry) entryBlock = block;
+									else conditionBlocks.push(block);
+
+									if (nextConditionNode === exitNode) break; // no more *blocks*
+									if (!breakNode) return; // still got more blocks to go, so there has to be a break node
+
+									entry = false;
+									conditionNode = nextConditionNode;
 								}
 
-								if (!nextConditionNode) return;
+								if (!conditionBlocks.length) return;
 
-								// must match CM_0003(2, @exit); jump offset can be zero, but not negative
-								const breakNode = (() => {
-									const breakNode = nextConditionNode.prev;
-									if (breakNode.type !== 'cmd' || breakNode.opcode !== 3) return;
-									if (breakNode.registers & 0b11) return; // all arguments must be constant
-									if (breakNode.args[0] !== 2 || breakNode.args[1] < 0) return;
+								// this is a switch statement, now make it
+								const prev = node;
+								const next = exitNode;
 
-									if (entry) {
-										exitNode = locationToNode.get(breakNode.right + breakNode.args[1]);
-										if (!exitNode) return;
-									} else {
-										if (breakNode.right + breakNode.args[1] !== exitNode.left) return;
-									}
+								const tryReplaceBreak = breakNode => {
+									if (!breakNodes.has(breakNode)) return;
 
-									return breakNode;
-								})();
-								if (breakNode) breakNodes.add(breakNode);
+									const newBreakNode = llNode('switch-break', breakNode.left, breakNode.right, {
+										cmd: breakNode,
+									});
+									llLink(breakNode.prev, newBreakNode, breakNode.next);
+								};
 
-								const block = { cmd: conditionNode, innerFirst: conditionNode.next, innerLast: nextConditionNode.prev };
-								if (entry) entryBlock = block;
-								else conditionBlocks.push(block);
-
-								if (nextConditionNode === exitNode) break; // no more *blocks*
-								if (!breakNode) return; // still got more blocks to go, so there has to be a break node
-
-								entry = false;
-								conditionNode = nextConditionNode;
-							}
-
-							if (!conditionBlocks.length) return;
-
-							// this is a switch statement, now make it
-							const prev = node;
-							const next = exitNode;
-
-							const tryReplaceBreak = breakNode => {
-								if (!breakNodes.has(breakNode)) return;
-
-								const newBreakNode = llNode('switch-break', breakNode.left, breakNode.right, {
-									cmd: breakNode,
+								const newNode = llNode('switch', entryBlock.cmd.left, exitNode.left, {
+									entryBlock: undefined,
+									conditionBlocks: [],
+									defaultBlock: undefined,
 								});
-								llLink(breakNode.prev, newBreakNode, breakNode.next);
-							};
 
-							const newNode = llNode('switch', entryBlock.cmd.left, exitNode.left, { 
-								entryBlock: undefined, conditionBlocks: [], defaultBlock: undefined,
-							});
-
-							const entryHead = llNode('head', entryBlock.innerFirst.left, entryBlock.innerFirst.left, {
-								parent: newNode,
-							});
-							const entryTail = llNode('tail', entryBlock.innerLast.right, entryBlock.innerLast.right, {
-								parent: newNode,
-							});
-							llLink(undefined, entryHead, entryBlock.innerFirst);
-							llLink(entryBlock.innerLast, entryTail, undefined);
-							tryReplaceBreak(entryBlock.innerLast);
-							newNode.entryBlock = { innerHead: entryHead, innerTail: entryTail };
-
-							for (let i = 0; i < conditionBlocks.length; ++i) {
-								const block = conditionBlocks[i];
-								const condHead = llNode('head', block.innerFirst.left, block.innerFirst.left, {
-									parent: newNode,
-								});
-								const condTail = llNode('tail', block.innerLast.right, block.innerLast.right, {
-									parent: newNode,
-								});
-								llLink(undefined, condHead, block.innerFirst);
-								llLink(block.innerLast, condTail, undefined);
-								tryReplaceBreak(block.innerLast);
-								newNode.conditionBlocks.push(
-									{ cmd: block.cmd, innerHead: condHead, innerTail: condTail },
+								const entryHead = llNode(
+									'head',
+									entryBlock.innerFirst.left,
+									entryBlock.innerFirst.left,
+									{ parent: newNode },
 								);
-							}
+								const entryTail = llNode(
+									'tail',
+									entryBlock.innerLast.right,
+									entryBlock.innerLast.right,
+									{ parent: newNode },
+								);
+								llLink(undefined, entryHead, entryBlock.innerFirst);
+								llLink(entryBlock.innerLast, entryTail, undefined);
+								tryReplaceBreak(entryBlock.innerLast);
+								newNode.entryBlock = { innerHead: entryHead, innerTail: entryTail };
 
-							if (defaultBlock) {
-								const { innerFirst, innerLast } = defaultBlock;
-								const defaultHead = llNode('head', innerFirst.left, innerFirst.left, {
-									parent: newNode,
-								});
-								const defaultTail = llNode('tail', innerLast.right, innerLast.right, {
-									parent: newNode,
-								});
-								llLink(undefined, defaultHead, innerFirst);
-								llLink(innerLast, defaultTail, undefined);
-								tryReplaceBreak(innerLast);
-								newNode.defaultBlock = { innerHead: defaultHead, innerTail: defaultTail };
-							}
+								for (let i = 0; i < conditionBlocks.length; ++i) {
+									const block = conditionBlocks[i];
+									const condHead = llNode('head', block.innerFirst.left, block.innerFirst.left, {
+										parent: newNode,
+									});
+									const condTail = llNode('tail', block.innerLast.right, block.innerLast.right, {
+										parent: newNode,
+									});
+									llLink(undefined, condHead, block.innerFirst);
+									llLink(block.innerLast, condTail, undefined);
+									tryReplaceBreak(block.innerLast);
+									newNode.conditionBlocks.push({
+										cmd: block.cmd,
+										innerHead: condHead,
+										innerTail: condTail,
+									});
+								}
 
-							llLink(prev, newNode, next);
-							searchStack.push({ node: entryHead, left: entryHead.left, right: entryTail.right });
-							for (const { innerHead, innerTail } of newNode.conditionBlocks) {
-								searchStack.push({ node: innerHead, left: innerHead.left, right: innerTail.right });
-							}
-							if (newNode.defaultBlock) {
-								const { innerHead, innerTail } = newNode.defaultBlock;
-								searchStack.push({ node: innerHead, left: innerHead.left, right: innerHead.right });
-							}
-							searchStack.push({ node: next, left, right });
-							node = undefined;
-						})();
+								if (defaultBlock) {
+									const { innerFirst, innerLast } = defaultBlock;
+									const defaultHead = llNode('head', innerFirst.left, innerFirst.left, {
+										parent: newNode,
+									});
+									const defaultTail = llNode('tail', innerLast.right, innerLast.right, {
+										parent: newNode,
+									});
+									llLink(undefined, defaultHead, innerFirst);
+									llLink(innerLast, defaultTail, undefined);
+									tryReplaceBreak(innerLast);
+									newNode.defaultBlock = { innerHead: defaultHead, innerTail: defaultTail };
+								}
+
+								llLink(prev, newNode, next);
+								searchStack.push({ node: entryHead, left: entryHead.left, right: entryTail.right });
+								for (const { innerHead, innerTail } of newNode.conditionBlocks) {
+									searchStack.push({ node: innerHead, left: innerHead.left, right: innerTail.right });
+								}
+								if (newNode.defaultBlock) {
+									const { innerHead, innerTail } = newNode.defaultBlock;
+									searchStack.push({ node: innerHead, left: innerHead.left, right: innerHead.right });
+								}
+								searchStack.push({ node: next, left, right });
+								node = undefined;
+							})();
 					}
 
 					if (node) node = node.next;
@@ -1172,18 +1247,19 @@ window.initBai = () => {
 						// CM_0002(operator, left, right, 0, @a)
 						// ...
 						// @a ...
-						if (node.opcode === 2 || (0x204 <= node.opcode && node.opcode <= 0x209)) (() => {
-							// operator, targetBool, and jumpOffset must be constant
-							let targetBool, jumpOffset;
-							if (node.opcode === 2) {
-								if (node.registers & 0b11001) return;
-								targetBool = node.args[3];
-								jumpOffset = node.args[4];
-							} else if (node.opcode === 0x204) {
-								if (node.registers & 0b110001) return;
-								targetBool = node.args[4];
-								jumpOffset = node.args[5];
-							} /* else if (node.opcode === 0x205) {
+						if (node.opcode === 2 || (0x204 <= node.opcode && node.opcode <= 0x209))
+							(() => {
+								// operator, targetBool, and jumpOffset must be constant
+								let targetBool, jumpOffset;
+								if (node.opcode === 2) {
+									if (node.registers & 0b11001) return;
+									targetBool = node.args[3];
+									jumpOffset = node.args[4];
+								} else if (node.opcode === 0x204) {
+									if (node.registers & 0b110001) return;
+									targetBool = node.args[4];
+									jumpOffset = node.args[5];
+								} /* else if (node.opcode === 0x205) {
 								if (node.registers & 0b11001) return;
 								targetBool = node.args[3]; // technically "targetValue"
 								jumpOffset = node.args[4];
@@ -1205,37 +1281,37 @@ window.initBai = () => {
 								jumpOffset = node.args[3];
 							} */
 
-							// targetBool must be 0 (SKIP if condition is false), must not jump backwards
-							if (targetBool !== 0 || jumpOffset < 0) return;
+								// targetBool must be 0 (SKIP if condition is false), must not jump backwards
+								if (targetBool !== 0 || jumpOffset < 0) return;
 
-							const exitNode = locationToNode.get(node.right + jumpOffset);
-							if (!exitNode) return;
+								const exitNode = locationToNode.get(node.right + jumpOffset);
+								if (!exitNode) return;
 
-							const newNode = llNode('if', node.left, exitNode.left, {
-								conditionBlocks: [],
-								elseBlock: undefined,
-							});
+								const newNode = llNode('if', node.left, exitNode.left, {
+									conditionBlocks: [],
+									elseBlock: undefined,
+								});
 
-							const prev = node.prev;
-							const next = exitNode;
-							const innerFirst = node.next;
-							const innerLast = exitNode.prev;
-							const innerHead = llNode('head', innerFirst.left, innerFirst.left, { parent: newNode });
-							const innerTail = llNode('tail', innerLast.right, innerLast.right, { parent: newNode });
-							if (jumpOffset === 0) {
-								// empty block
-								llLink(undefined, innerHead, innerTail);
-							} else {
-								llLink(undefined, innerHead, innerFirst);
-								llLink(innerLast, innerTail, undefined);
-							}
+								const prev = node.prev;
+								const next = exitNode;
+								const innerFirst = node.next;
+								const innerLast = exitNode.prev;
+								const innerHead = llNode('head', innerFirst.left, innerFirst.left, { parent: newNode });
+								const innerTail = llNode('tail', innerLast.right, innerLast.right, { parent: newNode });
+								if (jumpOffset === 0) {
+									// empty block
+									llLink(undefined, innerHead, innerTail);
+								} else {
+									llLink(undefined, innerHead, innerFirst);
+									llLink(innerLast, innerTail, undefined);
+								}
 
-							llLink(undefined, node, undefined);
-							newNode.conditionBlocks.push({ cmd: node, innerHead, innerTail });
-							llLink(prev, newNode, next);
-							searchStack.push(innerHead, next);
-							node = undefined;
-						})();
+								llLink(undefined, node, undefined);
+								newNode.conditionBlocks.push({ cmd: node, innerHead, innerTail });
+								llLink(prev, newNode, next);
+								searchStack.push(innerHead, next);
+								node = undefined;
+							})();
 					} else if (node.type === 'fn') {
 						searchStack.push(node.innerHead, node.next);
 						node = undefined;
@@ -1567,17 +1643,17 @@ window.initBai = () => {
 		bai.decompiler.stringify = (decomp, isHtml) => {
 			const output = [];
 
-			const builtin = isHtml ? (x => `<span style="color: var(--peach);">${x}</span>`) : x => x;
-			const fn = isHtml ? (x => `<span style="color: var(--blue);">${x}</span>`) : x => x;
-			const keyword = isHtml ? (x => `<span style="color: var(--mauve);">${x}</span>`) : x => x;
-			const constant = isHtml ? (x => `<span style="color: var(--peach);">${x}</span>`) : x => x;
-			const storage = isHtml ? (x => `<span style="color: var(--yellow);">${x}</span>`) : x => x;
-			const operator = isHtml ? (x => `<span style="color: var(--teal);">${x}</span>`) : x => x;
-			const text = isHtml ? (x => `<span style="color: var(--text);">${x}</span>`) : x => x;
-			const location = isHtml ? (x => `<span style="color: var(--sapphire);">${x}</span>`) : x => x;
-			const string = isHtml ? (x => `<span style="color: var(--green);">${x}</span>`) : x => x;
-			const comment = isHtml ? (x => '<span style="color:var(--overlay2)">' + x + '</span>') : x => x;
-			const error = isHtml ? (x => '<span style="color:var(--red)">' + x + '</span>') : x => x;
+			const builtin = isHtml ? x => `<span style="color: var(--peach);">${x}</span>` : x => x;
+			const fn = isHtml ? x => `<span style="color: var(--blue);">${x}</span>` : x => x;
+			const keyword = isHtml ? x => `<span style="color: var(--mauve);">${x}</span>` : x => x;
+			const constant = isHtml ? x => `<span style="color: var(--peach);">${x}</span>` : x => x;
+			const storage = isHtml ? x => `<span style="color: var(--yellow);">${x}</span>` : x => x;
+			const operator = isHtml ? x => `<span style="color: var(--teal);">${x}</span>` : x => x;
+			const text = isHtml ? x => `<span style="color: var(--text);">${x}</span>` : x => x;
+			const location = isHtml ? x => `<span style="color: var(--sapphire);">${x}</span>` : x => x;
+			const string = isHtml ? x => `<span style="color: var(--green);">${x}</span>` : x => x;
+			const comment = isHtml ? x => '<span style="color:var(--overlay2)">' + x + '</span>' : x => x;
+			const error = isHtml ? x => '<span style="color:var(--red)">' + x + '</span>' : x => x;
 			const pad = isHtml ? '&nbsp;' : ' ';
 
 			const labelNames = new Map();
@@ -1612,7 +1688,7 @@ window.initBai = () => {
 				const x = localNode.args[i];
 				if (localNode.registers & (1 << i)) {
 					const name = useCustomNames.checked ? bai.registerName(x) : `reg_${str16(x)}`;
-					if ((x >> 12) === 4) return prefix + storage(name); // 4xxx variables are special
+					if (x >> 12 === 4) return prefix + storage(name); // 4xxx variables are special
 					return prefix + text(name);
 				}
 
@@ -1645,7 +1721,7 @@ window.initBai = () => {
 					if (useCustomNames.checked) regName = bai.registerName(localNode.outputRegister);
 					else regName = `reg_${str16(localNode.outputRegister)}`;
 
-					if ((localNode.outputRegister >> 12) === 4) return `${storage(regName)} ${operator('=')} `;
+					if (localNode.outputRegister >> 12 === 4) return `${storage(regName)} ${operator('=')} `;
 					return `${text(regName)} ${operator('=')} `;
 				}
 				return '';
@@ -1658,16 +1734,18 @@ window.initBai = () => {
 				if (node.type === 'head' || node.type === 'tail') {
 					// don't render heads or tails
 				} else if (node.type === 'offsets') {
-					const formatLocation = location => location ? `@ ${str16(location)}` : 'n/a';
-					output.push([
-						`0000 // event_default ${formatLocation(decomp.events.default)}`,
-						`0002 // event_other_monster_turn ${formatLocation(decomp.events.otherMonsterTurn)}`,
-						`0004 // event_monster_init ${formatLocation(decomp.events.monsterInit)}`,
-						`0006 // event_monster_turn ${formatLocation(decomp.events.monsterTurn)}`,
-						`0008 // event_player_turn ${formatLocation(decomp.events.playerTurn)}`,
-						`000a // event_unknown5 ${formatLocation(decomp.events.unknown5)}`,
-						`000c // event_unknown6 ${formatLocation(decomp.events.unknown6)}`,
-					].join('<br>'));
+					const formatLocation = location => (location ? `@ ${str16(location)}` : 'n/a');
+					output.push(
+						[
+							`0000 // event_default ${formatLocation(decomp.events.default)}`,
+							`0002 // event_other_monster_turn ${formatLocation(decomp.events.otherMonsterTurn)}`,
+							`0004 // event_monster_init ${formatLocation(decomp.events.monsterInit)}`,
+							`0006 // event_monster_turn ${formatLocation(decomp.events.monsterTurn)}`,
+							`0008 // event_player_turn ${formatLocation(decomp.events.playerTurn)}`,
+							`000a // event_unknown5 ${formatLocation(decomp.events.unknown5)}`,
+							`000c // event_unknown6 ${formatLocation(decomp.events.unknown6)}`,
+						].join('<br>'),
+					);
 				} else if (node.type === 'unknown') {
 					output.push(prefix() + bytes(node.left, node.right - node.left, decomp.dat));
 				} else if (node.type === 'cmd') {
@@ -1682,13 +1760,16 @@ window.initBai = () => {
 						if (op === 2) {
 							let comp = '(' + bai.compare(node.args[0], argF(1), argF(2), operator) + ')';
 							if (!node.args[3]) comp = operator('!') + comp;
-							str = `${keyword('if')} ${comp} ${keyword('goto')} ${argF(4, 'location')} ` +
+							str =
+								`${keyword('if')} ${comp} ${keyword('goto')} ${argF(4, 'location')} ` +
 								`// (${distF(node.args[4])})`;
 						}
 						if (op === 3) {
 							if (node.args[0] === 1) str = `${argF(1, 'location')}()`;
-							else str = `${keyword('goto')} ${argF(1, 'location')} ` +
-								`// (${distF(node.args[1])} mode ${node.args[0]})`;
+							else
+								str =
+									`${keyword('goto')} ${argF(1, 'location')} ` +
+									`// (${distF(node.args[1])} mode ${node.args[0]})`;
 						}
 						if (op === 8) str = outF() + argF(0);
 						if (op === 9) str = outF() + argF(0) + operator(' + ') + argF(1);
@@ -1705,7 +1786,7 @@ window.initBai = () => {
 						if (op === 0x15) str = outF() + operator('~') + argF(0);
 						if (0x16 <= op && op <= 0x21) {
 							let target = bai.registerName(node.outputRegister);
-							if ((node.outputRegister >> 12) === 4) target = storage(target);
+							if (node.outputRegister >> 12 === 4) target = storage(target);
 							else target = text(target);
 
 							if (op === 0x16) str = target + operator('++');
@@ -1851,7 +1932,9 @@ window.initBai = () => {
 					let index = 0;
 					const step = () => {
 						if (index === 0) {
-							output.push(prefix(undefined) + `${keyword('switch')} (${text(bai.registerName(0x1000))}) {`);
+							output.push(
+								prefix(undefined) + `${keyword('switch')} (${text(bai.registerName(0x1000))}) {`,
+							);
 							++indent;
 							++index;
 							containerStack.push(step);
@@ -1913,7 +1996,7 @@ window.initBai = () => {
 
 				const startTimestamp = performance.now();
 
-				const decomp = bai.decomp = bai.decompiler.first(script);
+				const decomp = (bai.decomp = bai.decompiler.first(script));
 				bai.decompiler.findStaticReferences(decomp);
 				bai.decompiler.decompDeadCode(decomp);
 				bai.decompiler.guaranteedFunctions(decomp);
