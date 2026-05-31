@@ -1744,7 +1744,7 @@ window.initBai = () => {
 							`0008 // event_player_turn ${formatLocation(decomp.events.playerTurn)}`,
 							`000a // event_unknown5 ${formatLocation(decomp.events.unknown5)}`,
 							`000c // event_unknown6 ${formatLocation(decomp.events.unknown6)}`,
-						].join('<br>'),
+						].join(isHtml ? '<br>' : '\n'),
 					);
 				} else if (node.type === 'unknown') {
 					output.push(prefix() + bytes(node.left, node.right - node.left, decomp.dat));
@@ -1974,7 +1974,8 @@ window.initBai = () => {
 				}
 			}
 
-			return output.map(x => '<div>' + x + '</div>').join(''); // <div></div> faster than <br>
+			if (isHtml) return output.map(x => '<div>' + x + '</div>').join(''); // <div></div> faster than <br>
+			else return output.join('\n');
 		};
 
 		const update = () => {
