@@ -991,7 +991,7 @@ window.initDisassembler = () => {
 				}
 
 				// RSB (A4.1.60)
-				if ((inst & 0x0de00000) === 0x00300000 && cond !== conds[0b1111]) {
+				if ((inst & 0x0de00000) === 0x00600000 && cond !== conds[0b1111]) {
 					const S = (inst >>> 20) & 1;
 					const Rn = (inst >>> 16) & 0xf;
 					const Rd = (inst >>> 12) & 0xf;
