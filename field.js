@@ -342,9 +342,9 @@ window.initField = () => {
 
 			const room = (field.room = {
 				indices,
-				props: unpackSegmented(lzBis(fsext.fmapdata.segments[indices.props])),
+				props: unpackSegmented32(lzBis(fsext.fmapdata[indices.props])),
 				tilesets: [indices.l1, indices.l2, indices.l3].map(
-					index => index !== -1 && bufToU8(lzBis(fsext.fmapdata.segments[index])),
+					index => index !== -1 && bufToU8(lzBis(fsext.fmapdata[index])),
 				),
 			});
 			Object.assign(room, {
@@ -777,7 +777,7 @@ window.initField = () => {
 			side.blendingDisplay.innerHTML = '';
 			side.blendingList.innerHTML = 'Blending: ';
 
-			const blending = unpackSegmented(room.blending);
+			const blending = unpackSegmented32(room.blending);
 			const blendingChecks = [];
 			for (let i = 0; i < blending.length; ++i) {
 				const check = checkbox(`<code>${i}</code>`, false, () => {
@@ -821,7 +821,7 @@ window.initField = () => {
 
 			room.togglesEnabled = new Set();
 			room.toggleHoveringTilemapRegion = undefined;
-			const toggles = unpackSegmented(room.toggles);
+			const toggles = unpackSegmented32(room.toggles);
 			for (let i = 1, j = 0; i + 1 < toggles.length; i += 3, ++j) {
 				const tilemap = toggles[i];
 				const collision = toggles[i + 1];
@@ -928,13 +928,13 @@ window.initField = () => {
 			};
 
 			// side properties tile animations
-			const tileAnimations = unpackSegmented(room.tileAnimations);
+			const tileAnimations = unpackSegmented32(room.tileAnimations);
 			side.tileAnimList.innerHTML = 'Tile Animations: ';
 			const tileAnimationsDefault = [];
 			for (let i = 0; i < tileAnimations.length; ++i) {
 				const flags = tileAnimations[i].getUint32(0, true);
 				const animeIndex = tileAnimations[i].getUint16(4, true);
-				const animTileset = lzBis(fsext.fmapdata.segments[fsext.fieldAnimeIndices[animeIndex]]);
+				const animTileset = lzBis(fsext.fmapdata[fsext.fieldAnimeIndices[animeIndex]]);
 				const container = {
 					nextUpdateTick: undefined,
 					startTick: undefined,
@@ -1096,7 +1096,7 @@ window.initField = () => {
 
 			// [8] blending
 			{
-				const segments = unpackSegmented(room.props[8]);
+				const segments = unpackSegmented32(room.props[8]);
 				const container = document.createElement('div');
 				container.innerHTML = '<code>[8]</code> blending: ';
 				bottomProperties.appendChild(container);
@@ -1132,7 +1132,7 @@ window.initField = () => {
 
 			// [9] toggles
 			if (room.toggles.byteLength) {
-				const segments = unpackSegmented(room.toggles);
+				const segments = unpackSegmented32(room.toggles);
 				const container = document.createElement('div');
 				container.innerHTML = '<code>[9]</code> toggles: ';
 				bottomProperties.append(container);
@@ -1342,7 +1342,7 @@ window.initField = () => {
 		// i write this boilerplate a LOT so this is a nice shorthand for the devtools console
 		field.props = function* () {
 			for (let i = 0; i < field.rooms.length; ++i) {
-				yield [i, unpackSegmented(lzBis(fsext.fmapdata.segments[field.rooms[i].props]))];
+				yield [i, unpackSegmented32(lzBis(fsext.fmapdata[field.rooms[i].props]))];
 			}
 		};
 
@@ -1936,7 +1936,7 @@ window.initField = () => {
 		// totally separate from the rest of field.js; this is all you need to render a room
 		field.png = (roomId, bg1, bg2, bg3, margins) => {
 			const room = field.rooms[roomId];
-			const props = unpackSegmented(lzBis(fsext.fmapdata.segments[room.props]));
+			const props = unpackSegmented32(lzBis(fsext.fmapdata[room.props]));
 			const tilemaps = [props[0], props[1], props[2]].map(buf => bufToU16(buf));
 			const palettes = [props[3], props[4], props[5]].map(buf => rgb15To32(bufToU16(buf)));
 
@@ -1959,7 +1959,7 @@ window.initField = () => {
 				const palette = palettes[i];
 				const tilemap = tilemaps[i];
 				if (!tilemap.byteLength || !palette.byteLength) continue;
-				const tileset = bufToU8(lzBis(fsext.fmapdata.segments[[room.l1, room.l2, room.l3][i]]));
+				const tileset = bufToU8(lzBis(fsext.fmapdata[[room.l1, room.l2, room.l3][i]]));
 
 				let tilemapOff = 0;
 				for (let x = inset; x < layerWidth - inset; ++x) {

@@ -30,7 +30,7 @@ window.initBai = () => {
 		const options = [
 			['/BAI/BAI_atk_hk.dat', 0xd000, fsext.bai_atk_hk],
 			// this file is not referenced in overlays, and has no IDs assigned to it
-			['/BAI/BAI_atk_mt.dat', undefined, { segments: [fs.get('/BAI/BAI_atk_mt.dat')] }],
+			['/BAI/BAI_atk_mt.dat', undefined, [fs.get('/BAI/BAI_atk_mt.dat')]],
 			['/BAI/BAI_atk_nh.dat', 0xa000, fsext.bai_atk_nh],
 			['/BAI/BAI_atk_yy.dat', 0xc000, fsext.bai_atk_yy],
 			['/BAI/BAI_item_ji.dat', 0x5000, fsext.bai_item_ji],
@@ -49,8 +49,8 @@ window.initBai = () => {
 		topbar.appendChild(fileSelect);
 
 		const scriptSelectNames = options.map(entry => {
-			if (!entry[2].segments?.length) return ['(?)'];
-			return entry[2].segments.map((x, i) => `${i}. (len 0x${x.byteLength.toString(16)})`);
+			if (!entry[2]?.length) return ['(?)'];
+			return entry[2].map((x, i) => `${i}. (len 0x${x.byteLength.toString(16)})`);
 		});
 
 		let updateScript;
@@ -1347,7 +1347,7 @@ window.initBai = () => {
 			const attackToInvokerReferences = new Map();
 			const monsterToCreatorReferences = new Map();
 			const creatorToMonsterReferences = new Map();
-			for (const [path, scriptSpace, { segments }] of options) {
+			for (const [path, scriptSpace, segments] of options) {
 				if (scriptSpace === undefined) continue; // BAI_atk_mt cannot be loaded, anyway
 
 				let type;
@@ -1428,7 +1428,7 @@ window.initBai = () => {
 			const scriptName = id => scriptSpaces[id >> 12] + `[${id & 0xfff}]`;
 
 			for (let i = 0; i < options.length; ++i) {
-				const [path, scriptSpace, { segments }] = options[i];
+				const [path, scriptSpace, segments] = options[i];
 				if (scriptSpace === undefined) continue;
 
 				let type;
@@ -1981,7 +1981,7 @@ window.initBai = () => {
 		const update = () => {
 			metaPreview.innerHTML = codePreview.innerHTML = '';
 
-			const segments = options[fileSelect.value]?.[2]?.segments;
+			const segments = options[fileSelect.value][2];
 			if (!segments) {
 				metaPreview.innerHTML = 'No segments/offsets for this file for this game version';
 				scriptSelect.style.display = 'none';

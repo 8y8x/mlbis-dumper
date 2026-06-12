@@ -401,7 +401,55 @@
 	// | Misc                                                                                                          |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const unpackSegmented = (window.unpackSegmented = dat => {
+	const unpackSegmentedFile = (window.unpackSegmentedFile = (headerDat, headerOffset, fileDat) => {
+		if (headerDat.byteLength <= headerOffset) return [];
+
+		const headerSize = headerDat.getUint32(headerOffset, true);
+		const segments = [];
+		for (let o = 4; o + 4 < headerSize; o += 4) {
+			const from = headerDat.getUint32(headerOffset + o, true);
+			const to = headerDat.getUint32(headerOffset + o + 4, true);
+			segments.push(sliceDataView(fileDat, from, to));
+		}
+
+		// the last segment is not usable by the game (it doesn't have an upper bound), but it would be a bad artificial
+		// limitation if the tool didn't let you peek its contents
+		segments.push(sliceDataView(fileDat, headerDat.getUint32(headerOffset + headerSize - 4, true)));
+		return segments;
+	});
+
+	const unpackSegmented32 = (window.unpackSegmented32 = dat => {
+		if (!dat.byteLength) return [];
+
+		const offsetsEnd = dat.getUint32(0, true); // offsets end where the first segment starts
+		const segments = [];
+		for (let o = 0; o + 4 < offsetsEnd; o += 4) {
+			const from = dat.getUint32(o, true);
+			const to = dat.getUint32(o + 4, true);
+			segments.push(sliceDataView(dat, from, to));
+		}
+
+		// the last segment may or may not be usable by the game
+		segments.push(sliceDataView(dat, dat.getUint32(offsetsEnd - 4, true), dat.byteLength));
+		return segments;
+	});
+
+	const unpackSegmented16 = (window.unpackSegmented16 = dat => {
+		if (!dat.byteLength) return [];
+
+		const u16 = bufToU16(dat);
+		const segments = [];
+		const offsetsEnd = u16[0];
+		for (let i = 0; i + 1 < offsetsEnd; ++i) {
+			segments.push(sliceDataView(dat, u16[i] * 2, u16[i + 1] * 2));
+		}
+
+		// the last segment may or may not be usable by the game
+		segments.push(sliceDataView(dat, u16[offsetsEnd - 1] * 2, dat.byteLength));
+		return segments;
+	});
+
+	/* const unpackSegmented = (window.unpackSegmented = dat => {
 		if (dat.byteLength < 4) return [];
 		const offsetsEnd = dat.getUint32(0, true);
 		let lastSplit = offsetsEnd;
@@ -415,9 +463,9 @@
 
 		segments.push(sliceDataView(dat, lastSplit, dat.byteLength));
 		return segments;
-	});
+	}); */
 
-	const unpackSegmented16 = (window.unpackSegmented16 = dat => {
+	/* const unpackSegmented16 = (window.unpackSegmented16 = dat => {
 		if (dat.byteLength < 2) return [];
 		const offsetsEnd = dat.getUint16(0, true);
 		let lastSplit = offsetsEnd;
@@ -430,7 +478,7 @@
 
 		segments.push(sliceDataView(dat, lastSplit * 2, dat.byteLength));
 		return segments;
-	});
+	}); */
 
 	const unpackSegmentedUnsorted = (window.unpackSegmentedUnsorted = (dat, o = 0) => {
 		let min = Infinity;
@@ -1354,22 +1402,6 @@
 	const fsext = (window.fsext = createSection('File System (Extended)', section => {
 		const fsext = {};
 
-		const varLengthSegments = (fsext.varLengthSegments = (start, dat, segmentsDat) => {
-			const chunkLength = dat.getUint32(start, true);
-			const offsets = [];
-			const segments = [];
-			for (let o = 4; o < chunkLength; o += 4) {
-				offsets.push(dat.getInt32(start + o, true));
-				if (!segmentsDat || offsets.length < 2) continue;
-				segments.push(sliceDataView(segmentsDat, offsets[offsets.length - 2], offsets[offsets.length - 1]));
-			}
-
-			if (segmentsDat)
-				segments.push(sliceDataView(segmentsDat, offsets[offsets.length - 1], segmentsDat.byteLength));
-
-			return { offsets, segments };
-		});
-
 		const fixedIndices = (fsext.fixedIndices = (o, end, dat) => {
 			const indices = [];
 			for (; o < end; o += 4) indices.push(dat.getInt32(o, true));
@@ -1389,43 +1421,41 @@
 		// (for example, in NA /FMap/FMapData.dat has length 0x1a84600 and the last pointer is 0x1a84530)
 		if (headers.gamecode === 'CLJE') {
 			// NA
-			fsext.bai_item_ji = varLengthSegments(0x7c6c, fs.overlay(14), fs.get('/BAI/BAI_item_ji.dat')); // ?
-			fsext.blfxtex = varLengthSegments(0x7c78, fs.overlay(14), fs.get('/BRfx/BLfxTex.dat')); // ?
-			fsext.bai_scn_cf = varLengthSegments(0x7c84, fs.overlay(14), fs.get('/BAI/BAI_scn_cf.dat')); // ?
-			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
-			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxPal.dat'));
-			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
-			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat'));
-			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat'));
-			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
-			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
-			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
-			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
-			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
-			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
-			fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
-			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
-			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
-			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
-			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
-			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
+			fsext.bai_item_ji = unpackSegmentedFile(fs.overlay(14), 0x7c6c, fs.get('/BAI/BAI_item_ji.dat'));
+			fsext.blfxtex = unpackSegmentedFile(fs.overlay(14), 0x7c78, fs.get('/BRfx/BLfxTex.dat'));
+			fsext.bai_scn_cf = unpackSegmentedFile(fs.overlay(14), 0x7c84, fs.get('/BAI/BAI_scn_cf.dat'));
+			fsext.bofxtex = unpackSegmentedFile(fs.overlay(14), 0x7c90, fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = unpackSegmentedFile(fs.overlay(14), 0x7ca8, fs.get('/BRfx/BOfxPal.dat'));
+			fsext.bmapg = unpackSegmentedFile(fs.overlay(14), 0x7cc0, fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = unpackSegmentedFile(fs.overlay(14), 0x7cd8, fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = unpackSegmentedFile(fs.overlay(14), 0x7d0c, fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_atk_yy = unpackSegmentedFile(fs.overlay(14), 0x7d40, fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_cf = unpackSegmentedFile(fs.overlay(14), 0x7d7c, fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_mon_yo = unpackSegmentedFile(fs.overlay(14), 0x8210, fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = unpackSegmentedFile(fs.overlay(14), 0x82a4, fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = unpackSegmentedFile(fs.overlay(14), 0x834c, fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = unpackSegmentedFile(fs.overlay(14), 0x8480, fs.get('/BAI/BAI_mon_ji.dat'));
+			// fsext.bobjmap = unpackSegmentedFile(fs.overlay(14), 0x859c);
+			fsext.bai_atk_hk = unpackSegmentedFile(fs.overlay(14), 0x875c, fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = unpackSegmentedFile(fs.overlay(14), 0x8998, fs.get('/BAI/BAI_scn_yo.dat'));
+			// fsext.bobjpc = unpackSegmentedFile(fs.overlay(14), 0x8c1c);
+			// fsext.bobjui = unpackSegmentedFile(fs.overlay(14), 0x91c0);
+			// fsext.bobjmon = unpackSegmentedFile(fs.overlay(14), 0x9c18);
 
 			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
 			fsext.monsters = fixedSegments(0xe074, 0xf448, 36, fs.overlay(11));
 
-			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
-			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
-			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
-			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
-			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0xc8ac, fs.get('/FEvent/FEvent.dat'));
+			fsext.fmapdata = unpackSegmentedFile(fs.overlay(3), 0x11310, fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = unpackSegmentedFile(fs.overlay(3), 0xe8a0, fs.get('/FObj/FObj.dat'));
+			// fsext.fobjmon = unpackSegmentedFile(fs.overlay(3), 0xba3c);
+			// fsext.fobjpc = unpackSegmentedFile(fs.overlay(3), 0xbdb0);
+			fsext.fpaf = unpackSegmentedFile(fs.overlay(3), 0xb8a0, fs.get('/FPaf/FPaf.dat'));
 
-			// fsext.fdfxtex = varLengthSegments(0x5ca54, fs.overlay(4), fs.get('/FRfx/FDfxTex.dat')); // TODO WRONG ALIGNMENT
-			// TODO: check at 0x4e380, seems like offsets but not varLengthSegments
-			fsext.fdfxpal = varLengthSegments(0x4a82c, fs.overlay(4), fs.get('/FRfx/FDfxPal.dat'));
-			fsext.fdfxtex = varLengthSegments(0x4a628, fs.overlay(4), fs.get('/FRfx/FDfxTex.dat'));
-			fsext.fofxpal = varLengthSegments(0x4a4fc, fs.overlay(4), fs.get('/FRfx/FOfxPal.dat'));
-			fsext.fofxtex = varLengthSegments(0x4a3d0, fs.overlay(4), fs.get('/FRfx/FOfxTex.dat'));
+			fsext.fdfxpal = unpackSegmentedFile(fs.overlay(4), 0x4a82c, fs.get('/FRfx/FDfxPal.dat'));
+			fsext.fdfxtex = unpackSegmentedFile(fs.overlay(4), 0x4a628, fs.get('/FRfx/FDfxTex.dat'));
+			fsext.fofxpal = unpackSegmentedFile(fs.overlay(4), 0x4a4fc, fs.get('/FRfx/FOfxPal.dat'));
+			fsext.fofxtex = unpackSegmentedFile(fs.overlay(4), 0x4a3d0, fs.get('/FRfx/FOfxTex.dat'));
 
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
@@ -1435,36 +1465,36 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
-			fsext.bai_item_ji = varLengthSegments(0x7c6c, fs.overlay(14), fs.get('/BAI/BAI_item_ji.dat')); // ?
-			fsext.blfxtex = varLengthSegments(0x7c78, fs.overlay(14), fs.get('/BRfx/BLfxTex.dat')); // ?
-			fsext.bai_scn_cf = varLengthSegments(0x7c84, fs.overlay(14), fs.get('/BAI/BAI_scn_cf.dat')); // ?
-			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
-			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
-			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
-			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat'));
-			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat'));
-			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
-			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
-			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
-			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
-			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
-			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
-			fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
-			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
-			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
-			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
-			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
-			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
+			fsext.bai_item_ji = unpackSegmentedFile(fs.overlay(14), 0x7c6c, fs.get('/BAI/BAI_item_ji.dat')); // ?
+			fsext.blfxtex = unpackSegmentedFile(fs.overlay(14), 0x7c78, fs.get('/BRfx/BLfxTex.dat')); // ?
+			fsext.bai_scn_cf = unpackSegmentedFile(fs.overlay(14), 0x7c84, fs.get('/BAI/BAI_scn_cf.dat')); // ?
+			fsext.bofxtex = unpackSegmentedFile(fs.overlay(14), 0x7c90, fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = unpackSegmentedFile(fs.overlay(14), 0x7ca8, fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bmapg = unpackSegmentedFile(fs.overlay(14), 0x7cc0, fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = unpackSegmentedFile(fs.overlay(14), 0x7cd8, fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = unpackSegmentedFile(fs.overlay(14), 0x7d0c, fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_atk_yy = unpackSegmentedFile(fs.overlay(14), 0x7d40, fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_cf = unpackSegmentedFile(fs.overlay(14), 0x7d7c, fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_mon_yo = unpackSegmentedFile(fs.overlay(14), 0x8210, fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = unpackSegmentedFile(fs.overlay(14), 0x82a4, fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = unpackSegmentedFile(fs.overlay(14), 0x834c, fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = unpackSegmentedFile(fs.overlay(14), 0x8480, fs.get('/BAI/BAI_mon_ji.dat'));
+			// fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
+			fsext.bai_atk_hk = unpackSegmentedFile(fs.overlay(14), 0x875c, fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = unpackSegmentedFile(fs.overlay(14), 0x8998, fs.get('/BAI/BAI_scn_yo.dat'));
+			// fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
+			// fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
+			// fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
 
 			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
 			fsext.monsters = fixedSegments(0x17098, 0x1846c, 36, fs.overlay(11));
 
-			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
-			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
-			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
-			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
-			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0xc8ac, fs.get('/FEvent/FEvent.dat'));
+			fsext.fmapdata = unpackSegmentedFile(fs.overlay(3), 0x11310, fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = unpackSegmentedFile(fs.overlay(3), 0xe8a0, fs.get('/FObj/FObj.dat'));
+			// fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
+			// fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
+			fsext.fpaf = unpackSegmentedFile(fs.overlay(3), 0xb8a0, fs.get('/FPaf/FPaf.dat'));
 			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
@@ -1472,36 +1502,36 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d90, 0x462d8);
 		} else if (headers.gamecode === 'CLJJ') {
 			// JP/ROC
-			fsext.bai_scn_cf = varLengthSegments(0x540d0, fs.overlay(11), fs.get('/BAI/BAI_scn_cf.dat'));
-			fsext.bai_item_ji = varLengthSegments(0x540dc, fs.overlay(11), fs.get('/BAI/BAI_item_ji.dat'));
-			fsext.blfxtex = varLengthSegments(0x540e8, fs.overlay(11), fs.get('/BRfx/BLfxTex.dat'));
-			fsext.bofxtex = varLengthSegments(0x540f4, fs.overlay(11), fs.get('/BRfx/BOfxTex.dat'));
-			fsext.bofxpal = varLengthSegments(0x5410c, fs.overlay(11), fs.get('/BRfx/BOfxPal.dat'));
-			fsext.bmapg = varLengthSegments(0x54124, fs.overlay(11), fs.get('/BMapG/BMapG.dat'));
-			fsext.bdfxtex = varLengthSegments(0x5413c, fs.overlay(11), fs.get('/BRfx/BDfxTex.dat'));
-			fsext.bdfxpal = varLengthSegments(0x54170, fs.overlay(11), fs.get('/BRfx/BDfxPal.dat'));
-			fsext.bai_mon_cf = varLengthSegments(0x541a4, fs.overlay(11), fs.get('/BAI/BAI_mon_cf.dat'));
-			fsext.bai_atk_yy = varLengthSegments(0x541e0, fs.overlay(11), fs.get('/BAI/BAI_atk_yy.dat'));
-			fsext.bai_mon_yo = varLengthSegments(0x54664, fs.overlay(11), fs.get('/BAI/BAI_mon_yo.dat'));
-			fsext.bai_scn_ji = varLengthSegments(0x546f8, fs.overlay(11), fs.get('/BAI/BAI_scn_ji.dat'));
-			fsext.bai_atk_nh = varLengthSegments(0x54834, fs.overlay(11), fs.get('/BAI/BAI_atk_nh.dat'));
-			fsext.bai_mon_ji = varLengthSegments(0x548cc, fs.overlay(11), fs.get('/BAI/BAI_mon_ji.dat'));
-			fsext.bobjmap = varLengthSegments(0x549e8, fs.overlay(11));
-			fsext.bai_atk_hk = varLengthSegments(0x54ba8, fs.overlay(11), fs.get('/BAI/BAI_atk_hk.dat'));
-			fsext.bai_scn_yo = varLengthSegments(0x54de4, fs.overlay(11), fs.get('/BAI/BAI_scn_yo.dat'));
-			fsext.bobjpc = varLengthSegments(0x55068, fs.overlay(11));
-			fsext.bobjui = varLengthSegments(0x5560c, fs.overlay(11));
-			fsext.bobjmon = varLengthSegments(0x56b30, fs.overlay(11));
+			fsext.bai_scn_cf = unpackSegmentedFile(fs.overlay(11), 0x540d0, fs.get('/BAI/BAI_scn_cf.dat'));
+			fsext.bai_item_ji = unpackSegmentedFile(fs.overlay(11), 0x540dc, fs.get('/BAI/BAI_item_ji.dat'));
+			fsext.blfxtex = unpackSegmentedFile(fs.overlay(11), 0x540e8, fs.get('/BRfx/BLfxTex.dat'));
+			fsext.bofxtex = unpackSegmentedFile(fs.overlay(11), 0x540f4, fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = unpackSegmentedFile(fs.overlay(11), 0x5410c, fs.get('/BRfx/BOfxPal.dat'));
+			fsext.bmapg = unpackSegmentedFile(fs.overlay(11), 0x54124, fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = unpackSegmentedFile(fs.overlay(11), 0x5413c, fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = unpackSegmentedFile(fs.overlay(11), 0x54170, fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_mon_cf = unpackSegmentedFile(fs.overlay(11), 0x541a4, fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_atk_yy = unpackSegmentedFile(fs.overlay(11), 0x541e0, fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_yo = unpackSegmentedFile(fs.overlay(11), 0x54664, fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = unpackSegmentedFile(fs.overlay(11), 0x546f8, fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = unpackSegmentedFile(fs.overlay(11), 0x54834, fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = unpackSegmentedFile(fs.overlay(11), 0x548cc, fs.get('/BAI/BAI_mon_ji.dat'));
+			// fsext.bobjmap = varLengthSegments(0x549e8, fs.overlay(11));
+			fsext.bai_atk_hk = unpackSegmentedFile(fs.overlay(11), 0x54ba8, fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = unpackSegmentedFile(fs.overlay(11), 0x54de4, fs.get('/BAI/BAI_scn_yo.dat'));
+			// fsext.bobjpc = varLengthSegments(0x55068, fs.overlay(11));
+			// fsext.bobjui = varLengthSegments(0x5560c, fs.overlay(11));
+			// fsext.bobjmon = varLengthSegments(0x56b30, fs.overlay(11));
 
 			fsext.baiCommands = fixedSegments(0x41bc4, 0x43df0, 16, fs.overlay(11));
 			fsext.monsters = fixedSegments(0x52cd4, 0x540a8, 36, fs.overlay(11));
 
-			fsext.fevent = varLengthSegments(0xcb18, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
-			fsext.fmapdata = varLengthSegments(0x11544, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xeb0c, fs.overlay(3), fs.get('/FObj/FObj.dat'));
-			fsext.fobjmon = varLengthSegments(0xbca8, fs.overlay(3));
-			fsext.fobjpc = varLengthSegments(0xc01c, fs.overlay(3));
-			fsext.fpaf = varLengthSegments(0xbb0c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0xcb18, fs.get('/FEvent/FEvent.dat'));
+			fsext.fmapdata = unpackSegmentedFile(fs.overlay(3), 0x11544, fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = unpackSegmentedFile(fs.overlay(3), 0xeb0c, fs.get('/FObj/FObj.dat'));
+			// fsext.fobjmon = varLengthSegments(0xbca8, fs.overlay(3));
+			// fsext.fobjpc = varLengthSegments(0xc01c, fs.overlay(3));
+			fsext.fpaf = unpackSegmentedFile(fs.overlay(3), 0xbb0c, fs.get('/FPaf/FPaf.dat'));
 			fsext.fmapmetadata = fixedSegments(0x9b00, 0x9b00 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x19710, 0x1a85c, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, fs.overlay(3));
@@ -1509,36 +1539,36 @@
 			fsext.font = sliceDataView(fs.arm9, 0x44fa8, 0x48084);
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
-			fsext.bai_item_ji = varLengthSegments(0x7c6c, fs.overlay(14), fs.get('/BAI/BAI_item_ji.dat')); // ?
-			fsext.blfxtex = varLengthSegments(0x7c78, fs.overlay(14), fs.get('/BRfx/BLfxTex.dat')); // ?
-			fsext.bai_scn_cf = varLengthSegments(0x7c84, fs.overlay(14), fs.get('/BAI/BAI_scn_cf.dat')); // ?
-			fsext.bofxtex = varLengthSegments(0x7c90, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
-			fsext.bofxpal = varLengthSegments(0x7ca8, fs.overlay(14), fs.get('/BRfx/BOfxTex.dat'));
-			fsext.bmapg = varLengthSegments(0x7cc0, fs.overlay(14), fs.get('/BMapG/BMapG.dat'));
-			fsext.bdfxtex = varLengthSegments(0x7cd8, fs.overlay(14), fs.get('/BRfx/BDfxTex.dat'));
-			fsext.bdfxpal = varLengthSegments(0x7d0c, fs.overlay(14), fs.get('/BRfx/BDfxPal.dat'));
-			fsext.bai_atk_yy = varLengthSegments(0x7d40, fs.overlay(14), fs.get('/BAI/BAI_atk_yy.dat'));
-			fsext.bai_mon_cf = varLengthSegments(0x7d7c, fs.overlay(14), fs.get('/BAI/BAI_mon_cf.dat'));
-			fsext.bai_mon_yo = varLengthSegments(0x8210, fs.overlay(14), fs.get('/BAI/BAI_mon_yo.dat'));
-			fsext.bai_scn_ji = varLengthSegments(0x82a4, fs.overlay(14), fs.get('/BAI/BAI_scn_ji.dat'));
-			fsext.bai_atk_nh = varLengthSegments(0x834c, fs.overlay(14), fs.get('/BAI/BAI_atk_nh.dat'));
-			fsext.bai_mon_ji = varLengthSegments(0x8480, fs.overlay(14), fs.get('/BAI/BAI_mon_ji.dat'));
-			fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
-			fsext.bai_atk_hk = varLengthSegments(0x875c, fs.overlay(14), fs.get('/BAI/BAI_atk_hk.dat'));
-			fsext.bai_scn_yo = varLengthSegments(0x8998, fs.overlay(14), fs.get('/BAI/BAI_scn_yo.dat'));
-			fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
-			fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
-			fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
+			fsext.bai_item_ji = unpackSegmentedFile(fs.overlay(14), 0x7c6c, fs.get('/BAI/BAI_item_ji.dat')); // ?
+			fsext.blfxtex = unpackSegmentedFile(fs.overlay(14), 0x7c78, fs.get('/BRfx/BLfxTex.dat')); // ?
+			fsext.bai_scn_cf = unpackSegmentedFile(fs.overlay(14), 0x7c84, fs.get('/BAI/BAI_scn_cf.dat')); // ?
+			fsext.bofxtex = unpackSegmentedFile(fs.overlay(14), 0x7c90, fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = unpackSegmentedFile(fs.overlay(14), 0x7ca8, fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bmapg = unpackSegmentedFile(fs.overlay(14), 0x7cc0, fs.get('/BMapG/BMapG.dat'));
+			fsext.bdfxtex = unpackSegmentedFile(fs.overlay(14), 0x7cd8, fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = unpackSegmentedFile(fs.overlay(14), 0x7d0c, fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_atk_yy = unpackSegmentedFile(fs.overlay(14), 0x7d40, fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_cf = unpackSegmentedFile(fs.overlay(14), 0x7d7c, fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_mon_yo = unpackSegmentedFile(fs.overlay(14), 0x8210, fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = unpackSegmentedFile(fs.overlay(14), 0x82a4, fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = unpackSegmentedFile(fs.overlay(14), 0x834c, fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = unpackSegmentedFile(fs.overlay(14), 0x8480, fs.get('/BAI/BAI_mon_ji.dat'));
+			// fsext.bobjmap = varLengthSegments(0x859c, fs.overlay(14));
+			fsext.bai_atk_hk = unpackSegmentedFile(fs.overlay(14), 0x875c, fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = unpackSegmentedFile(fs.overlay(14), 0x8998, fs.get('/BAI/BAI_scn_yo.dat'));
+			// fsext.bobjpc = varLengthSegments(0x8c1c, fs.overlay(14));
+			// fsext.bobjui = varLengthSegments(0x91c0, fs.overlay(14));
+			// fsext.bobjmon = varLengthSegments(0x9c18, fs.overlay(14));
 
 			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
 			fsext.monsters = fixedSegments(0xe074, 0xf448, 36, fs.overlay(11));
 
-			fsext.fevent = varLengthSegments(0xc8ac, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
-			fsext.fmapdata = varLengthSegments(0x11310, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0xe8a0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
-			fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
-			fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
-			fsext.fpaf = varLengthSegments(0xb8a0, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0xc8ac, fs.get('/FEvent/FEvent.dat'));
+			fsext.fmapdata = unpackSegmentedFile(fs.overlay(3), 0x11310, fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = unpackSegmentedFile(fs.overlay(3), 0xe8a0, fs.get('/FObj/FObj.dat'));
+			// fsext.fobjmon = varLengthSegments(0xba3c, fs.overlay(3));
+			// fsext.fobjpc = varLengthSegments(0xbdb0, fs.overlay(3));
+			fsext.fpaf = unpackSegmentedFile(fs.overlay(3), 0xb8a0, fs.get('/FPaf/FPaf.dat'));
 			fsext.fmapmetadata = fixedSegments(0x98a0, 0x98a0 + 12 * 0x2a9, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0x18e84, 0x19fd0, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
@@ -1546,35 +1576,34 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'Y6PP') {
 			// EU Demo
-			// TODO battle offsets here. and then actually test the battle offsets and make sure they work on mlbis-dumper
-			fsext.bai_scn_cf = varLengthSegments(0x48cbc, fs.overlay(11), fs.get('/BAI/BAI_scn_cf.dat'));
-			fsext.bai_item_ji = varLengthSegments(0x48cc8, fs.overlay(11), fs.get('/BAI/BAI_item_ji.dat'));
-			fsext.bofxtex = varLengthSegments(0x48cd4, fs.overlay(11), fs.get('/BRfx/BOfxTex.dat'));
-			fsext.bofxpal = varLengthSegments(0x48cec, fs.overlay(11), fs.get('/BRfx/BOfxPal.dat'));
-			fsext.bdfxtex = varLengthSegments(0x48d04, fs.overlay(11), fs.get('/BRfx/BDfxTex.dat'));
-			fsext.bdfxpal = varLengthSegments(0x48d38, fs.overlay(11), fs.get('/BRfx/BDfxPal.dat'));
-			fsext.bai_mon_cf = varLengthSegments(0x48d6c, fs.overlay(11), fs.get('/BAI/BAI_mon_cf.dat'));
-			fsext.bai_atk_yy = varLengthSegments(0x48da8, fs.overlay(11), fs.get('/BAI/BAI_atk_yy.dat'));
-			fsext.bai_mon_yo = varLengthSegments(0x49170, fs.overlay(11), fs.get('/BAI/BAI_mon_yo.dat'));
-			fsext.bai_scn_ji = varLengthSegments(0x49204, fs.overlay(11), fs.get('/BAI/BAI_scn_ji.dat'));
-			fsext.bai_atk_nh = varLengthSegments(0x49340, fs.overlay(11), fs.get('/BAI/BAI_atk_nh.dat'));
-			fsext.bai_mon_ji = varLengthSegments(0x493d8, fs.overlay(11), fs.get('/BAI/BAI_mon_ji.dat'));
-			fsext.bobjmap = varLengthSegments(0x494f4, fs.overlay(11));
-			fsext.bai_atk_hk = varLengthSegments(0x496b4, fs.overlay(11), fs.get('/BAI/BAI_atk_hk.dat'));
-			fsext.bai_scn_yo = varLengthSegments(0x498f0, fs.overlay(11), fs.get('/BAI/BAI_scn_yo.dat'));
-			fsext.bobjpc = varLengthSegments(0x49b74, fs.overlay(11));
-			fsext.bobjui = varLengthSegments(0x4a118, fs.overlay(11));
-			fsext.bobjmon = varLengthSegments(0x4b63c, fs.overlay(11));
+			fsext.bai_scn_cf = unpackSegmentedFile(fs.overlay(11), 0x48cbc, fs.get('/BAI/BAI_scn_cf.dat'));
+			fsext.bai_item_ji = unpackSegmentedFile(fs.overlay(11), 0x48cc8, fs.get('/BAI/BAI_item_ji.dat'));
+			fsext.bofxtex = unpackSegmentedFile(fs.overlay(11), 0x48cd4, fs.get('/BRfx/BOfxTex.dat'));
+			fsext.bofxpal = unpackSegmentedFile(fs.overlay(11), 0x48cec, fs.get('/BRfx/BOfxPal.dat'));
+			fsext.bdfxtex = unpackSegmentedFile(fs.overlay(11), 0x48d04, fs.get('/BRfx/BDfxTex.dat'));
+			fsext.bdfxpal = unpackSegmentedFile(fs.overlay(11), 0x48d38, fs.get('/BRfx/BDfxPal.dat'));
+			fsext.bai_mon_cf = unpackSegmentedFile(fs.overlay(11), 0x48d6c, fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_atk_yy = unpackSegmentedFile(fs.overlay(11), 0x48da8, fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_yo = unpackSegmentedFile(fs.overlay(11), 0x49170, fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = unpackSegmentedFile(fs.overlay(11), 0x49204, fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = unpackSegmentedFile(fs.overlay(11), 0x49340, fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = unpackSegmentedFile(fs.overlay(11), 0x493d8, fs.get('/BAI/BAI_mon_ji.dat'));
+			// fsext.bobjmap = varLengthSegments(0x494f4, fs.overlay(11));
+			fsext.bai_atk_hk = unpackSegmentedFile(fs.overlay(11), 0x496b4, fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = unpackSegmentedFile(fs.overlay(11), 0x498f0, fs.get('/BAI/BAI_scn_yo.dat'));
+			// fsext.bobjpc = varLengthSegments(0x49b74, fs.overlay(11));
+			// fsext.bobjui = varLengthSegments(0x4a118, fs.overlay(11));
+			// fsext.bobjmon = varLengthSegments(0x4b63c, fs.overlay(11));
 
 			fsext.baiCommands = fixedSegments(0x3a98c, 0x3cbbc, 16, fs.overlay(11));
 			fsext.monsters = fixedSegments(0x478cc, 0x48c94, 36, fs.overlay(11));
 
-			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
-			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
-			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
-			fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
-			fsext.fpaf = varLengthSegments(0x965c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0x94c8, fs.get('/FEvent/FEvent.dat'));
+			fsext.fmapdata = unpackSegmentedFile(fs.overlay(3), 0x9a3c, fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = unpackSegmentedFile(fs.overlay(3), 0x9cb0, fs.get('/FObj/FObj.dat'));
+			// fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
+			// fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
+			fsext.fpaf = unpackSegmentedFile(fs.overlay(3), 0x965c, fs.get('/FPaf/FPaf.dat'));
 			fsext.fmapmetadata = fixedSegments(0x92bc, 0x92bc + 12 * 0x21, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0xe220, 0xe318, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0xe498, 0xe72c, fs.overlay(3));
@@ -1582,35 +1611,35 @@
 			fsext.font = sliceDataView(fs.arm9, 0x406d0, 0x42e60);
 		} else if (headers.gamecode === 'Y6PE') {
 			// NA Demo
-			fsext.blfxtex = varLengthSegments(0x48bf0, fs.overlay(11)); // ?
-			fsext.bai_scn_cf = varLengthSegments(0x48bfc, fs.overlay(11), fs.get('/BAI/BAI_scn_cf.dat'));
-			fsext.bai_item_ji = varLengthSegments(0x48c08, fs.overlay(11), fs.get('/BAI/BAI_item_ji.dat'));
-			fsext.bofxtex = varLengthSegments(0x48c14, fs.overlay(11));
-			fsext.bofxpal = varLengthSegments(0x48c2c, fs.overlay(11));
-			fsext.bdfxtex = varLengthSegments(0x48c44, fs.overlay(11));
-			fsext.bdfxpal = varLengthSegments(0x48c78, fs.overlay(11));
-			fsext.bai_mon_cf = varLengthSegments(0x48cac, fs.overlay(11), fs.get('/BAI/BAI_mon_cf.dat'));
-			fsext.bai_atk_yy = varLengthSegments(0x48ce8, fs.overlay(11), fs.get('/BAI/BAI_atk_yy.dat'));
-			fsext.bai_mon_yo = varLengthSegments(0x490b0, fs.overlay(11), fs.get('/BAI/BAI_mon_yo.dat'));
-			fsext.bai_scn_ji = varLengthSegments(0x49144, fs.overlay(11), fs.get('/BAI/BAI_scn_ji.dat'));
-			fsext.bai_atk_nh = varLengthSegments(0x49280, fs.overlay(11), fs.get('/BAI/BAI_atk_nh.dat'));
-			fsext.bai_mon_ji = varLengthSegments(0x49318, fs.overlay(11), fs.get('/BAI/BAI_mon_ji.dat'));
-			fsext.bobjmap = varLengthSegments(0x49434, fs.overlay(11));
-			fsext.bai_atk_hk = varLengthSegments(0x495f4, fs.overlay(11), fs.get('/BAI/BAI_atk_hk.dat'));
-			fsext.bai_scn_yo = varLengthSegments(0x49830, fs.overlay(11), fs.get('/BAI/BAI_scn_yo.dat'));
-			fsext.bobjpc = varLengthSegments(0x49ab4, fs.overlay(11));
-			fsext.bobjui = varLengthSegments(0x4a058, fs.overlay(11));
-			fsext.bobjmon = varLengthSegments(0x4b57c, fs.overlay(11));
+			// fsext.blfxtex = varLengthSegments(0x48bf0, fs.overlay(11)); // ?
+			fsext.bai_scn_cf = unpackSegmentedFile(fs.overlay(11), 0x48bfc, fs.get('/BAI/BAI_scn_cf.dat'));
+			fsext.bai_item_ji = unpackSegmentedFile(fs.overlay(11), 0x48c08, fs.get('/BAI/BAI_item_ji.dat'));
+			// fsext.bofxtex = varLengthSegments(0x48c14, fs.overlay(11));
+			// fsext.bofxpal = varLengthSegments(0x48c2c, fs.overlay(11));
+			// fsext.bdfxtex = varLengthSegments(0x48c44, fs.overlay(11));
+			// fsext.bdfxpal = varLengthSegments(0x48c78, fs.overlay(11));
+			fsext.bai_mon_cf = unpackSegmentedFile(fs.overlay(11), 0x48cac, fs.get('/BAI/BAI_mon_cf.dat'));
+			fsext.bai_atk_yy = unpackSegmentedFile(fs.overlay(11), 0x48ce8, fs.get('/BAI/BAI_atk_yy.dat'));
+			fsext.bai_mon_yo = unpackSegmentedFile(fs.overlay(11), 0x490b0, fs.get('/BAI/BAI_mon_yo.dat'));
+			fsext.bai_scn_ji = unpackSegmentedFile(fs.overlay(11), 0x49144, fs.get('/BAI/BAI_scn_ji.dat'));
+			fsext.bai_atk_nh = unpackSegmentedFile(fs.overlay(11), 0x49280, fs.get('/BAI/BAI_atk_nh.dat'));
+			fsext.bai_mon_ji = unpackSegmentedFile(fs.overlay(11), 0x49318, fs.get('/BAI/BAI_mon_ji.dat'));
+			// fsext.bobjmap = varLengthSegments(0x49434, fs.overlay(11));
+			fsext.bai_atk_hk = unpackSegmentedFile(fs.overlay(11), 0x495f4, fs.get('/BAI/BAI_atk_hk.dat'));
+			fsext.bai_scn_yo = unpackSegmentedFile(fs.overlay(11), 0x49830, fs.get('/BAI/BAI_scn_yo.dat'));
+			// fsext.bobjpc = varLengthSegments(0x49ab4, fs.overlay(11));
+			// fsext.bobjui = varLengthSegments(0x4a058, fs.overlay(11));
+			// fsext.bobjmon = varLengthSegments(0x4b57c, fs.overlay(11));
 
 			fsext.baiCommands = fixedSegments(0x3a98c, 0x3cbbc, 16, fs.overlay(11));
 			fsext.monsters = fixedSegments(0x4780c, 0x48be0, 36, fs.overlay(11));
 
-			fsext.fevent = varLengthSegments(0x94c8, fs.overlay(3), fs.get('/FEvent/FEvent.dat'));
-			fsext.fmapdata = varLengthSegments(0x9a3c, fs.overlay(3), fs.get('/FMap/FMapData.dat'));
-			fsext.fobj = varLengthSegments(0x9cb0, fs.overlay(3), fs.get('/FObj/FObj.dat'));
-			fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
-			fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
-			fsext.fpaf = varLengthSegments(0x965c, fs.overlay(3), fs.get('/FPaf/FPaf.dat'));
+			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0x94c8, fs.get('/FEvent/FEvent.dat'));
+			fsext.fmapdata = unpackSegmentedFile(fs.overlay(3), 0x9a3c, fs.get('/FMap/FMapData.dat'));
+			fsext.fobj = unpackSegmentedFile(fs.overlay(3), 0x9cb0, fs.get('/FObj/FObj.dat'));
+			// fsext.fobjmon = varLengthSegments(0x945c, fs.overlay(3));
+			// fsext.fobjpc = varLengthSegments(0x97f8, fs.overlay(3));
+			fsext.fpaf = unpackSegmentedFile(fs.overlay(3), 0x965c, fs.get('/FPaf/FPaf.dat'));
 			fsext.fmapmetadata = fixedSegments(0x92bc, 0x92bc + 12 * 0x21, 12, fs.overlay(3));
 			fsext.fieldAnimeIndices = fixedIndices(0xe164, 0xe25c, fs.overlay(3));
 			fsext.fieldRoomIndices = fixedIndices(0xe3dc, 0xe670, fs.overlay(3));
@@ -1841,11 +1870,11 @@
 			return strings;
 		};
 
-		for (let i = 0; i < fsext.fpaf.segments.length - 1; ++i) {
-			const s = unpackSegmented16(fsext.fpaf.segments[i]);
+		for (let i = 0; i < fsext.fpaf.length - 1; ++i) {
+			const s = unpackSegmented16(fsext.fpaf[i]);
 			addHTML(
 				table,
-				`<tr style="${i < fsext.fpaf.segments.length - 2 ? 'border-bottom: 1px solid var(--line);' : ''}">
+				`<tr style="${i < fsext.fpaf.length - 2 ? 'border-bottom: 1px solid var(--line);' : ''}">
 					<td><code>${i}</code></td>
 					<td style="padding: 10px 0;"><ul>${fpaf
 						.stringify(s)
@@ -1885,7 +1914,7 @@
 		dump.textContent = 'Dump';
 		dump.addEventListener('click', () => {
 			const index = select.value;
-			const data = lzBis(fsext.fmapdata.segments[index]);
+			const data = lzBis(fsext.fmapdata[index]);
 			download(`FMapData-${index.toString(16)}.bin`, data.buffer);
 		});
 		section.appendChild(dump);
@@ -1964,8 +1993,8 @@
 		const animeToProps = (fmapdataTiles.animeToProps = new Map());
 		paletteSelectPlaceholder.addEventListener('mousedown', () => {
 			for (let i = 0; i < field.rooms.length; ++i) {
-				const props = unpackSegmented(lzBis(fsext.fmapdata.segments[field.rooms[i].props]));
-				const passiveAnimations = unpackSegmented(props[10]);
+				const props = unpackSegmented32(lzBis(fsext.fmapdata[field.rooms[i].props]));
+				const passiveAnimations = unpackSegmented32(props[10]);
 				for (const passiveAnime of passiveAnimations) {
 					const tileset = passiveAnime.getInt16(4, true);
 					let arr = animeToProps.get(tileset) || [];
@@ -2011,7 +2040,7 @@
 
 		const render = () => {
 			const index = select.value;
-			const data = lzBis(fsext.fmapdata.segments[index]);
+			const data = lzBis(fsext.fmapdata[index]);
 
 			let palettes = [
 				globalPalette256,
@@ -2024,7 +2053,7 @@
 			if (paletteOptions.length) {
 				const roomIndex = paletteOptions[paletteSelectPlaceholder.value];
 				const room = field.rooms[roomIndex];
-				const props = unpackSegmented(lzBis(fsext.fmapdata.segments[room.props]));
+				const props = unpackSegmented32(lzBis(fsext.fmapdata[room.props]));
 				palettes = [props[3], props[3], props[4], props[4], props[5], props[5]];
 			}
 
@@ -2100,11 +2129,10 @@
 	const battle = (window.battle = createSection('Battle Maps', section => {
 		const battle = {};
 
-		const bmapFile = fs.get('/BMap/BMap.dat');
-		const bmap = (battle.bmap = unpackSegmented(bmapFile));
+		const bmap = (battle.bmap = unpackSegmentedFile(fs.get('/BMap/BMap.dat'), 0, fs.get('/BMap/BMap.dat')));
 
 		const bmaps = (battle.bmaps = []);
-		for (let i = 1; i < bmap.length; i += 8) {
+		for (let i = 0; i < bmap.length; i += 8) {
 			bmaps.push({
 				tileset: bmap[i],
 				palette: bmap[i + 1],
@@ -2555,7 +2583,7 @@
 		}
 
 		const selectOptions = [];
-		for (let i = 0; i < fsext.bmapg.segments.length; ++i) selectOptions.push(`BMapG 0x${i.toString(16)}`);
+		for (let i = 0; i < fsext.bmapg.length; ++i) selectOptions.push(`BMapG 0x${i.toString(16)}`);
 		const bmapgSelect = dropdown(selectOptions, 0, () => render());
 		section.appendChild(bmapgSelect);
 
@@ -2587,7 +2615,7 @@
 		section.appendChild(metaPreview);
 
 		const render = () => {
-			const room = unpackSegmented(lzBis(fsext.bmapg.segments[bmapgSelect.value]));
+			const room = unpackSegmented32(lzBis(fsext.bmapg[bmapgSelect.value]));
 			const palette = room[0]?.byteLength && rgb15To32(bufToU16(room[0]));
 			const tileset = room[1]?.byteLength && bufToU8(room[1]);
 			const tilemaps = [2, 3].map(index => room[index]?.byteLength && bufToU16(room[index]));
@@ -2676,7 +2704,7 @@
 		const menu = {};
 
 		const menuFile = fs.get('/MMap/MMap.dat');
-		const maps = (menu.maps = unpackSegmented(menuFile));
+		const maps = (menu.maps = unpackSegmentedFile(menuFile, 0, menuFile));
 
 		const tilesetOptions = [];
 		const tilemapOptions = [];
@@ -2698,7 +2726,7 @@
 		section.appendChild(tilesetSelect);
 		const tilemapSelect = dropdown(
 			tilemapOptions.map(x => x[0]),
-			0,
+			1,
 			() => render(),
 		);
 		section.appendChild(tilemapSelect);
@@ -3342,7 +3370,7 @@
 			optionNames.push('ARM9 Font');
 		}
 
-		const statSegments = unpackSegmented(fs.get('/Font/StatFontSet.dat'));
+		const statSegments = unpackSegmentedFile(fs.get('/Font/StatFontSet.dat'), 0, fs.get('/Font/StatFontSet.dat'));
 		for (let i = 0; i < statSegments.length; ++i) {
 			const u8 = bufToU8(statSegments[i]);
 			for (let o = 0; o < u8.length; ++o) {
@@ -3411,53 +3439,53 @@
 		const messages = {};
 
 		const columnNamesWithFonts = (c => {
-			c[1] = 'CJK replacements';
-			c[2] = 'CJK small';
-			c[3] = 'CJK small replacements';
-			c[4] = 'CJK big';
-			c[5] = 'CJK big replacements';
-			c[6] = 'English (?)';
-			c[7] = 'English small';
-			c[8] = 'English (?)';
-			c[9] = 'English big';
-			c[10] = 'English (?)';
-			c[11] = 'French (?)';
-			c[12] = 'French small';
-			c[13] = 'French (?)';
-			c[14] = 'French big';
-			c[15] = 'French (?)';
-			c[16] = 'German (?)';
-			c[17] = 'German small';
-			c[18] = 'German (?)';
-			c[19] = 'German big';
-			c[20] = 'German (?)';
-			c[21] = 'Italian (?)';
-			c[22] = 'Italian small';
-			c[23] = 'Italian (?)';
-			c[24] = 'Italian big';
-			c[25] = 'Italian (?)';
-			c[26] = 'Spanish (?)';
-			c[27] = 'Spanish small';
-			c[28] = 'Spanish (?)';
-			c[29] = 'Spanish big';
-			c[30] = 'Spanish (?)';
+			c[0] = 'CJK replacements';
+			c[1] = 'CJK small';
+			c[2] = 'CJK small replacements';
+			c[3] = 'CJK big';
+			c[4] = 'CJK big replacements';
+			c[5] = 'English (?)';
+			c[6] = 'English small';
+			c[7] = 'English (?)';
+			c[8] = 'English big';
+			c[9] = 'English (?)';
+			c[10] = 'French (?)';
+			c[11] = 'French small';
+			c[12] = 'French (?)';
+			c[13] = 'French big';
+			c[14] = 'French (?)';
+			c[15] = 'German (?)';
+			c[16] = 'German small';
+			c[17] = 'German (?)';
+			c[18] = 'German big';
+			c[19] = 'German (?)';
+			c[20] = 'Italian (?)';
+			c[21] = 'Italian small';
+			c[22] = 'Italian (?)';
+			c[23] = 'Italian big';
+			c[24] = 'Italian (?)';
+			c[25] = 'Spanish (?)';
+			c[26] = 'Spanish small';
+			c[27] = 'Spanish (?)';
+			c[28] = 'Spanish big';
+			c[29] = 'Spanish (?)';
 
-			c[67] = 'CJK';
-			c[68] = 'English';
-			c[69] = 'French';
-			c[70] = 'German';
-			c[71] = 'Italian';
-			c[72] = 'Spanish';
+			c[66] = 'CJK';
+			c[67] = 'English';
+			c[68] = 'French';
+			c[69] = 'German';
+			c[70] = 'Italian';
+			c[71] = 'Spanish';
 			return c;
 		})([]);
 
 		const columnNamesWithoutFonts = (c => {
-			c[1] = 'CJK';
-			c[2] = 'English';
-			c[3] = 'French';
-			c[4] = 'German';
-			c[5] = 'Italian';
-			c[6] = 'Spanish';
+			c[0] = 'CJK';
+			c[1] = 'English';
+			c[2] = 'French';
+			c[3] = 'German';
+			c[4] = 'Italian';
+			c[5] = 'Spanish';
 			return c;
 		})([]);
 
@@ -3563,14 +3591,16 @@
 			const tables = [];
 			if (type === 'fevent') {
 				showTableOptions = true;
-				for (let i = 0; i * 3 + 2 < fsext.fevent.segments.length; ++i) {
-					if (fsext.fevent.segments[i * 3 + 2].byteLength) tableOptions.push(`Room 0x${i.toString(16)}`);
+				for (let i = 0; i * 3 + 2 < fsext.fevent.length; ++i) {
+					if (fsext.fevent[i * 3 + 2].byteLength) tableOptions.push(`Room 0x${i.toString(16)}`);
 					else tableOptions.push(`<span style="opacity: 0.5;">Room 0x${i.toString(16)}</span>`);
-					tables.push(fsext.fevent.segments[i * 3 + 2]);
+
+					const innerFile = fsext.fevent[i * 3 + 2];
+					tables.push(unpackSegmentedFile(innerFile, 0, innerFile));
 				}
 			} else if (type === 'tables+textboxes+fonts') {
 				showTableOptions = true;
-				const segments = unpackSegmented(container);
+				const segments = unpackSegmentedFile(container, 0, container);
 				for (let i = 0; i < segments.length; ++i) {
 					// check if nonzero
 					let nonzero = false;
@@ -3584,10 +3614,10 @@
 					if (!nonzero) continue;
 
 					tableOptions.push(`Table 0x${i.toString(16)}`);
-					tables.push(segments[i]);
+					tables.push(unpackSegmentedFile(segments[i], 0, segments[i]));
 				}
 			} else if (type === 'plain' || type === 'textboxes' || type === 'textboxes+fonts') {
-				tables.push(container); // treat the entire file as one table
+				tables.push(unpackSegmentedFile(container, 0, container)); // treat the entire file as one table
 			}
 
 			tableSelect.replaceWith(
@@ -3601,7 +3631,7 @@
 
 				const isSimple = type === 'plain' || type === 'textboxes';
 
-				const columns = (messages.columns = unpackSegmented(tables[tableSelect.value]));
+				const columns = (messages.columns = tables[tableSelect.value]);
 				const fontColumns = [];
 				const textColumns = [];
 				for (let i = 0; i < columns.length; ++i) {
@@ -3669,7 +3699,7 @@
 				}
 				textTable.appendChild(headerTr);
 
-				const textColumnsSegments = textColumns.map(columnId => [columnId, unpackSegmented(columns[columnId])]);
+				const textColumnsSegments = textColumns.map(columnId => [columnId, unpackSegmented32(columns[columnId])]);
 				const tableHeight = Math.max(...textColumnsSegments.map(x => x[1].length));
 				let recycledBitmap = undefined;
 				for (let i = 0; i < tableHeight; ++i) {
@@ -3777,7 +3807,8 @@
 		const monsters = {};
 
 		// basically a rip straight from Yoshi Magic
-		const monsterNameTable = unpackSegmented(fs.get('/BData/mfset_MonN.dat')).map(buf => unpackSegmented(buf));
+		const monNFile = fs.get('/BData/mfset_MonN.dat');
+		const monsterNameTable = unpackSegmentedFile(monNFile, 0, monNFile).map(buf => unpackSegmented32(buf));
 
 		const table = document.createElement('table');
 		table.className = 'bordered';
@@ -3804,8 +3835,8 @@
 			else if (script >> 12 === 7) scriptName = `cf[${script & 0xfff}]`;
 
 			let name;
-			if (monsterNameTable[2]?.[nameIndex]) name = bisUnicode(monsterNameTable[2][nameIndex], 'latin');
-			else name = bisUnicode(monsterNameTable[1][nameIndex], 'japanese');
+			if (monsterNameTable[1]?.[nameIndex]) name = bisUnicode(monsterNameTable[1][nameIndex], 'latin');
+			else name = bisUnicode(monsterNameTable[0][nameIndex], 'japanese');
 
 			let spriteName = str32(sprite);
 			if (sprite >>> 24 === 0xc0) spriteName = `BObjPc[0x${(sprite & 0xffff).toString(16)}]`;
@@ -3860,7 +3891,8 @@
 		let updateSegment = () => {};
 
 		const updateFile = () => {
-			const segments = unpackSegmented(fs.get(files[fileSelect.value]));
+			const selectedFile = fs.get(files[fileSelect.value]);
+			const segments = unpackSegmentedFile(selectedFile, 0, selectedFile);
 			const newDropdown = dropdown(
 				segments.map((x, i) => `${i}. (len ${x.byteLength})`),
 				0,
@@ -4015,20 +4047,20 @@
 		const fxsprites = {};
 
 		const files = [
-			{ label: 'BDfx', pals: fsext.bdfxpal?.segments, texs: fsext.bdfxtex?.segments },
-			{ label: 'BLfx', pals: undefined, texs: fsext.blfxtex?.segments },
-			{ label: 'BOfx', pals: fsext.bofxpal?.segments, texs: fsext.bofxtex?.segments },
-			{ label: 'FDfx', pals: fsext.fdfxpal?.segments, texs: fsext.fdfxtex?.segments },
-			{ label: 'FOfx', pals: fsext.fofxpal?.segments, texs: fsext.fofxtex?.segments },
+			{ label: 'BDfx', pals: fsext.bdfxpal, texs: fsext.bdfxtex },
+			{ label: 'BLfx', pals: undefined, texs: fsext.blfxtex },
+			{ label: 'BOfx', pals: fsext.bofxpal, texs: fsext.bofxtex },
+			{ label: 'FDfx', pals: fsext.fdfxpal, texs: fsext.fdfxtex },
+			{ label: 'FOfx', pals: fsext.fofxpal, texs: fsext.fofxtex },
 			{
 				label: 'MDfx',
-				pals: unpackSegmented(fs.get('/MRfx/MDfxPal.dat')),
-				texs: unpackSegmented(fs.get('/MRfx/MDfxTex.dat')),
+				pals: unpackSegmentedFile(fs.get('/MRfx/MDfxPal.dat'), 0, fs.get('/MRfx/MDfxPal.dat')),
+				texs: unpackSegmentedFile(fs.get('/MRfx/MDfxTex.dat'), 0, fs.get('/MRfx/MDfxTex.dat')),
 			},
 			{
 				label: 'MOfx',
-				pals: unpackSegmented(fs.get('/MRfx/MOfxPal.dat')),
-				texs: unpackSegmented(fs.get('/MRfx/MOfxTex.dat')),
+				pals: unpackSegmentedFile(fs.get('/MRfx/MOfxPal.dat'), 0, fs.get('/MRfx/MOfxPal.dat')),
+				texs: unpackSegmentedFile(fs.get('/MRfx/MOfxTex.dat'), 0, fs.get('/MRfx/MOfxTex.dat')),
 			},
 		];
 		const fileSelect = dropdown(
@@ -4359,7 +4391,7 @@
 				const palAnimIndex = paletteTable[i].getInt16(2, true);
 				if (palAnimIndex === -1) continue;
 
-				const bigSeg = fsext.fobj.segments[palAnimIndex];
+				const bigSeg = fsext.fobj[palAnimIndex];
 				let segments;
 				try {
 					segments = unpackSegmented16(bigSeg);
@@ -4412,22 +4444,23 @@
 		\ndownload(name, dat, mime = 'application/octet-stream') %c \
 		\n\nCompression/Packing functions: \
 		\n%cblz(indat) \nblzCompress(indat, minimumSize?) \nlzBis(indat) \nlzBisCompress(indat, blockSize = 512) \
-		\nzipStore(files) \nunpackSegmented(dat) %c \
+		\nzipStore(files) \nunpackSegmentedFile(headerDat, offset, fileDat) \nunpackSegmented32(dat) \
+		\nunpackSegmented16(dat) %c \
 		\n\nView functions: \
 		\n%csliceDataView(dat, start, end) \nbufToU8(buf) \nbufToU8Clamped(buf) \nbufToU16(buf) \nbufToS16(buf) \
 		\nbufToU32(buf) \nbufToDat(buf) \nstr8(x) \nstr16(x) \nstr32(x) %c \
 		\n\nSections: \
-		\n%cheaders fs fsext field fmapdataTiles battle battleGiant fx mfset mes disassembler sound %c \
+		\n%cheaders fs ovt fsext fpaf field fmapdataTiles battle battleGiant menu font messages monsters bai fxalls fxsprites disassembler rtti vtables sound objpalanim %c \
 		\n\nFile: %cfile%c`,
-		'color: #3cc;',
+		'color: #98f;',
 		'color: unset;',
-		'color: #3cc;',
+		'color: #98f;',
 		'color: unset;',
-		'color: #3cc;',
+		'color: #98f;',
 		'color: unset;',
-		'color: #3cc;',
+		'color: #98f;',
 		'color: unset;',
-		'color: #3cc;',
+		'color: #98f;',
 		'color: unset;',
 	);
 })();
