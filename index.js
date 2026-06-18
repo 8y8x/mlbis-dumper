@@ -1949,7 +1949,6 @@
 						const alpha = ((value * 32 / 100) + 0.5) | 0;
 
 						const blendFn = [rgb15Lerp, rgb15Add, rgb15Sub, rgb15Tint][opcode - 5];
-						console.log(blendFn, red, green, blue ,alpha);
 
 						if (src >= dst) {
 							// write from left-to-right
