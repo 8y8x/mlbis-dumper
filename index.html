@@ -104,7 +104,10 @@
 			.checkbox.checked:hover * { color: var(--checkbox-fg-hover); }
 
 			table.bordered { border-collapse: collapse; }
-			table.bordered td, table.bordered th { border: 1px solid var(--line); padding: 5px; }
+			table.bordered > tbody > tr > td,
+			table.bordered > tbody > tr > th,
+			table.bordered > tr > td,
+			table.bordered > tr > th { border: 1px solid var(--line); padding: 5px; }
 
 			.clicky {
 				--clicky-text: var(--fg); --clicky-bg: transparent; --clicky-box: var(--overlay2);

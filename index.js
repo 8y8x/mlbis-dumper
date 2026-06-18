@@ -449,37 +449,6 @@
 		return segments;
 	});
 
-	/* const unpackSegmented = (window.unpackSegmented = dat => {
-		if (dat.byteLength < 4) return [];
-		const offsetsEnd = dat.getUint32(0, true);
-		let lastSplit = offsetsEnd;
-		const segments = [];
-		for (let o = 4; o < offsetsEnd; o += 4) {
-			const split = dat.getUint32(o, true);
-			if (lastSplit >= dat.byteLength) segments.push(sliceDataView(dat, 0, 0));
-			else segments.push(sliceDataView(dat, lastSplit, split));
-			lastSplit = split;
-		}
-
-		segments.push(sliceDataView(dat, lastSplit, dat.byteLength));
-		return segments;
-	}); */
-
-	/* const unpackSegmented16 = (window.unpackSegmented16 = dat => {
-		if (dat.byteLength < 2) return [];
-		const offsetsEnd = dat.getUint16(0, true);
-		let lastSplit = offsetsEnd;
-		const segments = [];
-		for (let i = 1; i < offsetsEnd; ++i) {
-			const split = dat.getUint16(i * 2, true);
-			segments.push(sliceDataView(dat, lastSplit * 2, split * 2));
-			lastSplit = split;
-		}
-
-		segments.push(sliceDataView(dat, lastSplit * 2, dat.byteLength));
-		return segments;
-	}); */
-
 	const unpackSegmentedUnsorted = (window.unpackSegmentedUnsorted = (dat, o = 0) => {
 		let min = Infinity;
 		const offsets = [];
@@ -1653,236 +1622,589 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Rfx                                                                                                  |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const rfx = (window.rfx = createSection('Rfx', section => {
+		const rfx = {};
+
+		const globalInvalidMatrices = rfx.globalInvalidMatrices = new WeakSet();
+
+		// 1. Shared rfx functionality
+		rfx.parse = dat => {
+			const tracks = [];
+			for (const rawSegment of unpackSegmented16(dat)) {
+				const u16 = bufToU16(rawSegment);
+				const s16 = bufToS16(rawSegment);
+
+				if (!u16.length) {
+					tracks.push(undefined);
+					continue;
+				}
+
+				const animLength = u16[0];
+				const matrices = [];
+
+				let o = 1;
+				while (o < u16.length) {
+					const composite = u16[o];
+					const opcode = composite & 0x3f;
+					const rows = ((composite >> 6) & 7) + 2;
+					const columns = (composite >> 9) + 2;
+					if (o + rows * columns > u16.length) break;
+
+					const matrix = [];
+					for (let y = 0; y < rows; ++y) {
+						const row = matrix[y] = [u16[o++]]; // first column is for control, should be unsigned
+						for (let x = 1; x < columns; ++x) row[x] = s16[o++];
+					}
+
+					matrices.push(matrix);
+				}
+
+				const leftover = sliceDataView(rawSegment, o * 2, rawSegment.byteLength);
+				tracks.push({ animLength, matrices, leftover });
+			}
+			
+			return tracks;
+		};
+
+		rfx.trackToHtml = ({ animLength, matrices, leftover }) => {
+			const animLengthSpan = document.createElement('span');
+			animLengthSpan.innerHTML = animLength;
+
+			const parts = [animLengthSpan];
+
+			for (const matrix of matrices) {
+				const invalid = globalInvalidMatrices.has(matrix);
+				const table = document.createElement('table');
+
+				let tableStyle = `border: 1px solid var(${invalid ? '--red' : '--text'}); border-collapse: collapse;`;
+
+				table.innerHTML = matrix.map((row, y) => '<tr>' + row.map((cell, x) => {
+						if (x === 0) {
+							if (y === 0) return `<td style="color: var(--blue); padding: 0 4px">${cell}</td>`;
+							else return `<td style="color: var(--red); padding: 0 4px">${cell}</td>`;
+						} else return `<td style="padding: 0 4px">${cell}</td>`;
+					}).join('') + '</tr>').join('');
+
+				if (matrix.header) {
+					table.style.cssText = tableStyle;
+
+					const container = document.createElement('div');
+					container.style.cssText = 'display: inline-grid; grid-template-columns: 1fr; vertical-align: middle';
+
+					const headerFlex = document.createElement('div');
+					headerFlex.style.cssText = 'border: 1px solid var(--text); border-bottom: none; display: inline-flex; padding: 5px;';
+					matrix.header.style.flexGrow = '1';
+
+					headerFlex.appendChild(matrix.header);
+					container.appendChild(headerFlex);
+					container.appendChild(table);
+					parts.push(container);
+				} else {
+					table.style.cssText = tableStyle + 'display: inline-table; vertical-align: middle';
+					parts.push(table);
+				}
+			}
+
+			if (leftover.byteLength) {
+				const leftover = document.createElement('code');
+				leftover.textContent = bytes(0, leftover.byteLength, leftover);
+				parts.push(leftover);
+			}
+
+			return parts;
+		};
+
+		rfx.defaultDecorateMatrix = (matrix, ns) => {
+			const composite = matrix[0][0];
+			const opcode = composite & 0x3f;
+			const rows = ((composite >> 6) & 7) + 2;
+			const columns = (composite >> 9) + 2;
+
+			matrix[0][0] = `${ns}_${str8(opcode)} (${rows}x${columns})`;
+
+			for (let y = 1; y < matrix.length; ++y) {
+				matrix[y][0] = str16(matrix[y][0]);
+			}
+		};
+
+		rfx.defaultDecorateTrack = (track, ns) => {
+			for (const matrix of track.matrices) {
+				rfx.defaultDecorateMatrix(matrix, ns);
+			}
+
+			track.animLength = `(length = ${track.animLength})`;
+		};
+
+		rfx.keyframeIdx = (offsetChannel, tick, output) => {
+			// if before the first keyframe's offset, return -1
+			// if at or after the last keyframe:
+			// - if its offset is 0, return its index
+			// - otherwise, return -1
+			output.idx = -1;
+			output.tick = tick;
+
+			for (let kfIdx = 0; kfIdx + 1 < offsetChannel.length; ++kfIdx) {
+				const keyframeOffset = offsetChannel[1 + kfIdx];
+				if (tick < keyframeOffset) return;
+
+				output.idx = kfIdx;
+				tick -= keyframeOffset;
+				output.tick = tick;
+			}
+
+			if (offsetChannel[offsetChannel.length - 1]) output.idx = -1;
+		};
+
+		rfx.interpolateChannel = (offsetChannel, channel, keyframeIdx, keyframeTick) => {
+			const mode = channel[0] >> 10;
+			const duration = offsetChannel[2 + keyframeIdx];
+			if (duration) {
+				if (mode === 1) {
+					// linear
+					const from = channel[1 + keyframeIdx];
+					const to = channel[2 + keyframeIdx];
+					return from + (to - from) * keyframeTick / duration;
+				}
+
+				if (mode === 2) {
+					// quadratic
+					const from = channel[1 + keyframeIdx];
+					const to = channel[2 + keyframeIdx];
+					const lerped = from + (to - from) * keyframeTick / duration;
+
+					// TODO: not totally accurate due to rounding
+					let before, after;
+					if (keyframeIdx !== 0) {
+						const previousDuration = offsetChannel[1 + keyframeIdx];
+						before = from + (from - channel[0 + keyframeIdx]) * keyframeTick / previousDuration;
+						before = (before + lerped) / 2; // average
+					}
+
+					if (keyframeIdx + 3 < channel.length) {
+						const nextDuration = offsetChannel[3 + keyframeIdx];
+						after = to + (channel[3 + keyframeIdx] - to) * keyframeTick / nextDuration;
+						after = (after + lerped) / 2; // average
+					}
+
+					let beforeAlpha = alpha;
+					let afterAlpha = 1 - alpha;
+					if (before !== undefined && after !== undefined) {
+						beforeAlpha *= beforeAlpha;
+						afterAlpha *= afterAlpha;
+					}
+
+					return ((before ?? lerped) * beforeAlpha + (after ?? lerped) * afterAlpha) / (beforeAlpha + afterAlpha);
+				}
+			}
+
+			// instant (mode 0, or other undefined mode, or duration 0)
+			return channel[1 + keyframeIdx];
+		};
+
+		// these color algorithms are equivalent to those in BIS (for valid inputs), except they are simplified since
+		// the palette has already been converted to sRGB (rgb15To32) for performance reasons.
+		const rgb15Lerp = (base, r, g, b, alpha) => {
+			const baseR = (base >> 3) & 0x1f;
+			const baseG = (base >> 11) & 0x1f;
+			const baseB = (base >> 19) & 0x1f;
+			const outR = (baseR * (32 - alpha) + r * alpha) >> 5;
+			const outG = (baseG * (32 - alpha) + g * alpha) >> 5;
+			const outB = (baseB * (32 - alpha) + b * alpha) >> 5;
+
+			const outRGB = (outB << 16) | (outG << 8) | outR;
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+		};
+
+		const rgb15Add = (base, r, g, b, alpha) => {
+			const baseR = (base >> 3) & 0x1f;
+			const baseG = (base >> 11) & 0x1f;
+			const baseB = (base >> 19) & 0x1f;
+			const outR = Math.min(baseR + ((r * alpha) >> 5), 0x1f);
+			const outG = Math.min(baseG + ((g * alpha) >> 5), 0x1f);
+			const outB = Math.min(baseB + ((b * alpha) >> 5), 0x1f);
+
+			const outRGB = (outB << 16) | (outG << 8) | outR; // 00000000_000bbbbb_000ggggg_000rrrrr
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x1c1c1c) >> 2);
+		};
+
+		const rgb15Sub = (base, r, g, b, alpha) => {
+			const baseR = (base >> 3) & 0x1f;
+			const baseG = (base >> 11) & 0x1f;
+			const baseB = (base >> 19) & 0x1f;
+			const outR = Math.max(baseR - ((r * alpha) >> 5), 0);
+			const outG = Math.max(baseG - ((g * alpha) >> 5), 0);
+			const outB = Math.max(baseB - ((b * alpha) >> 5), 0);
+
+			const outRGB = (outB << 16) | (outG << 8) | outR;
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+		};
+
+		const rgb15Tint = (base, r, g, b, alpha) => {
+			const baseR = (base >> 3) & 0x1f;
+			const baseG = (base >> 11) & 0x1f;
+			const baseB = (base >> 19) & 0x1f;
+			const luminance = Math.min((baseR + baseG + baseB) >> 1, 0x1f);
+
+			const outR = (baseR * (32 - alpha) + (((r * luminance) >> 5) * alpha)) >> 5;
+			const outG = (baseG * (32 - alpha) + (((g * luminance) >> 5) * alpha)) >> 5;
+			const outB = (baseB * (32 - alpha) + (((b * luminance) >> 5) * alpha)) >> 5;
+
+			const outRGB = (outB << 16) | (outG << 8) | outR;
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+		};
+
+		const rgb15Invert = (base, alpha) => {
+			const baseR = (base >> 3) & 0x1f;
+			const baseG = (base >> 11) & 0x1f;
+			const baseB = (base >> 19) & 0x1f;
+			const outR = (baseR * (32 - alpha) + (32 - baseR) * alpha) >> 5;
+			const outG = (baseG * (32 - alpha) + (32 - baseG) * alpha) >> 5;
+			const outB = (baseB * (32 - alpha) + (32 - baseB) * alpha) >> 5;
+
+			const outRGB = (outB << 16) | (outG << 8) | outR;
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+		};
+
+		// 2. Per-dialect rfx functionality
+		rfx.bafDecorateTrack = track => {
+			// Baf does not use the animation length field, but it still contains valuable information
+			track.animLength = `<code>${str16(track.animLength)}</code>`;
+
+			for (const matrix of track.matrices) {
+				const opcode = matrix[0][0] & 0x3f;
+				if (opcode === 0) {
+					matrix[0][0] = 'keyframes';
+					matrix[1][0] = 'length';
+				} else if (opcode === 1) {
+					matrix[0][0] = 'dst';
+					matrix[0][1] = '0x' + matrix[0][1].toString(16);
+					matrix[1][0] = 'size';
+					matrix[1][1] = '0x' + matrix[1][1].toString(16);
+					matrix[2][0] = 'src';
+					matrix[2][1] = '0x' + matrix[2][1].toString(16);
+				}
+			}
+		};
+
+		rfx.pafApply = (palette, tracks, tick) => {
+			const track = tracks?.[0];
+			if (!track) return;
+
+			const keyframe = { idx: -1, tick: 0 };
+
+			let src = 0, size = 0, dst = 0; // palette
+			let red = 0, green = 0, blue = 0; // kf_color
+			for (const matrix of track.matrices) {
+				const opcode = matrix[0][0] & 0x3f;
+				if (opcode === 2) {
+					// palette
+					dst = matrix[1][1];
+					size = matrix[2][1];
+					src = matrix[3][1];
+
+					// these fixes (which ensure no out-of-bound read/writes are done) are always done when applying
+					// changes, so might as well fix them now
+					if (palette.length - dst < size) size = palette.length - dst;
+					if (palette.length - src < size) size = palette.length - src;
+				} else if (opcode === 3) {
+					// kf_color
+					let redRow, greenRow, blueRow;
+					for (let y = 1; y < matrix.length; ++y) {
+						const field = matrix[y][0] & 0x3ff;
+						const mode = matrix[y][0] >> 10;
+
+						if (field === 0x1c) redRow = matrix[y];
+						else if (field === 0x1d) greenRow = matrix[y];
+						else if (field === 0x1e) blueRow = matrix[y];
+					}
+
+					if (!redRow || !greenRow || !blueRow) continue;
+
+					rfx.keyframeIdx(matrix[0], tick % track.animLength, keyframe);
+					if (keyframe.idx !== -1) {
+						red = rfx.interpolateChannel(matrix[0], redRow, keyframe.idx, keyframe.tick) | 0;
+						green = rfx.interpolateChannel(matrix[0], greenRow, keyframe.idx, keyframe.tick) | 0;
+						blue = rfx.interpolateChannel(matrix[0], blueRow, keyframe.idx, keyframe.tick) | 0;
+					}
+				} else if (opcode === 4) {
+					// kf_rotate
+					rfx.keyframeIdx(matrix[0], tick % track.animLength, keyframe);
+					if (keyframe.idx !== -1) {
+						const value = rfx.interpolateChannel(matrix[0], matrix[1], keyframe.idx, keyframe.tick);
+						const shift = ((value * size / 100) + 0.5) | 0;
+						const original = new Uint32Array(size);
+
+						original.set(palette.slice(src, src + size));
+						palette.set(original.slice(shift), dst);
+						palette.set(original.slice(0, shift), dst + size - shift);
+					}
+				} else if (5 <= opcode && opcode <= 8) {
+					// kf_set, kf_add, kf_sub, kf_tint
+					rfx.keyframeIdx(matrix[0], tick % track.animLength, keyframe);
+					if (keyframe.idx !== -1) {
+						const value = rfx.interpolateChannel(matrix[0], matrix[1], keyframe.idx, keyframe.tick);
+						const alpha = ((value * 32 / 100) + 0.5) | 0;
+
+						const blendFn = [rgb15Lerp, rgb15Add, rgb15Sub, rgb15Tint][opcode - 5];
+						console.log(blendFn, red, green, blue ,alpha);
+
+						if (src >= dst) {
+							// write from left-to-right
+							for (let i = 0; i < size; ++i) {
+								palette[dst + i] = blendFn(palette[src + i], red, green, blue, alpha);
+							}
+						} else {
+							// write from right-to-left
+							for (let i = size - 1; i >= 0; --i) {
+								palette[dst + i] = blendFn(palette[src + i], red, green, blue, alpha);
+							}
+						}
+					}
+				} else if (opcode === 9) {
+					// kf_invert
+					rfx.keyframeIdx(matrix[0], tick % track.animLength, keyframe);
+					if (keyframe.idx !== -1) {
+						const value = rfx.interpolateChannel(matrix[0], matrix[1], keyframe.idx, keyframe.tick);
+						const alpha = ((value * 32 / 100) + 0.5) | 0;
+
+						if (src >= dst) {
+							// write from left-to-right
+							for (let i = 0; i < size; ++i) {
+								palette[dst + i] = rgb15Invert(palette[src + i], alpha);
+							}
+						} else {
+							// write from right-to-left
+							for (let i = size - 1; i >= 0; --i) {
+								palette[dst + i] = rgb15Invert(palette[src + i], alpha);
+							}
+						}
+					}
+				} else if (opcode === 0xa) {
+					// kf_crossfade
+					rfx.keyframeIdx(matrix[0], tick % track.animLength, keyframe);
+					if (keyframe.idx !== -1) {
+						const srcFrom = matrix[1][1 + keyframe.idx];
+						const duration = matrix[0][1 + keyframe.idx];
+
+						let sizeFixed = size;
+						if (palette.length - srcFrom < sizeFixed) sizeFixed = palette.length - srcFrom;
+
+						if (2 + keyframe.idx < matrix[1].length && duration) {
+							const srcTo = matrix[1][2 + keyframe.idx];
+							if (palette.length - srcTo < sizeFixed) sizeFixed = palette.length - srcTo;
+
+							const lerped = new Uint32Array(sizeFixed);
+							for (let i = 0; i < sizeFixed; ++i) {
+								const r = (palette[srcTo + i] >> 3) & 0x1f;
+								const g = (palette[srcTo + i] >> 11) & 0x1f;
+								const b = (palette[srcTo + i] >> 19) & 0x1f;
+								lerped[i] = rgb15Lerp(palette[srcFrom], r, g, b, (keyframe.tick * 32 / duration) | 0);
+							}
+
+							palette.set(lerped, dst);
+						} else {
+							palette.set(palette.slice(srcFrom, srcFrom + sizeFixed), dst);
+						}
+					}
+				}
+			}
+		};
+
+		rfx.pafDecorateTrack = track => {
+			const animLength = track.animLength;
+			track.animLength = `(length = ${track.animLength})`;
+
+			for (const matrix of track.matrices) {
+				const opcode = matrix[0][0] & 0x3f;
+				if (opcode === 2) {
+					matrix[0][0] = 'palette';
+					matrix[1][0] = 'dst';
+					matrix[1][1] = '0x' + str8(matrix[1][1]);
+					matrix[2][0] = 'size';
+					matrix[2][1] = '0x' + str8(matrix[2][1]);
+					matrix[3][0] = 'src';
+					matrix[3][1] = '0x' + str8(matrix[3][1]);
+				} else if (opcode === 3) {
+					matrix[0][0] = 'kf_color';
+
+					let redRow, greenRow, blueRow;
+					for (let y = 1; y < matrix.length; ++y) {
+						const field = matrix[y][0] & 0x3ff;
+						if (field === 0x1c) redRow = matrix[y];
+						else if (field === 0x1d) greenRow = matrix[y];
+						else if (field === 0x1e) blueRow = matrix[y];
+					}
+
+					if (redRow && greenRow && blueRow && animLength && animLength < 1000) {
+						const graph = document.createElement('canvas');
+						graph.style.cssText = `width: 0; height: 10px`;
+						graph.width = animLength;
+						graph.height = 1;
+
+						const bitmap = new Uint32Array(animLength);
+						let startTick = matrix[0][1];
+
+						for (let kf = 0; 1 + kf < matrix[0].length - 1; ++kf) {
+							const duration = matrix[0][2 + kf];
+							const endTick = startTick + duration;
+
+							for (let tick = startTick, i = 0; tick < endTick; ++tick, ++i) {
+								let r = rfx.interpolateChannel(matrix[0], redRow, kf, i) | 0;
+								let g = rfx.interpolateChannel(matrix[0], greenRow, kf, i) | 0;
+								let b = rfx.interpolateChannel(matrix[0], blueRow, kf, i) | 0;
+
+								r = (r << 3) | (r >> 2);
+								g = (g << 3) | (g >> 2);
+								b = (b << 3) | (b >> 2);
+								bitmap[tick] = 0xff000000 | (b << 16) | (g << 8) | r;
+							}
+
+							startTick = endTick;
+						}
+
+						// fill the rest of the graph with the last color
+						const end = matrix[0].length - 1;
+						const lastR = (redRow[end] << 3) | (redRow[end] >> 2);
+						const lastG = (greenRow[end] << 3) | (greenRow[end] >> 2);
+						const lastB = (blueRow[end] << 3) | (blueRow[end] >> 2);
+						const lastColor = 0xff000000 | (lastB << 16) | (lastG << 8) | lastR;
+						bitmap.fill(lastColor, startTick, animLength);
+
+						const ctx = graph.getContext('2d');
+						ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), animLength, 1), 0, 0);
+
+						matrix.header = graph;
+					}
+
+					for (let y = 1; y < matrix.length; ++y) {
+						const field = matrix[y][0] & 0x3ff;
+						const mode = matrix[y][0] >> 10;
+
+						let fieldStr, modeStr;
+						if (matrix[y] === redRow) fieldStr = 'red';
+						else if (matrix[y] === greenRow) fieldStr = 'green';
+						else if (matrix[y] === blueRow) fieldStr = 'blue';
+
+						if (mode === 0) modeStr = '(instant)';
+						else if (mode === 1) modeStr = ''; // 'linear' is used like 99.9% of the time, no need to show
+						else modeStr = '(' + String(mode) + ')';
+
+						if (fieldStr) matrix[y][0] = fieldStr + modeStr;
+						else matrix[y][0] = str16(matrix[y][0]);
+					}
+				} else if (4 <= opcode && opcode <= 9) {
+					matrix[0][0] = ['kf_rotate', 'kf_set', 'kf_add', 'kf_sub', 'kf_tint', 'kf_invert'][opcode - 4];
+
+					if (animLength && animLength < 1000) {
+						const graph = document.createElement('canvas');
+						graph.style.cssText = `width: 0; height: 50px`;
+						graph.width = animLength;
+						graph.height = 100;
+
+						const bitmap = new Uint32Array(animLength * 100);
+						let startTick = matrix[0][1];
+						for (let kf = 0; 1 + kf < matrix[0].length - 1; ++kf) {
+							const duration = matrix[0][2 + kf];
+							const endTick = startTick + duration;
+
+							for (let tick = startTick, i = 0; tick < endTick; ++tick, ++i) {
+								const a = rfx.interpolateChannel(matrix[0], matrix[1], kf, i);
+
+								const colorA = a / 100 * 127 + 128;
+								const color = 0xff000000 | (colorA << 16) | (colorA << 8) | colorA;
+								for (let y = 100 - (a | 0); y < 100; ++y) {
+									bitmap[y * animLength + tick] = color;
+								}
+							}
+
+							startTick = endTick;
+						}
+
+						const ctx = graph.getContext('2d');
+						ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), animLength, 100), 0, 0);
+
+						matrix.header = graph;
+					}
+
+					const mode = matrix[1][0] >> 10;
+					matrix[1][0] = '%';
+				} else if (opcode === 0xa) {
+					matrix[0][0] = 'kf_crossfade';
+					matrix[1][0] = 'dst';
+					for (let x = 1; x < matrix[1].length; ++x) {
+						matrix[1][x] = '0x' + str8(matrix[1][x]);
+					}
+				} else {
+					rfx.defaultDecorateMatrix(matrix, 'PAF');
+				}
+			}
+		};
+
+		return rfx;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Field Palette Animations                                                                             |
 	// +---------------------------------------------------------------------------------------------------------------+
 
 	const fpaf = (window.fpaf = createSection('Field Palette Animations', section => {
 		const fpaf = {};
 
+		const customNames = checkbox('Custom Names', true, () => update());
+		section.appendChild(customNames);
+
+		const show = button('Show', () => update());
+		section.appendChild(show);
+
 		const table = document.createElement('table');
-		table.style.cssText = 'border-collapse: collapse;';
+		table.className = 'bordered';
 		section.appendChild(table);
 
-		fpaf.apply = (palette, segments, tick) => {
-			if (!segments.length) return;
+		const update = () => {
+			show.remove();
+			table.innerHTML = '';
+			for (let i = 0; i < fsext.fpaf.length - 1; ++i) {
+				const tracks = rfx.parse(fsext.fpaf[i]);
 
-			const segment = bufToS16(segments[0]); // other segments appear to be ignored
-			let o = 0;
-			const totalLength = segment[o++];
-			while (o < segment.length) {
-				let blendMode,
-					paletteStart,
-					paletteLength,
-					red = 0,
-					green = 0,
-					blue = 0;
-				let keyframe,
-					keyframeDistance,
-					keyframes = 0,
-					percent = 0;
-
-				let relativeTick = tick % totalLength;
-
-				commandLoop: while (o < segment.length) {
-					const command = segment[o] & 0xff;
-					const params = segment[o++] >> 8;
-
-					// these are listed in the order they come in by default, but you can rearrange things
-					if (command === 0x82)
-						++o; // unknown, always zero
-					else if (command === 0x00)
-						paletteStart = segment[o++]; // (source)
-					else if (command === 0x01) paletteLength = segment[o++];
-					else if (command === 0x02)
-						++o; // paletteTo (destination)
-					else if (command === 0x83)
-						++o; // color keyframe lengths (TODO)
-					else if (command === 0x1c)
-						red = segment[o++] & 0x1f; // 0x00 - 0x1f
-					else if (command === 0x1d)
-						green = segment[o++] & 0x1f; // 0x00 - 0x1f
-					else if (command === 0x1e)
-						blue = segment[o++] & 0x1f; // 0x00 - 0x1f
-					else if (4 <= command && command <= 0xa) {
-						// TODO: are there more?
-						// keyframe lengths
-						blendMode = command;
-						let startTick = 0;
-						keyframes = params / 2 + 1;
-						for (let i = 0; i < keyframes; ++i) {
-							const length = segment[o++];
-							if (relativeTick < length && keyframe === undefined) {
-								keyframe = i;
-								keyframeDistance = relativeTick / length;
-							}
-							relativeTick -= length;
-						}
-					} else if (command === 0x1f) {
-						// keyframe values (0 - 100)
-						let from = 0,
-							to = 0;
-						if (keyframe !== undefined) {
-							from = keyframe === 0 ? 0 : segment[o + keyframe - 1];
-							to = segment[o + keyframe];
-							percent = Math.min(100, from + (to - from) * keyframeDistance);
-						}
-						o += keyframes;
-						break commandLoop;
-					} else {
-						throw `unknown command 0x${str8(command)} params 0x${str8(params)}`;
+				const parts = [];
+				for (let j = 0; j < tracks.length; ++j) {
+					const track = tracks[j];
+					if (!track) {
+						parts.push(`<div style="padding: 2px 0"><code>[${j}]</code> (empty)</div>`);
+						continue;
 					}
+
+					if (customNames.checked) rfx.pafDecorateTrack(track);
+					else rfx.defaultDecorateTrack(track, 'PAF');
+
+					let style = 'padding: 2px 0;';
+					if (j === tracks.length - 1) style += 'color: var(--fg-dim)'; // the last track isn't relevant
+
+					const div = document.createElement('div');
+					div.style.cssText = style;
+
+					addHTML(div, `<code>[${j}]</code>`);
+					for (const el of rfx.trackToHtml(track)) {
+						addHTML(div, ' ');
+						div.appendChild(el);
+					}
+
+					parts.push(div);
 				}
 
-				// apply to palette
-				if (blendMode === 4) {
-					// palette rotate
-					const old = new Uint32Array(paletteLength);
-					old.set(palette.slice(paletteStart, paletteStart + paletteLength), 0);
-					for (let j = 0; j < paletteLength; ++j) {
-						palette[paletteStart + j] = old[(j + ~~((percent / 100) * paletteLength)) % paletteLength];
-					}
-				} else if (blendMode === 5) {
-					// set
-					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-						const r = ((palette[j] & 0xf8) * (100 - percent)) / 100 + ((red << 3) * percent) / 100;
-						const g = (((palette[j] >> 8) & 0xf8) * (100 - percent)) / 100 + ((green << 3) * percent) / 100;
-						const b = (((palette[j] >> 16) & 0xf8) * (100 - percent)) / 100 + ((blue << 3) * percent) / 100;
-						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
-					}
-				} else if (blendMode === 6) {
-					// additive
-					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-						const r = Math.min(0xf8, (palette[j] & 0xf8) + ((red << 3) * percent) / 100);
-						const g = Math.min(0xf8, ((palette[j] >> 8) & 0xf8) + ((green << 3) * percent) / 100);
-						const b = Math.min(0xf8, ((palette[j] >> 16) & 0xf8) + ((blue << 3) * percent) / 100);
-						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
-					}
-				} else if (blendMode === 7) {
-					// subtractive
-					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-						const r = Math.max(0, (palette[j] & 0xf8) - ((red << 3) * percent) / 100);
-						const g = Math.max(0, ((palette[j] >> 8) & 0xf8) - ((green << 3) * percent) / 100);
-						const b = Math.max(0, ((palette[j] >> 16) & 0xf8) - ((blue << 3) * percent) / 100);
-						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
-					}
-				} else if (blendMode === 8) {
-					// set dimmed (not really sure why this exists)
-					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-						const r =
-							((palette[j] & 0xf8) * (100 - percent)) / 100 +
-							((((red / 0x1f) * 0x16) << 3) * percent) / 100;
-						const g =
-							(((palette[j] >> 8) & 0xf8) * (100 - percent)) / 100 +
-							((((green / 0x1f) * 0x16) << 3) * percent) / 100;
-						const b =
-							(((palette[j] >> 16) & 0xf8) * (100 - percent)) / 100 +
-							((((blue / 0x1f) * 0x16) << 3) * percent) / 100;
-						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
-					}
-				} else if (blendMode === 9) {
-					// invert
-					for (let j = paletteStart; j < paletteStart + paletteLength; ++j) {
-						let r = palette[j] & 0xf8;
-						let g = (palette[j] >> 8) & 0xf8;
-						let b = (palette[j] >> 16) & 0xf8;
-						r += ((0xf8 - r * 2) * percent) / 100;
-						g += ((0xf8 - g * 2) * percent) / 100;
-						b += ((0xf8 - b * 2) * percent) / 100;
-						palette[j] = (0xff << 24) | (b << 16) | (g << 8) | r;
-					}
-				}
-			}
+				const tr = document.createElement('tr');
+				addHTML(tr, `<th>${i}</th>`);
 
-			// make RGB15 brighter (so 0x1f in 5-bit corresponds to 0xff in 8-bit)
-			for (let i = 0; i < 256; ++i) {
-				palette[i] &= 0xfff8f8f8;
-				palette[i] |= (palette[i] >> 5) & 0x070707;
+				const td = document.createElement('td');
+				for (const part of parts) td.appendChild(part);
+
+				tr.appendChild(td);
+				table.appendChild(tr);
 			}
 		};
-
-		fpaf.stringify = segments => {
-			if (!segments.length) return [];
-			const segment = bufToU16(segments[0]);
-			let o = 0;
-			const totalLength = segment[o++];
-			const strings = [`(totalLength ${totalLength})`];
-			while (o < segment.length) {
-				let parts = [];
-
-				let colors = 0;
-				let keyframes = 0;
-				commandLoop: while (o < segment.length) {
-					const command = segment[o] & 0xff;
-					const params = segment[o++] >> 8;
-					const commandStr = params ? str16(command | (params << 8)) : str8(command);
-
-					if (command === 0x82) {
-						(parts.push(`(palette 0x${str16(segment[o++])})`), (o += params));
-					} else if (command === 0x00) {
-						parts.push(`(palFrom 0x${str8(segment[o++])})`);
-					} else if (command === 0x01) {
-						parts.push(`(palLen 0x${str8(segment[o++])})`);
-					} else if (command === 0x02) {
-						parts.push(`(palTo 0x${str8(segment[o++])})`);
-					} else if (command === 0x83) {
-						const unknown = [];
-						colors = params / 2 + 1;
-						for (let i = 0; i < colors; ++i) unknown.push(segment[o++]);
-						parts.push(`(color lengths ${unknown.join(' ')})`);
-					} else if (command === 0x1c) {
-						const reds = [];
-						for (let i = 0; i < colors; ++i) reds.push('0x' + str8(segment[o++]));
-						parts.push(`(red${params ? '[' + params + ']' : ''} ${reds.join(' ')})`);
-					} else if (command === 0x1d) {
-						const greens = [];
-						for (let i = 0; i < colors; ++i) greens.push('0x' + str8(segment[o++]));
-						parts.push(`(green${params ? '[' + params + ']' : ''} ${greens.join(' ')})`);
-					} else if (command === 0x1e) {
-						const blues = [];
-						for (let i = 0; i < colors; ++i) blues.push('0x' + str8(segment[o++]));
-						parts.push(`(blue${params ? '[' + params + ']' : ''} ${blues.join(' ')})`);
-					} else if (4 <= command && command <= 0xa) {
-						const mode =
-							['ROTATE', 'SET', 'ADD', 'SUB', 'SET_DIMMED', 'INVERT'][command - 4] ??
-							'0x' + str8(command);
-						const lengths = [];
-						keyframes = params / 2 + 1;
-						for (let i = 0; i < keyframes; ++i) lengths.push(segment[o++]);
-						parts.push(`(${mode} lengths ${lengths.join(' ')})`);
-					} else if (command === 0x1f || command === 0x1b) {
-						const percents = [];
-						for (let i = 0; i < keyframes; ++i) percents.push(segment[o++] + '%');
-						parts.push(`(values[${params}] ${percents.join(' ')})`);
-						break commandLoop;
-					} else {
-						parts.push(`(0x${commandStr} 0x${str16(segment[o++] ?? 0)})`);
-						console.warn(`unknown command 0x${commandStr}`);
-					}
-				}
-
-				strings.push(
-					parts
-						.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`)
-						.join(' '),
-				);
-			}
-
-			return strings;
-		};
-
-		for (let i = 0; i < fsext.fpaf.length - 1; ++i) {
-			const s = unpackSegmented16(fsext.fpaf[i]);
-			addHTML(
-				table,
-				`<tr style="${i < fsext.fpaf.length - 2 ? 'border-bottom: 1px solid var(--line);' : ''}">
-					<td><code>${i}</code></td>
-					<td style="padding: 10px 0;"><ul>${fpaf
-						.stringify(s)
-						.map(x => '<li><code>' + x + '</code></li>')
-						.join('')}</ul></td>
-				</tr>`,
-			);
-		}
 
 		return fpaf;
 	}));
@@ -2138,7 +2460,7 @@
 				palette: bmap[i + 1],
 				tilemaps: [bmap[i + 2], bmap[i + 3], bmap[i + 4]],
 				paletteAnimations: bmap[i + 5],
-				tileAnimations: bmap[i + 6],
+				bgAnimations: bmap[i + 6],
 				tilesetAnimated: bmap[i + 7],
 			});
 		}
@@ -2201,7 +2523,7 @@
 			})),
 		);
 		section.appendChild(
-			(options.tileAnimations = checkbox('Tile Animations', true, () => {
+			(options.bgAnimations = checkbox('BG Animations', true, () => {
 				updateTileset = updateMap = true;
 			})),
 		);
@@ -2243,66 +2565,9 @@
 				tilesetAnimated: rawRoom.tilesetAnimated?.byteLength
 					? bufToU8(lzBis(rawRoom.tilesetAnimated))
 					: undefined,
-				paletteAnimations: rawRoom.paletteAnimations ? unpackSegmented16(rawRoom.paletteAnimations) : [],
+				paletteAnimations: rfx.parse(rawRoom.paletteAnimations),
+				bgAnimations: rfx.parse(rawRoom.bgAnimations),
 			};
-
-			// parse tile animations
-			room.tileAnimations = [];
-			const tileSegments = rawRoom.tileAnimations ? unpackSegmented16(rawRoom.tileAnimations) : [];
-			for (let i = 0; i < tileSegments.length - 1; ++i) {
-				const segment = bufToS16(tileSegments[i]);
-				let tilesetStart;
-				let tilesetAnimatedStart;
-				let replacementLength;
-				let keyframeIndices = [];
-				let keyframeLengths = [];
-				let totalLength = 0;
-				const parts = [];
-
-				let o = 1;
-				while (o < segment.length) {
-					const command = segment[o] & 0xff;
-					const params = segment[o] >> 8;
-					++o;
-
-					switch (command) {
-						case 0x41:
-							tilesetStart = segment[o++];
-							parts.push(`(tileStart 0x${tilesetStart.toString(16)})`);
-							break;
-						case 0x19:
-							replacementLength = segment[o++];
-							parts.push(`(tileLength 0x${replacementLength.toString(16)})`);
-							break;
-						case 0x1a:
-							tilesetAnimatedStart = segment[o++];
-							parts.push(`(tileAnimatedStart 0x${tilesetAnimatedStart.toString(16)})`);
-							break;
-						case 0x00:
-							for (let j = 0; j <= params / 2; ++j) keyframeIndices.push(segment[o++]);
-							parts.push(`(indices ${keyframeIndices.join(' ')})`);
-							break;
-						case 0x1b:
-							for (let j = 0; j < keyframeIndices.length; ++j) {
-								const length = segment[o++];
-								totalLength += length;
-								keyframeLengths.push(length);
-							}
-							parts.push(`(lengths ${keyframeLengths.join(' ')})`);
-							break;
-					}
-				}
-
-				room.tileAnimations.push({
-					tilesetStart,
-					tilesetAnimatedStart,
-					replacementLength,
-					keyframeIndices,
-					keyframeLengths,
-					totalLength,
-					parts,
-				});
-			}
 
 			// metadata below
 			metaPreview.innerHTML = '';
@@ -2348,36 +2613,92 @@
 				metaPreview.appendChild(container);
 			}
 
-			const palAnimLines = fpaf.stringify(room.paletteAnimations);
-			addHTML(
-				metaPreview,
-				'<div><code>[5]</code> paletteAnimations: <ul>' +
-					palAnimLines.map(x => '<li><code>' + x + '</code></li>').join('') +
-					'</ul></div>',
-			);
+			const pafAnimationsUl = document.createElement('ul');
+			const decoratedPafAnimations = rfx.parse(rawRoom.paletteAnimations);
+			for (let i = 0; i < decoratedPafAnimations.length; ++i) {
+				const track = decoratedPafAnimations[i];
+				if (!track) {
+					addHTML(pafAnimationsUl, `<li><code>[${i}]</code> (empty)</li>`);
+					continue;
+				}
 
-			addHTML(
-				metaPreview,
-				`<div><code>[6]</code> tileAnimations: <ul>${room.tileAnimations
-					.map(x => {
-						return (
-							'<li><code>' +
-							x.parts
-								.map((s, i) => `<span style="color: var(${i % 2 ? '--fg-dim' : '--fg'});">${s}</span>`)
-								.join(' ') +
-							'</code></li>'
-						);
-					})
-					.join('')}</ul></div>`,
-			);
+				rfx.pafDecorateTrack(track);
+
+				let style = 'padding: 2px 0;';
+				if (i === decoratedPafAnimations.length - 1) style += 'color: var(--fg-dim)';
+
+				const li = document.createElement('li');
+				li.style.cssText = style;
+				addHTML(li, `<code>[${i}]</code>`);
+
+				for (const part of rfx.trackToHtml(decoratedPafAnimations[i])) {
+					addHTML(li, ' ');
+					li.appendChild(part);
+				}
+
+				pafAnimationsUl.appendChild(li);
+			}
+
+			const pafAnimationsDiv = document.createElement('div');
+			addHTML(pafAnimationsDiv, '<code>[5]</code> paletteAnimations: ');
+			pafAnimationsDiv.appendChild(pafAnimationsUl);
+			metaPreview.appendChild(pafAnimationsDiv);
+
+			const bgAnimationsUl = document.createElement('ul');
+			const decoratedBgAnimations = rfx.parse(rawRoom.bgAnimations);
+			for (let i = 0; i < decoratedBgAnimations.length; ++i) {
+				if (!decoratedBgAnimations[i]) {
+					addHTML(bgAnimationsUl, `<li><code>[${i}]</code> (empty)</li>`);
+					continue;
+				}
+
+				rfx.bafDecorateTrack(decoratedBgAnimations[i]);
+
+				let style = 'padding: 2px 0;';
+				if (i === decoratedBgAnimations.length - 1) style += 'color: var(--fg-dim)';
+
+				const li = document.createElement('li');
+				li.style.cssText = style;
+				addHTML(li, `<code>[${i}]</code>`);
+
+				for (const part of rfx.trackToHtml(decoratedBgAnimations[i])) {
+					addHTML(li, ' ');
+					li.appendChild(part);
+				}
+
+				bgAnimationsUl.appendChild(li);
+			}
+
+			const bgAnimationsDiv = document.createElement('div');
+			addHTML(bgAnimationsDiv, '<code>[6]</code> bgAnimations: ');
+			bgAnimationsDiv.appendChild(bgAnimationsUl);
+			metaPreview.appendChild(bgAnimationsDiv);
 
 			if (room.tilesetAnimated) {
+				// find the maximum tile used by any animation
 				let tilesEnd = 0;
-				for (const anim of room.tileAnimations) {
-					const end =
-						anim.tilesetAnimatedStart + anim.replacementLength * (Math.max(...anim.keyframeIndices) + 1);
-					if (tilesEnd < end) tilesEnd = end;
+				for (const track of room.bgAnimations) {
+					if (!track) continue;
+
+					let src, size;
+					for (const matrix of track.matrices) {
+						const opcode = matrix[0][0] & 0x3f;
+						if (opcode === 0) { // configure keyframes
+							let maxIndex = 0;
+							for (let x = 1; x < matrix[0].length; ++x) {
+								if (maxIndex < matrix[0][x]) maxIndex = matrix[0][x];
+							}
+
+							if (src === undefined || size === undefined) continue;
+							const end = src + size * (maxIndex + 1);
+							if (tilesEnd < end) tilesEnd = end;
+						} else if (opcode === 1) { // configure tileset range
+							size = matrix[1][1];
+							src = matrix[2][1];
+						}
+					}
 				}
+
 				let html = `<code>[7]</code> tilesetAnimated: 0x${tilesEnd} tiles`;
 				if (tilesEnd * 32 < room.tilesetAnimated.byteLength) {
 					html += `, debug info or unused tiles: <ul>
@@ -2385,6 +2706,7 @@
 						<li><code>${bytes(tilesEnd * 32, Infinity, room.tilesetAnimated)}</code></li>
 					</ul>`;
 				}
+
 				addHTML(metaPreview, `<div>${html}</div>`);
 			} else {
 				addHTML(metaPreview, '<div><code>[7]</code> tilesetAnimated:</div>');
@@ -2397,7 +2719,7 @@
 		const render = () => {
 			if (options.paletteAnimations.checked && room.paletteAnimations.length)
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
-			if (options.tileAnimations.checked && room.tileAnimations.length) updateTileset = updateMap = true;
+			if (options.bgAnimations.checked && room.bgAnimations.length) updateTileset = updateMap = true;
 			const tick = Math.floor((performance.now() / 1000) * 60);
 
 			// palette
@@ -2405,7 +2727,7 @@
 				const paletteCtx = paletteCanvas.getContext('2d');
 				if (room.palette) {
 					palette.set(room.palette, 0);
-					if (options.paletteAnimations.checked) fpaf.apply(palette, room.paletteAnimations, tick);
+					if (options.paletteAnimations.checked) rfx.pafApply(palette, room.paletteAnimations, tick);
 					paletteCtx.putImageData(new ImageData(bufToU8Clamped(palette), 16, 16), 0, 0);
 				} else {
 					palette.fill(0, 0, 256);
@@ -2420,27 +2742,39 @@
 				if (room.tileset) {
 					for (let i = 0; i < 1024; ++i) layout[i] = room.tileset.slice(i * 32, i * 32 + 32);
 
-					if (options.tileAnimations.checked) {
-						for (let i = 0; i < room.tileAnimations.length; ++i) {
-							const tileAnim = room.tileAnimations[i];
+					if (options.bgAnimations.checked) {
+						for (const track of room.bgAnimations) {
+							if (!track) continue;
 
-							let localTick = tick % tileAnim.totalLength;
-							let frame = 0;
-							for (let j = 0; j < tileAnim.keyframeLengths.length; ++j) {
-								if (localTick < tileAnim.keyframeLengths[j]) {
-									frame = tileAnim.keyframeIndices[j];
-									break;
+							let dst, size, src;
+							for (const matrix of track.matrices) {
+								const opcode = matrix[0][0] & 0x3f;
+
+								if (opcode === 0) { // configure keyframes (row 0 = frame, row 1 = duration)
+									let totalLength = 0;
+									for (let x = 1; x < matrix[1].length; ++x) {
+										totalLength += matrix[1][x];
+									}
+
+									let localTick = tick % totalLength;
+									let frame = 0;
+									for (let x = 1; x < matrix[1].length; ++x) {
+										if (localTick < matrix[1][x]) {
+											frame = matrix[0][x];
+											break;
+										}
+
+										localTick -= matrix[1][x];
+									}
+
+									for (let j = 0, o = (src + frame * size) * 32; j < size; ++j, o += 32) {
+										layout[dst + j] = room.tilesetAnimated.slice(o, o + 32);
+									}
+								} else if (opcode === 1) { // configure tileset range
+									dst = matrix[0][1];
+									size = matrix[1][1];
+									src = matrix[2][1];
 								}
-								localTick -= tileAnim.keyframeLengths[j];
-							}
-
-							for (
-								let j = 0,
-									o = (tileAnim.tilesetAnimatedStart + frame * tileAnim.replacementLength) * 32;
-								j < tileAnim.replacementLength;
-								++j, o += 32
-							) {
-								layout[tileAnim.tilesetStart + j] = room.tilesetAnimated.slice(o, o + 32);
 							}
 						}
 					}
@@ -3904,130 +4238,24 @@
 				preview.innerHTML = '';
 				const segment = segments[segmentSelect.value];
 
-				const fxs = unpackSegmented16(segment);
+				const parsed = rfx.parse(segment);
 				const ul = document.createElement('ul');
-				for (let i = 0; i < fxs.length; ++i) {
-					const u16 = bufToU16(fxs[i]);
-					const s16 = bufToS16(fxs[i]);
-
-					if (u16.length <= 1) {
-						addHTML(ul, `<li><code>[${i}] ${bytes(0, fxs[i].byteLength, fxs[i])}</li>`);
+				for (let i = 0; i < parsed.length; ++i) {
+					if (!parsed[i]) {
+						addHTML(ul, `<li><code>[${i}]</code> (empty)</li>`);
 						continue;
 					}
 
-					const parts = [];
-					parts.push(`(totalLength ${u16[0]})`);
+					rfx.defaultDecorateTrack(parsed[i], 'FX');
 
-					let numKeyframes00;
-					let numKeyframes24;
-					let numKeyframes74;
-					let numKeyframes80;
-					let numKeyframes81;
-					let o = 1;
-					if (prettyPrint.checked) {
-						while (o < u16.length) {
-							const composite = u16[o++];
-							const cmd = composite & 0xff;
-							const params = composite >> 8;
-
-							if (cmd === 0x01) {
-								// maybe
-								parts.push(`(cx01<sub>${params}</sub> : ${s16[o++]})`);
-							} else if (cmd === 0x02) {
-								// maybe
-								parts.push(`(cx02<sub>${params}</sub> : ${s16[o++]})`);
-							} else if (cmd === 0x03) {
-								// maybe
-								parts.push(`(cx03<sub>${params}</sub> : ${s16[o++]})`);
-							} else if (cmd === 0x04) {
-								// maybe
-								parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
-							} else if (cmd === 0x08) {
-								// maybe
-								parts.push(`(cx04<sub>${params}</sub> : ${s16[o++]})`);
-							} else if (cmd === 0x19) {
-								// pretty sure
-								const nums = [];
-								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-								parts.push(`(x<sub>${params}</sub> : ${nums.join(' ')})`);
-							} else if (cmd === 0x1a) {
-								// pretty sure
-								const nums = [];
-								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-								parts.push(`(y<sub>${params}</sub> : ${nums.join(' ')})`);
-							} else if (cmd === 0x1b) {
-								// pretty sure
-								const nums = [];
-								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-								parts.push(`(z<sub>${params}</sub> : ${nums.join(' ')})`);
-							} else if (cmd === 0x1c) {
-								// pretty sure
-								const nums = [];
-								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-								parts.push(`(red<sub>${params}</sub> : ${nums.join(' ')})`);
-							} else if (cmd === 0x1d) {
-								// pretty sure
-								const nums = [];
-								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-								parts.push(`(green<sub>${params}</sub> : ${nums.join(' ')})`);
-							} else if (cmd === 0x1d) {
-								// pretty sure
-								const nums = [];
-								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-								parts.push(`(blue<sub>${params}</sub> : ${nums.join(' ')})`);
-							} else if (cmd === 0x24) {
-								// pretty sure
-								numKeyframes24 = (params + 2) / 2;
-								const nums = [];
-								for (let i = 0; i < numKeyframes24; ++i) nums.push(s16[o++]);
-								parts.push(`(cx24 : ${nums.join(' ')})`);
-							} else if (cmd === 0x34) {
-								// maybe
-								parts.push(`(cx34 : ${s16[o++]} ${s16[o++]})`);
-							} else if (cmd === 0x35) {
-								// maybe
-								parts.push(`(cx35 : ${s16[o++]} ${s16[o++]})`);
-							} else if (cmd === 0x36) {
-								// maybe
-								parts.push(`(cx36 : ${s16[o++]} ${s16[o++]})`);
-							} else if (cmd === 0x37) {
-								// maybe
-								parts.push(`(cx37 : ${s16[o++]} ${s16[o++]})`);
-							} else if (cmd === 0x74) {
-								// pretty sure
-								numKeyframes74 = (params + 2) / 2;
-								const nums = [];
-								for (let i = 0; i < numKeyframes74; ++i) nums.push(s16[o++]);
-								parts.push(`(cx74 : ${nums.join(' ')})`);
-							} else if (cmd === 0x80) {
-								// pretty sure
-								numKeyframes80 = (params + 2) / 2;
-								const nums = [];
-								for (let i = 0; i < numKeyframes80; ++i) nums.push(s16[o++]);
-								parts.push(`(cx80 : ${nums.join(' ')})`);
-							} else if (cmd === 0x81) {
-								// pretty sure
-								numKeyframes81 = (params + 2) / 2;
-								const nums = [];
-								for (let i = 0; i < numKeyframes81; ++i) nums.push(s16[o++]);
-								parts.push(`(cx81 : ${nums.join(' ')})`);
-							} else {
-								o--; // unknown command, retry printing in the next loop
-								break;
-							}
-						}
+					const li = document.createElement('li');
+					li.innerHTML = `<code>[${i}]</code>`;
+					for (const el of rfx.trackToHtml(parsed[i])) {
+						addHTML(li, ' ');
+						li.appendChild(el);
 					}
 
-					for (; o < u16.length; ++o) {
-						let style = '';
-						if (u16[o] >> 8 && u16[o] < 0xf000) style = 'style="color: #98f !important;"';
-						parts.push(`<span ${style}>${str8(u16[o] & 0xff)} ${str8(u16[o] >> 8)}</span>`);
-					}
-
-					const colorized = parts.map((x, i) =>
-						i % 2 ? `<span style="color: var(--fg-dim);">${x}</span>` : x,
-					);
-					addHTML(ul, `<li><code>[${i}] ${colorized.join(' ')}</code></li>`);
+					ul.appendChild(li);
 				}
 
 				preview.appendChild(ul);

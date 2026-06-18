@@ -355,7 +355,7 @@ window.initField = () => {
 				blending: room.props[8],
 				toggles: room.props[9],
 				tileAnimations: room.props[10],
-				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map(buf => unpackSegmented16(buf)),
+				paletteAnimations: [room.props[11], room.props[12], room.props[13]].map(buf => rfx.parse(buf)),
 				collision: room.props[14],
 				depth: room.props[15],
 			});
@@ -972,6 +972,7 @@ window.initField = () => {
 				if (!room.paletteAnimations[i].length) continue;
 
 				// palette animations are always enabled by default (if stored in map properties)
+				field.state.paletteAnimations[i] = options.animations.checked;
 				const check = checkbox(`BG${i + 1}`, options.animations.checked, checked => {
 					field.state.paletteAnimations[i] = checked;
 					updatePalettes = updateTiles = updateMaps = true;
@@ -1270,33 +1271,39 @@ window.initField = () => {
 			}
 
 			// [11] paletteAnimations BG1, [12] paletteAnimations BG2, [13] paletteAnimations BG3
-			addHTML(
-				bottomProperties,
-				`<div><code>[11]</code> paletteAnimations[0] (BG1): <ul>
-				${fpaf
-					.stringify(room.paletteAnimations[0])
-					.map(x => `<li><code>${x}</code></li>`)
-					.join('')}
-			</ul>`,
-			);
-			addHTML(
-				bottomProperties,
-				`<div><code>[12]</code> paletteAnimations[1] (BG2): <ul>
-				${fpaf
-					.stringify(room.paletteAnimations[1])
-					.map(x => `<li><code>${x}</code></li>`)
-					.join('')}
-			</ul>`,
-			);
-			addHTML(
-				bottomProperties,
-				`<div><code>[13]</code> paletteAnimations[2] (BG3): <ul>
-				${fpaf
-					.stringify(room.paletteAnimations[2])
-					.map(x => `<li><code>${x}</code></li>`)
-					.join('')}
-			</ul>`,
-			);
+			for (let i = 0; i < 3; ++i) {
+				const item = document.createElement('div');
+				item.innerHTML = `<code>[${11 + i}]</code> paletteAnimations[${i}] (BG${i + 1}): `;
+
+				const ul = document.createElement('ul');
+				const tracks = rfx.parse(room.props[11 + i]);
+				for (let j = 0; j < tracks.length; ++j) {
+					const track = tracks[j];
+					if (!track) {
+						addHTML(ul, `<li style="padding: 2px 0"><code>[${j}]</code> (empty)</li>`);
+						continue;
+					}
+
+					rfx.pafDecorateTrack(track);
+
+					let style = 'padding: 2px 0;';
+					if (j === tracks.length - 1) style += 'color: var(--fg-dim)'; // the last track isn't relevant
+
+					const li = document.createElement('li');
+					li.style.cssText = style;
+
+					addHTML(li, `<code>[${j}]</code>`);
+					for (const el of rfx.trackToHtml(track)) {
+						addHTML(li, ' ');
+						li.appendChild(el);
+					}
+
+					ul.appendChild(li);
+				}
+
+				item.appendChild(ul);
+				bottomProperties.appendChild(item);
+			}
 
 			// [14] collision
 			if (room.collision.byteLength) {
@@ -1377,7 +1384,7 @@ window.initField = () => {
 						const palette = new Uint32Array(256);
 						palette.set(room.palettes[layer], 0);
 						palettes[layer] = palette;
-						fpaf.apply(palette, room.paletteAnimations[layer], tick);
+						rfx.pafApply(palette, room.paletteAnimations[layer], tick);
 					}
 
 					paletteImages[layer].data.set(bufToU8(palettes[layer]));
