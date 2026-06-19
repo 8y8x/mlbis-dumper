@@ -1773,7 +1773,8 @@
 					// quadratic
 					const from = channel[1 + keyframeIdx];
 					const to = channel[2 + keyframeIdx];
-					const lerped = from + (to - from) * keyframeTick / duration;
+					const alpha = keyframeTick / duration;
+					const lerped = from + (to - from) * alpha;
 
 					// TODO: not totally accurate due to rounding
 					let before, after;
@@ -2112,7 +2113,7 @@
 							for (let tick = startTick, i = 0; tick < endTick; ++tick, ++i) {
 								const a = rfx.interpolateChannel(matrix[0], matrix[1], kf, i);
 
-								const colorA = a / 100 * 127 + 128;
+								const colorA = Math.min(a, 100) / 100 * 127 + 128;
 								const color = 0xff000000 | (colorA << 16) | (colorA << 8) | colorA;
 								for (let y = 100 - (a | 0); y < 100; ++y) {
 									bitmap[y * animLength + tick] = color;
@@ -4208,8 +4209,13 @@
 	const fxalls = (window.fxalls = createSection('FX Alls', section => {
 		const fxalls = {};
 
-		const files = ['/BRfx/BDfxAll.dat', '/BRfx/BDfxGAll.dat', '/BRfx/BOfxAll.dat', '/FRfx/FWfxAll.dat'];
-		const fileSelect = dropdown(files, 0, () => updateFile());
+		const files = [
+			{ path: '/BRfx/BDfxAll.dat', ns: 'DFX' },
+			{ path: '/BRfx/BDfxGAll.dat', ns: 'DFX' },
+			{ path: '/BRfx/BOfxAll.dat', ns: 'OFX' },
+			{ path: '/FRfx/FWfxAll.dat', ns: 'FX' },
+		];
+		const fileSelect = dropdown(files.map(x => x.path), 0, () => updateFile());
 		section.appendChild(fileSelect);
 
 		let segmentSelect = dropdown([''], 0, () => {});
@@ -4224,7 +4230,7 @@
 		let updateSegment = () => {};
 
 		const updateFile = () => {
-			const selectedFile = fs.get(files[fileSelect.value]);
+			const selectedFile = fs.get(files[fileSelect.value].path);
 			const segments = unpackSegmentedFile(selectedFile, 0, selectedFile);
 			const newDropdown = dropdown(
 				segments.map((x, i) => `${i}. (len ${x.byteLength})`),
@@ -4245,7 +4251,7 @@
 						continue;
 					}
 
-					rfx.defaultDecorateTrack(parsed[i], 'FX');
+					rfx.defaultDecorateTrack(parsed[i], files[fileSelect.value].ns);
 
 					const li = document.createElement('li');
 					li.innerHTML = `<code>[${i}]</code>`;
