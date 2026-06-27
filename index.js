@@ -1415,14 +1415,16 @@
 			fillBattle(ovt.overlays[14], 0x0209caa4, 39, 0x0209c914, 20);
 
 			const ov17 = fs.overlay(17);
-			fsext.bdfxalt = sliceDataView(ov17, 0x020bbf30 - ovt.overlays[17].ramStart, ov17.byteLength);
-			fsext.bdfxalt = unpackSegmentedFile(fsext.bdfxalt, 0, fsext.bdfxalt);
+			fsext.bdfxlib = sliceDataView(ov17, 0x020bbf30 - ovt.overlays[17].ramStart, ov17.byteLength);
+			fsext.bdfxlib = unpackSegmentedFile(fsext.bdfxlib, 0, fsext.bdfxlib);
 			fsext.blfx = sliceDataView(ov17, 0x020b8978 - ovt.overlays[17].ramStart, ov17.byteLength);
 			fsext.blfx = unpackSegmentedFile(fsext.blfx, 0, fsext.blfx);
-			fsext.bofxalt = sliceDataView(ov17, 0x020b8d68 - ovt.overlays[17].ramStart, ov17.byteLength);
-			fsext.bofxalt = unpackSegmentedFile(fsext.bofxalt, 0, fsext.bofxalt);
+			fsext.bofxlib = sliceDataView(ov17, 0x020b8d68 - ovt.overlays[17].ramStart, ov17.byteLength);
+			fsext.bofxlib = unpackSegmentedFile(fsext.bofxlib, 0, fsext.bofxlib);
 
 			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
+			fsext.bmapConfig = fixedSegments(0x0208fae0 - ovt.overlays[13].ramStart, 0x02090158 - ovt.overlays[13].ramStart, 9, fs.overlay(13));
+			fsext.bmapSprites = bufToU32(sliceDataView(fs.overlay(13), 0x02090158 - ovt.overlays[13].ramStart, 0x02090438 - ovt.overlays[13].ramStart));
 			fsext.monsters = fixedSegments(0xe074, 0xf448, 36, fs.overlay(11));
 
 			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0xc8ac, fs.get('/FEvent/FEvent.dat'));
@@ -1552,9 +1554,10 @@
 		// 1. Shared rfx functionality
 		rfx.parse = dat => {
 			const tracks = [];
-			for (const rawSegment of unpackSegmented16(dat)) {
-				const u16 = bufToU16(rawSegment);
-				const s16 = bufToS16(rawSegment);
+			const rawSegments = unpackSegmented16(dat);
+			for (let i = 0; i < rawSegments.length; ++i) {
+				const u16 = bufToU16(rawSegments[i]);
+				const s16 = bufToS16(rawSegments[i]);
 
 				if (!u16.length) {
 					tracks.push(undefined);
@@ -1565,23 +1568,25 @@
 				const matrices = [];
 
 				let o = 1;
-				while (o < u16.length) {
-					const composite = u16[o];
-					const opcode = composite & 0x3f;
-					const rows = ((composite >> 6) & 7) + 2;
-					const columns = (composite >> 9) + 2;
-					if (o + rows * columns > u16.length) break;
+				if (i !== rawSegments.length - 1) {
+					while (o < u16.length) {
+						const composite = u16[o];
+						const opcode = composite & 0x3f;
+						const rows = ((composite >> 6) & 7) + 2;
+						const columns = (composite >> 9) + 2;
+						if (o + rows * columns > u16.length) break;
 
-					const matrix = [];
-					for (let y = 0; y < rows; ++y) {
-						const row = matrix[y] = [u16[o++]]; // first column is for control, should be unsigned
-						for (let x = 1; x < columns; ++x) row[x] = s16[o++];
+						const matrix = [];
+						for (let y = 0; y < rows; ++y) {
+							const row = matrix[y] = [u16[o++]]; // first column is for control, should be unsigned
+							for (let x = 1; x < columns; ++x) row[x] = s16[o++];
+						}
+
+						matrices.push(matrix);
 					}
-
-					matrices.push(matrix);
 				}
 
-				const leftover = sliceDataView(rawSegment, o * 2, rawSegment.byteLength);
+				const leftover = sliceDataView(rawSegments[i], o * 2, rawSegments[i].byteLength);
 				tracks.push({ animLength, matrices, leftover });
 			}
 			
@@ -1628,9 +1633,9 @@
 			}
 
 			if (leftover.byteLength) {
-				const leftover = document.createElement('code');
-				leftover.textContent = bytes(0, leftover.byteLength, leftover);
-				parts.push(leftover);
+				const display = document.createElement('code');
+				display.textContent = bytes(0, leftover.byteLength, leftover);
+				parts.push(display);
 			}
 
 			return parts;
@@ -1722,6 +1727,48 @@
 
 			// instant (mode 0, or other undefined mode, or duration 0)
 			return channel[1 + keyframeIdx];
+		};
+
+		rfx.compile = tracks => {
+			// 1. preprocess, find size of everything
+			let size = 0;
+			for (const { animLength, matrices, leftover } of tracks) {
+				size += 2; // track ptr in header
+				if (animLength !== undefined) size += 2;
+				for (const matrix of matrices) size += 2 * matrix.length * matrix[0].length;
+				size += leftover.byteLength;
+			}
+
+			// 2. compile everything
+			const u16 = bufToU16(new DataView(new ArrayBuffer(size)));
+			const s16 = bufToS16(u16);
+
+			let o = tracks.length;
+			for (let i = 0; i < tracks.length; ++i) {
+				const { animLength, matrices, leftover } = tracks[i];
+				u16[i] = o;
+
+				if (animLength !== undefined) u16[o++] = animLength;
+				for (const matrix of matrices) {
+					const width = matrix[0].length;
+					const opcode = matrix[0][0] & 0x3f;
+					const control = opcode | ((matrix.length - 2) << 6) | ((width - 2) << 9);
+					for (let y = 0; y < matrix.length; ++y) {
+						if (matrix[y].length !== width) throw `matrix dimension mismatch on track ${i}`;
+						for (let x = 0; x < matrix[0].length; ++x) {
+							if (x === 0 && y === 0) u16[o++] = control;
+							else s16[o++] = matrix[y][x];
+						}
+					}
+				}
+
+				if (leftover.byteLength) {
+					u16.set(bufToU16(leftover), o);
+					o += (leftover.byteLength >> 1);
+				}
+			}
+
+			return bufToDat(u16);
 		};
 
 		// these color algorithms are equivalent to those in BIS (for valid inputs), except they are simplified since
@@ -2058,6 +2105,143 @@
 					}
 				} else {
 					rfx.defaultDecorateMatrix(matrix, 'PAF');
+				}
+			}
+		};
+
+		const genericParameters = new Map([
+			// alpha multiplier (<< 8)
+			[0x00, 'move_x'],
+			[0x01, 'move_y'],
+			[0x02, 'move_z'],
+			[0x03, 'scale_x'],
+			[0x04, 'scale_y'],
+			[0x05, 'scale_z'],
+			[0x06, 'rot_x'],
+			[0x07, 'rot_y'],
+			[0x08, 'rot_z'],
+			[0x09, 'scale_x_by_x'],
+			[0x0a, 'scale_x_by_y'],
+			[0x0b, 'scale_x_by_z'],
+			[0x0c, 'scale_y_by_x'],
+			[0x0d, 'scale_y_by_y'],
+			[0x0e, 'scale_y_by_z'],
+			[0x0f, 'scale_z_by_x'],
+			[0x10, 'scale_z_by_y'],
+			[0x11, 'scale_z_by_z'],
+
+			// raw matrix set (<< 4 or >> 12)
+			[0x19, 'mtx_11'],
+			[0x1a, 'mtx_11_frac'],
+			[0x1b, 'mtx_12'],
+			[0x1c, 'mtx_12_frac'],
+			[0x1d, 'mtx_13'],
+			[0x1e, 'mtx_13_frac'],
+			[0x1f, 'mtx_21'],
+			[0x20, 'mtx_21_frac'],
+			[0x21, 'mtx_22'],
+			[0x22, 'mtx_22_frac'],
+			[0x23, 'mtx_23'],
+			[0x24, 'mtx_23_frac'],
+			[0x25, 'mtx_31'],
+			[0x26, 'mtx_31_frac'],
+			[0x27, 'mtx_32'],
+			[0x28, 'mtx_32_frac'],
+			[0x29, 'mtx_33'],
+			[0x2a, 'mtx_33_frac'],
+			[0x2b, 'mtx_41'],
+			[0x2c, 'mtx_41_frac'],
+			[0x2d, 'mtx_42'],
+			[0x2e, 'mtx_42_frac'],
+			[0x2f, 'mtx_43'],
+			[0x30, 'mtx_43_frac'],
+
+			// parameters
+			[0x39, 'x'],
+			[0x3a, 'y'],
+			[0x3b, 'z'],
+			[0x3c, 'red'],
+			[0x3d, 'green'],
+			[0x3e, 'blue'],
+			[0x3f, 'custom1'],
+			[0x40, 'custom2'],
+			[0x41, 'custom3'],
+			[0x42, 'custom4'],
+			[0x43, 'palette_row'],
+			[0x44, 'transparency'],
+		]);
+		rfx.decorateStateRow = row => {
+			const easing = row[0] >> 10;
+			let easingStr;
+			if (easing === 0) easingStr = '=';
+			else if (easing === 1) easingStr = '/';
+			else if (easing === 2) easingStr = '~';
+			else easingStr = String(easing);
+
+			const param = row[0] & 0x3ff;
+			const paramStr = genericParameters.get(param) ?? str8(param);
+
+			if (0 <= param && param <= 0x11) {
+				for (let x = 1; x < row.length; ++x) {
+					const val = row[x] / 256;
+					if (Number.isInteger(val)) row[x] = String(val) + '.0';
+					else row[x] = String(val);
+				}
+			} else if (0x19 <= param && param <= 0x30) {
+				// unknown for now
+				row[x] = '0x' + row[x].toString(16);
+			}
+
+			easingStr = '(' + easingStr + ') ';
+			if (row.length <= 2) easingStr = ''; // hide it
+			row[0] = `${easingStr}${paramStr}`;
+		};
+
+		rfx.dfxDecorateTrack = track => {
+			const animLength = track.animLength;
+			track.animLength = `(length = ${track.animLength})`;
+
+			for (const matrix of track.matrices) {
+				const control = matrix[0][0];
+				const opcode = control & 0x3f;
+				if (opcode === 0x00) {
+					matrix[0][0] = 'triangle_strip';
+					for (let y = 1; y < matrix.length; ++y) rfx.decorateStateRow(matrix[y]);
+				} else if (opcode === 0x0a) {
+					matrix[0][0] = 'transform_target';
+					for (let y = 1; y < matrix.length; ++y) rfx.decorateStateRow(matrix[y]);
+				} else if (opcode === 0x0b) {
+					matrix[0][0] = 'blend_target';
+					for (let y = 1; y < matrix.length; ++y) {
+						const param = matrix[y][0];
+						const mode = ['=', '/', '~'][param >> 10] ?? String(mode);
+						const blendFunc = ['lerp', 'add', 'sub', 'tint'][param & 3];
+						const fullPalette = !!(param & 0x10);
+						matrix[y][0] = `(${mode}) ${blendFunc}${fullPalette ? '+' : ''}`;
+
+						for (let x = 1; x < matrix[y].length; ++x) matrix[y][x] = String(matrix[y][x]) + '%';
+					}
+				} else if (0x24 <= opcode && opcode <= 0x2d) {
+					matrix[0][0] = `setup (${str8(opcode)})`;
+					for (let y = 1; y < matrix.length; ++y) rfx.decorateStateRow(matrix[y]);
+				} else if (opcode === 0x34) {
+					// subtrack call: last row is the track id
+					matrix[0][0] = 'subtrack';
+
+					for (let y = 1; y < matrix.length - 1; ++y) rfx.decorateStateRow(matrix[y]);
+
+					const bottomControl = matrix[matrix.length - 1][0];
+					matrix[matrix.length - 1][0] = `track ${bottomControl === 1 ? '(reset mtx)' : ''}`;
+				} else if (opcode === 0x37) {
+					// alt track call: last row is the track id
+					matrix[0][0] = 'libtrack';
+
+					for (let y = 1; y < matrix.length - 1; ++y) rfx.decorateStateRow(matrix[y]);
+
+					const bottomControl = matrix[matrix.length - 1][0];
+					matrix[matrix.length - 1][0] = `track ${bottomControl === 1 ? '(reset mtx)' : ''}`;
+				} else {
+					rfx.defaultDecorateMatrix(matrix, 'DFX');
 				}
 			}
 		};
@@ -2414,11 +2598,6 @@
 			})),
 		);
 		section.appendChild(
-			(options.reverseLayers = checkbox('Reverse Layers', false, () => {
-				updateMap = true;
-			})),
-		);
-		section.appendChild(
 			(options.margins = checkbox('Margins', true, () => {
 				updateMap = true;
 			})),
@@ -2436,6 +2615,13 @@
 				download(`bmap-${str16(bmapDropdown.value)}.png`, pngFile, 'image/png');
 			}),
 		);
+		section.appendChild((options.palette = checkbox('Palette', false, () => updatePreviewLayout())));
+		section.appendChild((options.tilesets = checkbox('Tilesets', false, () => updatePreviewLayout())));
+		section.appendChild(
+			(options.autoscroll = checkbox('Autoscroll', true, () => {
+				updateMap = true;
+			})),
+		);
 		section.appendChild(
 			(options.paletteAnimations = checkbox('Palette Animations', true, () => {
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
@@ -2447,32 +2633,74 @@
 			})),
 		);
 
+		const preview = document.createElement('div');
+		preview.style.cssText = 'position: relative;';
+		section.appendChild(preview);
+
 		const mapCanvas = document.createElement('canvas');
 		mapCanvas.width = 512;
 		mapCanvas.height = 256;
-		section.appendChild(mapCanvas);
+		preview.appendChild(mapCanvas);
 
-		const rawPreview = document.createElement('div');
-		rawPreview.style.cssText = 'height: 256px; position: relative;';
-		section.appendChild(rawPreview);
+		const raws = document.createElement('div');
+		raws.style.cssText = 'height: 256px; position: relative; display: none;';
+		preview.appendChild(raws);
 
 		const tilesetCanvas = document.createElement('canvas');
 		tilesetCanvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0px; left: 0px;';
 		tilesetCanvas.width = tilesetCanvas.height = 256;
-		rawPreview.appendChild(tilesetCanvas);
+		raws.appendChild(tilesetCanvas);
 
 		const tilesetAnimatedCanvas = document.createElement('canvas');
 		tilesetAnimatedCanvas.style.cssText = 'height: 256px; width: 256px; position: absolute; top: 0; left: 256px;';
 		tilesetAnimatedCanvas.width = tilesetAnimatedCanvas.height = 256;
-		rawPreview.appendChild(tilesetAnimatedCanvas);
+		raws.appendChild(tilesetAnimatedCanvas);
 
 		const paletteCanvas = document.createElement('canvas');
-		paletteCanvas.style.cssText = 'height: 128px; width: 128px; position: absolute; top: 0px; left: 512px;';
+		paletteCanvas.style.cssText = 'height: 128px; width: 128px; position: absolute; top: 0px;';
 		paletteCanvas.width = paletteCanvas.height = 16;
-		rawPreview.appendChild(paletteCanvas);
+		raws.appendChild(paletteCanvas);
+
+		const sideInfo = document.createElement('div');
+		sideInfo.style.cssText = 'position: absolute; top: 0; padding: 5px;';
+		preview.appendChild(sideInfo);
+
+		const updatePreviewLayout = () => {
+			if (options.palette.checked) paletteCanvas.style.display = '';
+			else paletteCanvas.style.display = 'none';
+
+			if (options.tilesets.checked) tilesetCanvas.style.display = tilesetAnimatedCanvas.style.display = '';
+			else tilesetCanvas.style.display = tilesetAnimatedCanvas.style.display = 'none';
+
+			if (options.palette.checked || options.tilesets.checked) raws.style.display = '';
+			else raws.style.display = 'none';
+
+			if (options.palette.checked) raws.style.height = '128px';
+			else raws.style.height = '256px';
+
+			if (options.palette.checked) {
+				if (options.tilesets.checked) paletteCanvas.style.left = '512px';
+				else paletteCanvas.style.left = '0px';
+			}
+
+			if (options.palette.checked && options.tilesets.checked) raws.style.width = sideInfo.style.left = '640px';
+			else raws.style.width = sideInfo.style.left = '512px';
+		};
+		updatePreviewLayout();
 
 		const metaPreview = document.createElement('div');
 		section.appendChild(metaPreview);
+
+		const layerPermutations = [
+			[0, 1, 2],
+			[0, 2, 1],
+			[2, 0, 1],
+			[2, 1, 0],
+			[1, 0, 2],
+			[1, 2, 0],
+		];
+		const layerPermutationsStringified =
+			layerPermutations.map(([a, b, c]) => `BG${a + 1} > BG${b + 1} > BG${c + 1}`);
 
 		let room = (battle.room = undefined);
 		const update = () => {
@@ -2486,10 +2714,32 @@
 					: undefined,
 				paletteAnimations: rfx.parse(rawRoom.paletteAnimations),
 				bgAnimations: rfx.parse(rawRoom.bgAnimations),
+				config: fsext.bmapConfig?.[bmapDropdown.value],
 			};
+
+			// side info
+			if (room.config) {
+				const permutation = layerPermutationsStringified[room.config.getInt8(8)];
+				sideInfo.innerHTML =
+					`<div>BG2 parallax X: ${room.config.getInt8(0)} / 32</div>
+					<div>BG2 parallax Y: ${room.config.getInt8(1)} / 32</div>
+					<div>BG3 parallax X: ${room.config.getInt8(2)} / 32</div>
+					<div>BG3 parallax Y: ${room.config.getInt8(3)} / 32</div>
+					<div>BG2 autoscroll X: ${room.config.getInt8(4)}</div>
+					<div>BG2 autoscroll Y: ${room.config.getInt8(5)}</div>
+					<div>BG3 autoscroll X: ${room.config.getInt8(6)}</div>
+					<div>BG3 autoscroll Y: ${room.config.getInt8(7)}</div>
+					<div>Layer permutation: ${permutation ?? ''} (${room.config.getInt8(8)})</div>`;
+			}
+
+			const sprite = fsext.bmapSprites?.[bmapDropdown.value];
+			if (sprite !== undefined) {
+				addHTML(sideInfo, `<div>BObjMap sprite: <code>${str32(sprite)}</code></div>`);
+			}
 
 			// metadata below
 			metaPreview.innerHTML = '';
+
 			if (room.tileset)
 				addHTML(
 					metaPreview,
@@ -2639,6 +2889,8 @@
 			if (options.paletteAnimations.checked && room.paletteAnimations.length)
 				updatePalette = updateTileset = updateTilesetAnimated = updateMap = true;
 			if (options.bgAnimations.checked && room.bgAnimations.length) updateTileset = updateMap = true;
+			if (room.config?.getUint32(4)) updateMap = true; // autoscroll
+
 			const tick = Math.floor((performance.now() / 1000) * 60);
 
 			// palette
@@ -2742,23 +2994,37 @@
 						const mapBitmap = new Uint32Array(512 * 256);
 						mapBitmap.fill(palette[0], 0, 512 * 256);
 						for (let i = 2; i >= 0; --i) {
-							const layerIndex = options.reverseLayers.checked ? 2 - i : i;
+							const layerIndex = (layerPermutations[room.config?.getInt8(8)] ?? [0, 1, 2])[i];
 							const tilemap = room.tilemaps[layerIndex];
 							if (!options.bgChecks[layerIndex].checked || !tilemap) continue;
+
+							let offsetX = 0;
+							let offsetY = 0;
+							if (options.autoscroll.checked && room.config && layerIndex !== 0) {
+								const speedX = room.config.getInt8(layerIndex === 1 ? 4 : 6);
+								const speedY = room.config.getInt8(layerIndex === 1 ? 5 : 7);
+								offsetX = (((tick & 0xfff) * -(speedX << 3)) >> 8) & 0x1ff;
+								offsetY = (((tick & 0x7ff) * -(speedY << 3)) >> 8) & 0xff;
+							}
 
 							for (let j = 0; j < tilemap.length; ++j) {
 								const tile = tilemap[j];
 								const paletteRow = (tile >> 12) << 4;
 
-								const basePos = ((j >> 6) << 12) | ((j & 0x3f) << 3); // y = i >> 6, x = i & 0x3f
+								const basePosX = offsetX + ((j & 0x3f) << 3);
+								const basePosY = offsetY + ((j >> 6) << 3);
 								for (let k = 0; k < 32; ++k) {
-									let pos = basePos | ((k >> 2) << 9) | ((k & 0x3) << 1);
-									if (tile & 0x400) pos ^= 0x7; // horizontal flip
-									if (tile & 0x800) pos ^= 0x7 << 9; // vertical flip
+									let x = (k & 3) << 1;
+									let y = k >> 2;
+									if (tile & 0x400) x ^= 7; // horizontal flip
+									if (tile & 0x800) y ^= 7; // vertical flip
+
+									const pos1 = (((basePosY + y) & 0xff) << 9) | ((basePosX + x) & 0x1ff);
+									const pos2 = (((basePosY + y) & 0xff) << 9) | ((basePosX + (x ^ 1)) & 0x1ff);
 
 									const composite = layout[tile & 0x3ff][k] ?? 0;
-									if (composite & 0xf) mapBitmap[pos] = palette[paletteRow | (composite & 0xf)];
-									if (composite >> 4) mapBitmap[pos ^ 1] = palette[paletteRow | (composite >> 4)];
+									if (composite & 0xf) mapBitmap[pos1] = palette[paletteRow | (composite & 0xf)];
+									if (composite >> 4) mapBitmap[pos2] = palette[paletteRow | (composite >> 4)];
 								}
 							}
 						}
@@ -4132,7 +4398,7 @@
 
 		const options = [
 			{ label: 'BDfxAll.dat', segments: fsext.battle.get('/BRfx/BDfxAll.dat'), ns: 'DFX' },
-			{ label: 'BDfx (alt)', segments: fsext.bdfxalt, ns: 'DFX' },
+			{ label: 'BDfx (lib)', segments: fsext.bdfxlib, ns: 'DFX' },
 			{
 				// BDfxGAll.dat also uses battle file idx 37, same as BDfxAll
 				label: 'BDfxGAll.dat',
@@ -4143,7 +4409,7 @@
 				ns: 'DFX',
 			},
 			{ label: 'BOfxAll.dat', segments: fsext.battle.get('/BRfx/BOfxAll.dat'), ns: 'OFX' },
-			{ label: 'BOfx (alt)', segments: fsext.bofxalt, ns: 'OFX' },
+			{ label: 'BOfx (lib)', segments: fsext.bofxlib, ns: 'OFX' },
 			{ label: 'BLfx (main)', segments: fsext.blfx, ns: 'LFX' },
 		];
 		const optionSelect = dropdown(options.map(x => x.label), 0, () => updateOption());
@@ -4186,7 +4452,8 @@
 						continue;
 					}
 
-					rfx.defaultDecorateTrack(parsed[i], ns);
+					if (ns === 'DFX') rfx.dfxDecorateTrack(parsed[i]);
+					else rfx.defaultDecorateTrack(parsed[i], ns);
 
 					const li = document.createElement('li');
 					li.innerHTML = `<code>[${i}]</code>`;
