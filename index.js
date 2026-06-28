@@ -2609,7 +2609,6 @@
 					options.bgChecks[0].checked,
 					options.bgChecks[1].checked,
 					options.bgChecks[2].checked,
-					options.reverseLayers.checked,
 					options.margins.checked,
 				);
 				download(`bmap-${str16(bmapDropdown.value)}.png`, pngFile, 'image/png');
@@ -2675,8 +2674,8 @@
 			if (options.palette.checked || options.tilesets.checked) raws.style.display = '';
 			else raws.style.display = 'none';
 
-			if (options.palette.checked) raws.style.height = '128px';
-			else raws.style.height = '256px';
+			if (options.tilesets.checked) raws.style.height = '256px';
+			else raws.style.height = '128px';
 
 			if (options.palette.checked) {
 				if (options.tilesets.checked) paletteCanvas.style.left = '512px';
@@ -3046,20 +3045,22 @@
 		update();
 		render();
 
-		battle.png = (roomId, bg1, bg2, bg3, reverseLayers, margins) => {
+		battle.png = (roomId, bg1, bg2, bg3, margins) => {
 			// this is almost identical to field.png
 			const rawRoom = battle.bmaps[roomId];
 			const tileset = bufToU8(lzBis(rawRoom.tileset));
 			const palette = rgb15To32(bufToU16(rawRoom.palette));
 			const tilemaps = rawRoom.tilemaps.map(x => (x?.byteLength ? bufToU16(x) : undefined));
 
+			const config = fsext.bmapConfig?.[roomId];
+
 			const inset = margins ? 0 : 4;
 
 			const bitmap = new Uint32Array(512 * (margins ? 256 : 192));
 			bitmap.fill(palette[0], 0, bitmap.length);
-			const layers = reverseLayers ? [0, 1, 2] : [2, 1, 0];
-			for (const i of layers) {
-				const tilemap = tilemaps[i];
+			for (let i = 2; i >= 0; --i) {
+				const layerIndex = (layerPermutations[config?.getInt8(8)] ?? [0, 1, 2])[i];
+				const tilemap = tilemaps[layerIndex];
 				if (![bg1, bg2, bg3][i] || !tilemap) continue;
 
 				for (let y = inset; y < 32 - inset; ++y) {
