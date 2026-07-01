@@ -1170,7 +1170,7 @@
 				right.appendChild(boxStatic);
 
 				const pointer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-				pointer.style.cssText = `width: 20px; height: 20px; position: absolute; top: 0; left: calc(${((leftAddress - START) / SIZE) * 100}% - 20px);`;
+				pointer.style.cssText = `width: 20px; height: 20px; position: absolute; top: 0; left: calc(${((leftAddress - START) / SIZE) * 100}% - 20px); display: none;`;
 				pointer.setAttribute('viewBox', '0 0 20 20');
 				pointer.innerHTML = '<path stroke="currentColor" stroke-width="1" fill="none" \
 					d="M4,0 L4,10 L16,10 m-4,-4 l4,4 l-4,4"></path>';
