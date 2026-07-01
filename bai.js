@@ -51,7 +51,7 @@ window.initBai = () => {
 		const scriptSelectNames = options.map(entry => {
 			const segments = fsext.battle.get(entry[0]);
 			if (!segments?.length) return ['(?)'];
-			return segments.map((x, i) => `${i}. (len 0x${x.byteLength.toString(16)})`);
+			return segments.map((x, i) => `<code>${str16(entry[1])}</code> ${i}. (0x${i.toString(16)}) (len 0x${x.byteLength.toString(16)})`);
 		});
 
 		let updateScript;
@@ -1494,7 +1494,7 @@ window.initBai = () => {
 					let refs = creatorToMonsterReferences.get(script);
 					if (refs) invokerPart = `→ ${[...refs].map(id => monsterNames[id]).join('; ')}`;
 
-					const parts = [`${j}. (len 0x${segments[j].byteLength.toString(16)}) `];
+					const parts = [`<code>${str16(script)}</code> ${j}. (len 0x${segments[j].byteLength.toString(16)}) `];
 					if (receiverParts.length) parts.push('← ' + receiverParts.join('; '));
 					if (receiverParts.length && invokerPart) parts.push('; ');
 					if (invokerPart) parts.push(invokerPart);

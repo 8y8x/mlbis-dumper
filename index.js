@@ -1120,11 +1120,20 @@
 							entry.row.classList.remove('red');
 							entry.row.classList.add('green');
 						}
+
+						// show pointer if this overlay starts where the selected ends (they could be part of the same
+						// group)
+						if (entry !== selected && sr === l) {
+							entry.pointer.style.display = '';
+						} else {
+							entry.pointer.style.display = 'none';
+						}
 					}
 				} else {
-					for (const { row } of entries) {
+					for (const { row, pointer } of entries) {
 						row.classList.remove('red');
 						row.classList.remove('green');
+						pointer.style.display = 'none';
 					}
 				}
 			};
@@ -1160,6 +1169,13 @@
 				boxStatic.style.width = `${(bss / SIZE) * 100}%`;
 				right.appendChild(boxStatic);
 
+				const pointer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+				pointer.style.cssText = `width: 20px; height: 20px; position: absolute; top: 0; left: calc(${((leftAddress - START) / SIZE) * 100}% - 20px);`;
+				pointer.setAttribute('viewBox', '0 0 20 20');
+				pointer.innerHTML = '<path stroke="currentColor" stroke-width="1" fill="none" \
+					d="M4,0 L4,10 L16,10 m-4,-4 l4,4 l-4,4"></path>';
+				right.appendChild(pointer);
+
 				let bssLabel;
 				if (bss) {
 					bssLabel = document.createElement('div');
@@ -1174,7 +1190,7 @@
 					right.appendChild(bssLabel);
 				}
 
-				const entry = { label, leftAddress, size, bss, row };
+				const entry = { label, leftAddress, size, bss, row, pointer };
 				entries.push(entry);
 				row.addEventListener('mousedown', () => {
 					if (selected) {
@@ -2867,7 +2883,7 @@
 					}
 				}
 
-				let html = `<code>[7]</code> tilesetAnimated: 0x${tilesEnd} tiles`;
+				let html = `<code>[7]</code> tilesetAnimated: 0x${tilesEnd.toString(16)} tiles`;
 				if (tilesEnd * 32 < room.tilesetAnimated.byteLength) {
 					html += `, debug info or unused tiles: <ul>
 						<li style="overflow-wrap: anywhere;"><code>${latin1(tilesEnd * 32, Infinity, room.tilesetAnimated)}</code></li>
@@ -4342,7 +4358,7 @@
 			const nameIndex = block.getUint16(0, true);
 			const script = block.getUint16(2, true);
 			const sprite = block.getUint32(4, true);
-			const level = block.getUint16(8, true);
+			const level = block.getUint16(8, true) >> 8;
 			const hp = block.getUint16(10, true);
 			const pow = block.getUint16(12, true);
 			const def = block.getUint16(14, true);
@@ -4372,7 +4388,7 @@
 					<td>${name}</td>
 					<td>${spriteName}</td>
 					<td>${scriptName}</td>
-					<td>HP ${hp} / POW ${pow} / DEF ${def} / SPD ${spd}</td>
+					<td>LVL ${level} / HP ${hp} / POW ${pow} / DEF ${def} / SPD ${spd}</td>
 					<td>EXP ${exp} / Coins ${coins}</td>
 				</tr>`,
 			);
