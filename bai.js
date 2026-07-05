@@ -108,22 +108,36 @@ window.initBai = () => {
 		};
 
 		bai.registerName = id => {
-			if (id === 0x4000) return 'brg_self';
+			if (id === 0x4000) return 'brgme'; // official, ref: script d01e
 			if (id === 0x4002) return 'brg_target';
 			if (id === 0x4003) return 'brg_turntaker';
-			if (id === 0x4008) return 'brg_keypad_held';
-			if (id === 0x4009) return 'brg_keypad_pressed';
-			if (id === 0x400a) return 'brg_keypad_released';
-			if (id === 0x400b) return 'brg_keypad_pressed_repeating';
+			if (id === 0x4004) return 'brg_keypad_held';
+			if (id === 0x4005) return 'brg_keypad_pressed';
+			if (id === 0x4006) return 'brg_keypad_released';
+			if (id === 0x4007) return 'brg_keypad_pressed_turbo';
+			if (id === 0x4008) return 'brg_gkeypad_held';
+			if (id === 0x4009) return 'brg_gkeypad_pressed';
+			if (id === 0x400a) return 'brg_gkeypad_released';
+			if (id === 0x400b) return 'brg_gkeypad_pressed_turbo';
 			if (id === 0x400c) return 'brg_turntaker_action';
-			if (id === 0x400f) return 'brg_scn_script';
-			if (id === 0x4010) return 'brg_bmap_1p';
-			if (id === 0x4011) return 'brg_bmap_2p';
+			if (id === 0x400e) return 'brg_bowser_here';
+			if (id === 0x400f) return 'brg_scene';
+			if (id === 0x4010) return 'brg_bmap_outside';
+			if (id === 0x4011) return 'brg_bmap_inside';
+			if (id === 0x4012) return 'brg_party_leader';
+			if (id === 0x4013) return 'brg_bros_solo';
+			if (id === 0x4014) return 'brg_started_inside';
+			if (id === 0x4015) return 'brg_first_strike';
+			if (id === 0x4016) return 'brg_transition';
 			if (id === 0x4018) return 'brg_coins';
+			if (id === 0x401a) return 'brg_stylus_status';
 			if (id === 0x401b) return 'brg_stylus_x';
 			if (id === 0x401c) return 'brg_stylus_y';
 			if (id === 0x401d) return 'brg_pc_selected_item_id';
 			if (id === 0x401e) return 'brg_pc_selected_action';
+			if (id === 0x4023) return 'brgturn'; // official, ref: script 700a
+			if (id === 0x4028) return 'brg_language';
+			if (0x402a <= id && id <= 0x4049) return `brg_arg${id - 0x402a + 1}`; // "arg", ref: script 4014
 			return `reg_${str16(id)}`;
 		};
 
