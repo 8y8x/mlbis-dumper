@@ -659,7 +659,9 @@
 		);
 
 		headers.titleOffset = file.getUint32(0x68, true);
+		headers.titleSize = file.getUint32(0x208, true); // DSi only
 		addHTML(ul, `<li>Icon/Title offset: <code>0x${str32(headers.titleOffset)}</code></li>`);
+		addHTML(ul, `<li>Icon/Title size (DSi): <code>0x${headers.titleSize.toString(16)}</code></li>`);
 
 		headers.arm9AutoLoadHook = file.getUint32(0x70, true);
 		addHTML(ul, `<li>ARM9 Auto Load Hook: <code>0x${str32(headers.arm9AutoLoadHook)}</code></li>`);
@@ -703,6 +705,93 @@
 		headers.dsiRsaSignature = sliceDataView(file, 0xf80, 0x1000);
 
 		section.appendChild(ul);
+
+		const iconContainer = document.createElement('div');
+		iconContainer.style.cssText = 'display: grid; grid-template-columns: 256px 1fr; grid-gap: 10px; margin-top: 10px;';
+
+		const iconSide = document.createElement('div');
+		iconSide.style.cssText = 'width: 256px; grid-column: 1 / 2; text-align: center;';
+		iconContainer.appendChild(iconSide);
+
+		const icon = document.createElement('canvas');
+		icon.style.cssText = 'width: 256px; height: 256px;';
+		icon.width = icon.height = 32;
+		iconSide.appendChild(icon);
+
+		const iconPalette = document.createElement('canvas');
+		iconPalette.style.cssText = 'width: 256px; height: 16px; margin-top: 16px;';
+		iconPalette.width = 16;
+		iconPalette.height = 1;
+		iconSide.appendChild(iconPalette);
+
+		const iconPaletteOverride = checkbox('Use Custom Palette', false, () => updateIcon());
+		iconPaletteOverride.style.marginTop = '16px';
+		iconSide.appendChild(iconPaletteOverride);
+
+		const iconTransparency = checkbox('Transparency', true, () => updateIcon());
+		iconSide.appendChild(iconTransparency);
+
+		const paletteOverride = new Uint32Array([
+			0xffffffff, 0xff0000ff, 0xff00007b, 0xff00ffff, 0xff007b7b, 0xff00ff00, 0xff007b00, 0xffffff00,
+			0xff7b7b00, 0xffff0000, 0xff7b0000, 0xffff00ff, 0xff7b007b, 0xff7b7bff, 0xff7bff7b, 0xffff7b7b,
+		]);
+
+		const titleVersion = file.getUint16(headers.titleOffset, true);
+		const iconRawBitmap = bufToU8(sliceDataView(file, headers.titleOffset + 0x20, headers.titleOffset + 0x220));
+		const iconRawPalette = rgb15To32(bufToU16(sliceDataView(file, headers.titleOffset + 0x220, headers.titleOffset + 0x240)));
+
+		const updateIcon = () => {
+			const transparency = iconTransparency.checked;
+			const palette = iconPaletteOverride.checked ? paletteOverride : iconRawPalette;
+
+			const bitmap = new Uint32Array(32 * 32);
+			let o = 0;
+			for (let tileY = 0; tileY < 4; ++tileY) {
+				for (let tileX = 0; tileX < 4; ++tileX) {
+					const basePos = (tileY << 3 << 5) | (tileX << 3);
+					for (let i = 0; i < 64; i += 2, ++o) {
+						const pos = basePos | (i >> 3 << 5) | (i & 7);
+						const composite = iconRawBitmap[o];
+						if (!transparency || (composite & 0xf)) bitmap[pos] = palette[composite & 0xf];
+						if (!transparency || (composite >> 4)) bitmap[pos ^ 1] = palette[composite >> 4];
+					}
+				}
+			}
+
+			const iconCtx = icon.getContext('2d');
+			iconCtx.putImageData(new ImageData(bufToU8Clamped(bitmap), 32, 32), 0, 0);
+
+			const palCtx = iconPalette.getContext('2d');
+			palCtx.putImageData(new ImageData(bufToU8Clamped(palette), 16, 1), 0, 0);
+		};
+		updateIcon();
+
+		const utf16Decoder = new TextDecoder('utf-16');
+		const languages = ['Japanese', 'English', 'French', 'German', 'Italian', 'Spanish', 'Chinese', 'Korean'];
+		const titleTexts = [];
+		let numTitles = 6;
+		if (titleVersion >= 2) numTitles = 7; // + chinese
+		if (titleVersion >= 3) numTitles = 8; // + chinese + korean
+		for (let i = 0; i < numTitles; ++i) {
+			const o = headers.titleOffset + 0x240 + i * 0x100;
+			const title = utf16Decoder.decode(sliceDataView(file, o, o + 0x100)).replaceAll('\n', '<br>');
+			titleTexts.push(`<tr><th>[${i}] ${languages[i]}</th><td style="text-align: center">${title}</td></tr>`);
+		}
+
+		const titles = document.createElement('table');
+		titles.className = 'bordered';
+		titles.style.cssText = 'grid-column: 2 / 3';
+		titles.innerHTML = titleTexts.join('');
+		iconContainer.appendChild(titles);
+
+		const extraInfo = document.createElement('div');
+		extraInfo.style.cssText = 'text-align: left; margin-top: 16px;';
+		extraInfo.innerHTML = [
+			`Icon Format Version: 0x${str16(titleVersion)}`,
+		].join('<br>');
+		iconSide.appendChild(extraInfo);
+
+		section.appendChild(iconContainer);
 
 		return headers;
 	}));
@@ -4718,10 +4807,253 @@
 	window.initRtti();
 
 	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Sound                                                                                                |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const sound = (window.sound = createSection('Sound', section => {
+		const sound = {};
+		const soundFile = fs.get('/Sound/sound_data.sdat');
+
+		const sdatBlock = o => {
+			const start = soundFile.getUint32(o, true);
+			const size = soundFile.getUint32(o + 4, true);
+			return sliceDataView(soundFile, start, start + size);
+		};
+		const [symb, info, fat, file] = [sdatBlock(0x10), sdatBlock(0x18), sdatBlock(0x20), sdatBlock(0x28)];
+
+		const symbFiles = o => {
+			const numFiles = symb.getUint32(o, true);
+			o += 4;
+			const names = [];
+			for (let i = 0; i < numFiles; ++i, o += 4) {
+				const offset = symb.getUint32(o, true);
+				names.push(latin1(offset, undefined, symb));
+			}
+			return names;
+		};
+
+		const symbFolders = o => {
+			const numFiles = symb.getUint32(o, true);
+			o += 4;
+			const names = [];
+			for (let i = 0; i < numFiles; ++i, o += 8) {
+				const folderNameOffset = symb.getUint32(o, true);
+				const filesOffset = symb.getUint32(o + 4, true);
+				const files = symbFiles(filesOffset);
+				names.push([latin1(folderNameOffset, undefined, symb), files]);
+			}
+			return names;
+		};
+
+		const symbDiv = document.createElement('div');
+		symbDiv.innerHTML = 'SYMB:';
+		addHTML(symbDiv, `<details><summary>SSEQ</summary><ol start="0">${symbFiles(symb.getUint32(8, true)).map(x => '<li>' + x + '</li>').join('')}</ul></details>`);
+		addHTML(
+			symbDiv,
+			`<details>
+				<summary>SSAR</summary>
+				<ol start="0">
+					${symbFolders(symb.getUint32(12, true)).map(x => `<li>${x[0]} <ol start="0">${x[1].map(y => `<li>${x[0]}/${y}</li>`).join('')}</ol></li>`).join('')}
+				</ol>
+			</details>`,
+		);
+		addHTML(symbDiv, `<details><summary>BANK</summary><ol start="0">${symbFiles(symb.getUint32(0x10, true)).map(x => '<li>' + x + '</li>').join('')}</ul></details>`);
+		addHTML(symbDiv, `<details><summary>SWAR</summary><ol start="0">${symbFiles(symb.getUint32(0x14, true)).map(x => '<li>' + x + '</li>').join('')}</ul></details>`);
+		addHTML(symbDiv, `<details><summary>Player</summary><ol start="0">${symbFiles(symb.getUint32(0x18, true)).map(x => '<li>' + x + '</li>').join('')}</ul></details>`);
+		addHTML(symbDiv, `<details><summary>Group</summary><ol start="0">${symbFiles(symb.getUint32(0x1c, true)).map(x => '<li>' + x + '</li>').join('')}</ul></details>`);
+		addHTML(symbDiv, `<details><summary>Player2</summary><ol start="0">${symbFiles(symb.getUint32(0x20, true)).map(x => '<li>' + x + '</li>').join('')}</ul></details>`);
+		addHTML(symbDiv, `<details><summary>STRM</summary><ol start="0">${symbFiles(symb.getUint32(0x24, true)).map(x => '<li>' + x + '</li>').join('')}</ul></details>`);
+		section.appendChild(symbDiv);
+
+		const infoDiv = document.createElement('div');
+		infoDiv.innerHTML = 'INFO:';
+
+		// SSEQ
+		{
+			let o = info.getUint32(8, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				const fat = info.getUint16(ptr, true);
+				const unk1 = info.getUint16(ptr + 2, true);
+				const bnk = info.getUint16(ptr + 4, true);
+				const vol = info.getUint8(ptr + 6);
+				const cpr = info.getUint8(ptr + 7);
+				const ppr = info.getUint8(ptr + 8);
+				const ply = info.getUint8(ptr + 9);
+				const unk2 = info.getUint16(ptr + 10, true);
+				entries.push(`<li><code>(fat ${fat}) (unk1 ${unk1}) (bnk ${bnk}) (vol ${vol}) (cpr ${cpr}) (ppr ${ppr}) (ply ${ply}) (unk2 ${unk2})</code></li>`);
+			}
+
+			addHTML(infoDiv, `<details><summary>SSEQ</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		section.appendChild(infoDiv);
+
+		return sound;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: ROM Packing                                                                                          |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const packing = (window.packing = createSection('ROM Packing', section => {
+		const badOnly = checkbox('Only Show Problems', false, () => update());
+		section.appendChild(badOnly);
+
+		const alignment = dropdown(['Alignment: 0x4 bytes', 'Alignment: 0x200 bytes (most ROMs)'], 1, () => update());
+		section.appendChild(alignment);
+
+		const scan = button('Scan', () => update());
+		section.appendChild(scan);
+
+		const table = document.createElement('table');
+		table.className = 'bordered';
+		section.appendChild(table);
+
+		const finalPadding = document.createElement('div');
+		section.appendChild(finalPadding);
+
+		const update = () => {
+			scan.remove();
+
+			const parts = [];
+			parts.push({ name: 'Header', start: 0, size: 0x4000 });
+			parts.push({ name: 'ARM9', start: headers.arm9RomOffset, size: headers.arm9Size });
+			if (headers.ovt9Offset || headers.ovt9Length) {
+				// some games don't have overlays at all
+				parts.push({ name: 'OVT9', start: headers.ovt9Offset, size: headers.ovt9Length });
+			}
+			parts.push({ name: 'ARM7', start: headers.arm7RomOffset, size: headers.arm7Size });
+			parts.push({ name: 'FAT', start: headers.fatOffset, size: headers.fatLength });
+			parts.push({ name: 'FNT', start: headers.fntOffset, size: headers.fntLength });
+
+			const titleVersion = file.getUint16(headers.titleOffset, true);
+			let titleSize = headers.titleSize; // 0 unless a DSi title
+			if (titleSize === 0){ 
+				titleSize = 0x840;
+				if (titleVersion >= 2) titleSize = 0x940;
+				if (titleVersion >= 3) titleSize = 0xa40;
+				if (titleVersion >= 0x103) titleSize = 0x23c0;
+			}
+			parts.push({ name: 'Icon+Title', start: headers.titleOffset, size: titleSize });
+
+			const overlayFileIds = new Set(ovt.overlays.map(x => x.fileId));
+
+			for (let i = 0, o = headers.fatOffset; i * 8 < headers.fatLength; ++i, o += 8) {
+				const start = file.getUint32(o, true);
+				const end = file.getUint32(o + 4, true);
+				if (overlayFileIds.has(i)) {
+					parts.push({ name: 'Overlay', label: String(i).padStart(4, '0'), start, size: end - start });
+				} else {
+					parts.push({ name: 'File', label: fs.get(i).path, start, size: end - start });
+				}
+			}
+
+			table.innerHTML = '<tr><th>Offset</th><th>Label</th><th>Right-padding</th></tr>';
+
+			parts.sort((a, b) => a.start - b.start);
+
+			const alignValue = [0x4, 0x200][alignment.value];
+			const alignMask = alignValue - 1;
+
+			for (let i = 0; i < parts.length; ++i) {
+				let bad = false;
+				const part = parts[i];
+				const end = part.start + part.size;
+
+				let offsetHtml = `<code>${str32(part.start)} - ${str32(end)}</code>`;
+				// all parts should be aligned to a 0x200-byte (most ROMs) or 0x4-byte (New Super Mario Bros.) boundary
+				if (part.start & alignMask) {
+					offsetHtml += '<br>(NOT 0x200-ALIGNED)';
+					bad = true;
+				}
+
+				let paddingHtml = '';
+				let adjustedEnd = end;
+				if (parts[i].name === 'ARM9') {
+					// the ARM9 is allowed to have 12 bytes of dummy data after it (prefixed with 0xDEC00621)
+					if (file.getUint32(end, true) === 0xdec00621) {
+						paddingHtml = `<code>${bytes(end, 12, file)}</code><br>(allowed post-ARM9 data), then<br>`;
+						adjustedEnd += 12;
+					}
+				}
+
+				const endAligned = (adjustedEnd + alignMask) & ~alignMask;
+				if (adjustedEnd < endAligned) {
+					let paddingByte = file.getUint8(adjustedEnd);
+					let paddingMismatched = false;
+					for (let o = adjustedEnd + 1; o < endAligned; ++o) {
+						const newPaddingByte = file.getUint8(o);
+						if (newPaddingByte !== paddingByte) {
+							paddingMismatched = true;
+						}
+					}
+
+					if (paddingMismatched) {
+						paddingHtml += `0x${(endAligned - adjustedEnd).toString(16)} bytes<br>(PADDING CONTAINS DATA)`;
+						bad = true;
+					} else {
+						paddingHtml += `0x${(endAligned - adjustedEnd).toString(16)} bytes of <code>${str8(paddingByte)}</code>`;
+					}
+				} else {
+					paddingHtml = '(none)';
+				}
+
+				if (i < parts.length - 1) {
+					// check that this part pads up to the very next 0x200- or 0x4- byte boundary
+					const next = parts[i + 1];
+					if (next.start - adjustedEnd >= alignValue) {
+						paddingHtml += `<br>(UNEXPECTED 0x${(next.start - endAligned).toString(16)} BYTES EMPTY SPACE AFTERWARDS)`;
+						bad = true;
+					}
+				}
+
+				if (!badOnly.checked || bad) {
+					addHTML(table, `<tr style="${bad ? 'color: var(--red)' : ''}"><td>${offsetHtml}</td><td>${part.name} ${part.label ?? ''}</td><td>${paddingHtml}</td></tr>`);
+				}
+			}
+
+			// check end of ROM (either FF padded or non-existent)
+			let partEnd = parts[parts.length - 1].start + parts[parts.length - 1].size;
+			partEnd = (partEnd + alignMask) & ~alignMask;
+
+			if (partEnd < file.byteLength) {
+				let bad = false;
+
+				const fileU8 = bufToU8(file);
+				let paddingByte = fileU8[partEnd];
+				for (let o = partEnd + 1; o < fileU8.length; ++o) {
+					if (fileU8[o] !== paddingByte) {
+						bad = true;
+					}
+				}
+
+				if (bad) {
+					finalPadding.style.color = 'var(--red)';
+					finalPadding.innerHTML = 'FINAL ROM PADDING CONTAINS DIFFERENT BYTES, INFO HIDDEN?';
+				} else if (!badOnly.checked) {
+					finalPadding.style.color = '';
+					finalPadding.innerHTML = `ROM padding: 0x${(file.byteLength - partEnd).toString(16)} bytes of <code>${str8(paddingByte)}</code>`;
+				} else {
+					finalPadding.innerHTML = '';
+				}
+			} else if (!badOnly.checked) {
+				finalPadding.style.color = '';
+				finalPadding.innerHTML = '0 bytes in ROM after last part: this ROM is trimmed';
+			} else {
+				finalPadding.innerHTML = '';
+			}
+		};
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Sound Data (very unfinished)                                                                         |
 	// +---------------------------------------------------------------------------------------------------------------+
 
-	const sound = (window.sound = createSection('Sound (very unfinished)', section => {
+	const soundOld = (window.soundOld = createSection('Sound (old, very unfinished)', section => {
 		const sound = {};
 
 		const soundFile = fs.get('/Sound/sound_data.sdat');
@@ -4773,6 +5105,7 @@
 		symb.group = symbFileList(symbDat.getUint32(28, true));
 		symb.player2 = symbFileList(symbDat.getUint32(32, true));
 		symb.strm = symbFileList(symbDat.getUint32(36, true));
+		sound.symb = symb;
 
 		// LET"S try this again
 		sound.names = [];
