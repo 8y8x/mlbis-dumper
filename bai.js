@@ -324,9 +324,9 @@ window.initBai = () => {
 					name: 'set_bmap',
 					note: cmd => {
 						if (cmd.registers & 0b11) return;
-						const bmap1P = cmd.args[0] === -1 ? 'default' : cmd.args[0];
-						const bmap2P = cmd.args[1] === -1 ? 'default' : cmd.args[1];
-						return `1 player = 0x${bmap1P.toString(16)}, 2 player = 0x${bmap2P.toString(16)}`;
+						const bmapOutside = cmd.args[0] === -1 ? 'default' : ('0x' + cmd.args[0].toString(16));
+						const bmapInside = cmd.args[1] === -1 ? 'default' : ('0x' + cmd.args[1].toString(16));
+						return `outside = ${bmapOutside}, inside = ${bmapInside}`;
 					},
 				},
 			],
