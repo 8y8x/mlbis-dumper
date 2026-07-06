@@ -302,7 +302,6 @@
 	alphabetLatin.push('ï', '', 'ñ', 'ò', 'ó', 'ô', '', 'ö', '', '', 'ù', 'ú', 'û', 'ü');
 
 	const alphabetKO = [];
-	const alphabetChinese = [];
 	const bisUnicode = (window.bisUnicode = (dat, alphabetName) => {
 		const u8 = bufToU8(dat);
 		const out = [];
@@ -341,7 +340,6 @@
 				} else if (alphabetName === 'korean') {
 					if (alphabetKO[char]) out.push(alphabetKO[char]);
 				}
-			} else if (alphabetName === 'chinese') {
 			}
 		}
 
@@ -1480,7 +1478,7 @@
 
 			fsext.font = sliceDataView(fs.arm9, 0x43d90, 0x462d8);
 		} else if (headers.gamecode === 'CLJJ') {
-			// JP/ROC
+			// JP
 			fillBattle(ovt.overlays[11], 0x020bb460, 37, 0x020bb368, 20); // no BDfxAll or BOfxAll
 
 			fsext.baiCommands = fixedSegments(0x41bc4, 0x43df0, 16, fs.overlay(11));
@@ -3679,7 +3677,7 @@
 			}
 		};
 
-		fonts.textbox = (message, font, altFonts, width, height, bitmap, rocFonts, defaultRocFont, textSpacing) => {
+		fonts.textbox = (message, font, altFonts, width, height, bitmap, chineseFonts, defaultChineseFont, textSpacing) => {
 			let bitmapWidth = 256 + 8;
 			while (bitmapWidth < width) bitmapWidth *= 2;
 			bitmap ??= new Uint32Array(bitmapWidth * 192); // just for working
@@ -3701,7 +3699,7 @@
 
 			let currentFont = font;
 			let currentReplacementFont = altFonts[0];
-			let rocFont = defaultRocFont;
+			let chineseFont = defaultChineseFont;
 			let darkColor = 0xff314263;
 			let shadowColor = 0xffdee6ef;
 			let noLetterSpacing = false;
@@ -3800,13 +3798,13 @@
 						[darkColor, shadowColor] = [0x00000000, 0xff314263]; // transparent (99,66,49)
 					else if (control === 0x40) {
 						// normal font
-						[currentFont, currentReplacementFont, rocFont] = [font, altFonts[0], defaultRocFont];
+						[currentFont, currentReplacementFont, chineseFont] = [font, altFonts[0], defaultChineseFont];
 					} else if (control === 0x41) {
 						// small font
-						[currentFont, currentReplacementFont, rocFont] = [altFonts[1], altFonts[2], rocFonts?.[1]];
+						[currentFont, currentReplacementFont, chineseFont] = [altFonts[1], altFonts[2], chineseFonts?.[1]];
 					} else if (control === 0x42) {
 						// big font
-						[currentFont, currentReplacementFont, rocFont] = [altFonts[3], altFonts[4], rocFonts?.[2]];
+						[currentFont, currentReplacementFont, chineseFont] = [altFonts[3], altFonts[4], chineseFonts?.[2]];
 					} else if (0x60 <= control && control <= 0xe0) {
 						// TEST DEBUG
 						drawCustomChar(variableGlyph.bitmap, control >> 4, 4, 2, 4);
@@ -3840,8 +3838,8 @@
 						else if (char === 0xfa) code |= 0x400;
 						else if (char === 0xf9) code |= 0x500;
 						glyph = currentReplacementFont.byCode.get(code);
-					} else if (char <= 0x08 && rocFont) {
-						// ROC square font access
+					} else if (char <= 0x08 && chineseFont) {
+						// chinese square font access
 						code = u8[o++];
 						if (char === 0x01) code -= 1;
 						else if (char === 0x02) code += 0xf8;
@@ -3851,7 +3849,7 @@
 						else if (char === 0x06) code += 0x4dc;
 						else if (char === 0x07) code += 0x5d5;
 						else if (char === 0x08) code += 0x6ce;
-						glyph = rocFont.byCode.get(code);
+						glyph = chineseFont.byCode.get(code);
 					} else {
 						glyph = currentFont?.byCode.get(code);
 					}
@@ -3903,7 +3901,6 @@
 		const optionFonts = (fonts.optionFonts = []);
 		const optionNames = (fonts.optionNames = []);
 		if (fsext.font) {
-			// not available in JP/ROC
 			optionFonts.push(fonts.standard(fsext.font));
 			optionNames.push('ARM9 Font');
 		}
@@ -3922,7 +3919,7 @@
 		}
 
 		if (fs.has('/Font/11x11.bin')) {
-			// ROC only
+			// chinese fan translation only
 			optionNames.push('11x11', '12x12', '20x20');
 			optionFonts.push(
 				fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, 12, 16, false),
@@ -4080,14 +4077,10 @@
 
 		addHTML(optionsContainer, '<br>');
 
-		const isRoc = fs.has('/Font/11x11.bin');
-		let defaultFont = 1;
-		if (headers.gamecode === 'CLJJ') defaultFont = isRoc ? 3 : 0;
-		else if (headers.gamecode === 'CLJK') defaultFont = 2;
-
+		const isChinese = fs.has('/Font/11x11.bin');
 		const gameFont = dropdown(
-			['Japanese', 'Latin', 'Korean', 'Chinese', 'Hex View', ...fonts.optionNames.map(x => `Font: ${x}`)],
-			defaultFont,
+			['Japanese', 'Latin', 'Korean', 'Hex View', ...fonts.optionNames.map(x => `Font: ${x}`)],
+			4,
 			() => updateTable(),
 		);
 		optionsContainer.appendChild(gameFont);
@@ -4099,10 +4092,10 @@
 		);
 		optionsContainer.appendChild(textSpacing);
 
-		const rocFont = dropdown(['No ROC Font', 'ROC 11x11', 'ROC 12x12', 'ROC 20x20'], isRoc ? 1 : 0, () =>
+		const chineseFont = dropdown(['No Chinese Font', '11x11', '12x12', '20x20'], 1, () =>
 			updateTable(),
 		);
-		if (isRoc) optionsContainer.appendChild(rocFont);
+		if (isChinese) optionsContainer.appendChild(chineseFont);
 
 		const textboxScale = dropdown(['Scale: 1x', 'Scale: 1.5x', 'Scale: 2x'], 2, () => updateTable());
 		optionsContainer.appendChild(textboxScale);
@@ -4219,14 +4212,14 @@
 					fontTable.appendChild(tr);
 				}
 
-				let rocFonts, defaultRocFont;
-				if (rocFont.value > 0) {
-					rocFonts = [
+				let chineseFonts, defaultChineseFont;
+				if (isChinese) {
+					chineseFonts = [
 						fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, 12, 16, false),
 						fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, 12, 12, true),
 						fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, 20, 20, true),
 					];
-					defaultRocFont = rocFonts[rocFont.value - 1];
+					defaultChineseFont = chineseFonts[chineseFont.value - 1];
 				}
 
 				const headerTr = document.createElement('tr');
@@ -4250,7 +4243,7 @@
 						tr.appendChild(td);
 						if (!text) continue;
 
-						if (0 <= gameFont.value && gameFont.value <= 3) {
+						if (0 <= gameFont.value && gameFont.value <= 2) {
 							if (
 								type === 'textboxes' ||
 								type === 'textboxes+fonts' ||
@@ -4260,14 +4253,14 @@
 								text = sliceDataView(text, 2, text.byteLength);
 							}
 
-							const alphabet = ['japanese', 'latin', 'korean', 'chinese'][gameFont.value];
+							const alphabet = ['japanese', 'latin', 'korean'][gameFont.value];
 							td.innerHTML = bisUnicode(text, alphabet).replaceAll('\n', '<br>');
-						} else if (gameFont.value === 4) {
+						} else if (gameFont.value === 3) {
 							// Hex View
 							td.innerHTML = `<code>${bytes(0, text.byteLength, text)}</code>`;
 						} else {
 							// Use custom font
-							const font = fonts.optionFonts[gameFont.value - 5];
+							const font = fonts.optionFonts[gameFont.value - 4];
 
 							let width = 0,
 								height = 0;
@@ -4301,8 +4294,8 @@
 								width,
 								height,
 								recycledBitmap,
-								rocFonts,
-								defaultRocFont,
+								chineseFonts,
+								defaultChineseFont,
 								[1, 2][textSpacing.value],
 							);
 

@@ -11,9 +11,8 @@ https://8y8x.github.io/mlbis-dumper/!
 </div>
 
 The primary motivation for this project is to find as much unused content as
-possible. It works on all known versions of the game (JP/ROC/NA/EU/KO releases
-and the NA/EU kiosk demos) and it should work on any mod that hasn't
-significantly altered the game's code.
+possible. It works on all known versions of the game (JP/NA/EU/KO releases, NA/EU kiosk demos, and the Chinese fan
+translation) and it should work on any mod that hasn't significantly altered the game's code.
 
 Join us on the M&L Modding Server: https://discord.gg/VQAGjEVEvr
 
