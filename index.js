@@ -4890,9 +4890,452 @@
 			addHTML(infoDiv, `<details><summary>SSEQ</summary><ol start="0">${entries.join('')}</ol></details>`);
 		}
 
+		// SSAR
+		{
+			let o = info.getUint32(0xc, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				const fat = info.getUint16(ptr, true);
+				const unk = info.getUint16(ptr + 2, true);
+				entries.push(`<li><code>(fat ${fat}) (unk ${unk})</code></li>`);
+			}
+
+			addHTML(infoDiv, `<details><summary>SSAR</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		// BANK
+		{
+			let o = info.getUint32(0x10, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				const fat = info.getUint16(ptr, true);
+				const unk = info.getUint16(ptr + 2, true);
+				const swar1 = info.getInt16(ptr + 4, true);
+				const swar2 = info.getInt16(ptr + 6, true);
+				const swar3 = info.getInt16(ptr + 8, true);
+				const swar4 = info.getInt16(ptr + 10, true);
+				entries.push(`<li><code>(fat ${fat}) (unk ${unk}) (swar ${swar1} ${swar2} ${swar3} ${swar4})</code></li>`);
+			}
+
+			addHTML(infoDiv, `<details><summary>BANK</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		// SWAR
+		{
+			let o = info.getUint32(0x14, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				const fat = info.getUint16(ptr, true);
+				entries.push(`<li><code>(fat ${fat})</code></li>`);
+			}
+
+			addHTML(infoDiv, `<details><summary>SWAR</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		// Player
+		{
+			let o = info.getUint32(0x18, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				const tracks = info.getUint8(ptr);
+				const unk = info.getUint16(ptr + 2, true);
+				const trackSize = info.getUint32(ptr + 4, true);
+				entries.push(`<li><code>(tracks ${tracks}) (unk ${unk}) (trackSize ${trackSize})</code></li>`);
+			}
+
+			addHTML(infoDiv, `<details><summary>Player</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		// Group
+		{
+			let o = info.getUint32(0x1c, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				const numMembers = info.getUint32(ptr, true);
+				const parts = [];
+				for (let j = 0; j < numMembers; ++j) {
+					const type = info.getUint32(ptr + 4 + j * 8, true);
+					const index = info.getUint32(ptr + 8 + j * 8, true);
+					let typeName = '?';
+					if (type === 0x700) typeName = 'sseq';
+					else if (type === 0x803) typeName = 'ssar';
+					else if (type === 0x601) typeName = 'bank';
+					else if (type === 0x402) typeName = 'swar';
+					parts.push(`(${typeName} ${index})`);
+				}
+
+				entries.push(`<li><code>${parts.join(' ')}</code></li>`);
+			}
+
+			addHTML(infoDiv, `<details><summary>Group</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		// Player2
+		{
+			let o = info.getUint32(0x20, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				entries.push(`<li><code>${bytes(ptr + 1, 16, info)}</code></li>`);
+			}
+
+			addHTML(infoDiv, `<details><summary>Player2</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		// STRM
+		{
+			let o = info.getUint32(0x24, true);
+			const numEntries = info.getUint32(o, true);
+			o += 4;
+			const entries = [];
+			for (let i = 0; i < numEntries; ++i, o += 4) {
+				const ptr = info.getUint32(o, true);
+				const fat = info.getUint16(ptr, true);
+				const unk = info.getUint16(ptr + 2, true);
+				const vol = info.getUint8(ptr + 4);
+				const pri = info.getUint8(ptr + 5);
+				const ply = info.getUint8(ptr + 6);
+			}
+		}
+
 		section.appendChild(infoDiv);
 
+		const fatDiv = document.createElement('div');
+		fatDiv.innerHTML = 'FAT:';
+
+		{
+			const numFiles = fat.getUint32(8, true);
+			const entries = [];
+			for (let i = 0, o = 0xc; i < numFiles; ++i, o += 0x10) {
+				const start = fat.getUint32(o, true);
+				const size = fat.getUint32(o + 4, true);
+				entries.push(`<li><code>0x${start.toString(16)}, size 0x${size.toString(16)}</code></li>`);
+			}
+
+			addHTML(fatDiv, `<details><summary>FAT</summary><ol start="0">${entries.join('')}</ol></details>`);
+		}
+
+		section.appendChild(fatDiv);
+
 		return sound;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Sound FAT                                                                                            |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const sfat = (window.sfat = createSection('Sound FAT', section => {
+		const sfat = new Map();
+
+		const sdat = fs.get('/Sound/sound_data.sdat');
+		const fatOffset = sdat.getUint32(0x20, true);
+		const fatSize = sdat.getUint32(0x24, true);
+		const fatDat = sliceDataView(sdat, fatOffset, fatOffset + fatSize);
+
+		const fatFiles = fatDat.getUint32(0x8, true);
+		for (let i = 0; i < fatFiles; ++i) {
+			const offset = fatDat.getUint32(0xc + i * 0x10, true);
+			const size = fatDat.getUint32(0x10 + i * 0x10, true);
+			sfat.set(i, sliceDataView(sdat, offset, offset + size));
+		}
+
+		return sfat;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Sound STRM                                                                                           |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const strm = (window.strm = createSection('Sound STRM', section => {
+		const strm = {};
+
+		addHTML(section, `<div style="color: var(--red)"><b>NOTE:</b> this is a prototype, output is inaccurate</div>`);
+
+		// only use one AudioContext, and only make it when actually playing sound
+		let audioCtx;
+
+		const sdat = fs.get('/Sound/sound_data.sdat');
+		const symbOffset = sdat.getUint32(0x10, true);
+		const symbSize = sdat.getUint32(0x14, true);
+		const symbDat = sliceDataView(sdat, symbOffset, symbOffset + symbSize);
+		const infoOffset = sdat.getUint32(0x18, true);
+		const infoSize = sdat.getUint32(0x1c, true);
+		const infoDat = sliceDataView(sdat, infoOffset, infoOffset + infoSize);
+
+		strm.symbols = [];
+		const symbStrmPtr = symbDat.getUint32(0x24, true);
+		const numSymbols = symbDat.getUint32(symbStrmPtr, true);
+		for (let i = 0; i < numSymbols; ++i) {
+			const ptr = symbDat.getUint32(symbStrmPtr + 4 + i * 4, true);
+			if (ptr === 0) {
+				strm.symbols.push(undefined);
+				continue;
+			}
+
+			const str = latin1(ptr, undefined, symbDat);
+			strm.symbols.push(str);
+		}
+
+		strm.streams = [];
+		const infoStrmPtr = infoDat.getUint32(0x24, true);
+		const numStreams = infoDat.getUint32(infoStrmPtr, true);
+		for (let i = 0; i < numStreams; ++i) {
+			const ptr = infoDat.getUint32(infoStrmPtr + 4 + i * 4, true);
+			if (ptr === 0) {
+				strm.streams.push(undefined);
+				continue;
+			}
+
+			const fat = infoDat.getUint16(ptr, true);
+			const unk = infoDat.getUint16(ptr + 2, true);
+			const volume = infoDat.getUint8(ptr + 4);
+			const priority = infoDat.getUint8(ptr + 5);
+			const player = infoDat.getUint8(ptr + 6);
+			strm.streams.push({ fat, unk, volume, priority, player });
+		}
+
+		addHTML(section, `<div>${strm.symbols.length} symbols, ${strm.streams.length} streams</div>`);
+
+		const streamSelect = dropdown(strm.symbols.map((x,i) => `<code>0x${str16(i)}</code> ${x ?? '&lt;nothing&gt;'}`), 0, () => update());
+		section.appendChild(streamSelect);
+
+		let play = () => {};
+		let save = () => {};
+
+		const playButton = button('Play', () => play());
+		section.appendChild(playButton);
+
+		const exportButton = button('Export WAV', () => save());
+		section.appendChild(exportButton);
+
+		const preview = document.createElement('div');
+		section.appendChild(preview);
+
+		const update = () => {
+			preview.innerHTML = '';
+
+			const struct = strm.streams[streamSelect.value];
+			if (!struct) return;
+			const { fat, unk, volume, priority, player } = struct;
+
+			addHTML(preview, `<div><code>(fat ${fat}) (unk ${unk}) (volume ${volume}) (priority ${priority}) (player ${player})</code></div>`);
+
+			const stream = sfat.get(fat);
+
+			const type = stream.getUint8(0x18);
+			const loop = stream.getUint8(0x19);
+			const channels = stream.getUint8(0x1a);
+			const samplingRate = stream.getUint16(0x1c, true);
+			const time = stream.getUint16(0x1e, true);
+			const loopOffset = stream.getUint32(0x20, true);
+			const numSamples = stream.getUint32(0x24, true);
+			const numBlocks = stream.getUint32(0x2c, true);
+			const blockLength = stream.getUint32(0x30, true);
+			const samplesPerBlock = stream.getUint32(0x34, true);
+			const lastBlockLength = stream.getUint32(0x38, true);
+			const samplesPerLastBlock = stream.getUint32(0x3c, true);
+
+			addHTML(
+				preview,
+				`<ul>
+					<li>type: ${type}</li>
+					<li>loop: ${loop}</li>
+					<li>channels: ${channels}</li>
+					<li>samplingRate: ${samplingRate}</li>
+					<li>time: ${time}</li>
+					<li>loopOffset: ${loopOffset}</li>
+					<li>numSamples: ${numSamples}</li>
+					<li>numBlocks: ${numBlocks}</li>
+					<li>blockLength: ${blockLength}</li>
+					<li>samplesPerBlock: ${samplesPerBlock}</li>
+					<li>lastBlockLength: ${lastBlockLength}</li>
+					<li>samplesPerLastBlock: ${samplesPerLastBlock}</li>
+				</ul>`);
+
+			const pages = [];
+			for (let i = 0; i < numSamples; i += 32) {
+				pages.push(`Page ${i / 512}`);
+			}
+			const pageSelect = dropdown(pages, 0, () => updatePage());
+			preview.appendChild(pageSelect);
+
+			const samples16 = new Int16Array(numSamples);
+			if (type === 0) {
+				for (let i = 0, io = 0x68; i < samples16.length; ++i, ++io) {
+					samples16[i] = stream.getInt8(io) << 8;
+				}
+			} else if (type === 1) {
+				for (let i = 0, io = 0x68; i < samples16.length; ++i, io += 2) {
+					samples16[i] = stream.getInt16(io, true);
+				}
+			} else if (type === 2) {
+				const indexTable = [-1,-1,-1,-1,2,4,6,8];
+				const diffTable = [
+					0x0007,0x0008,0x0009,0x000A,0x000B,0x000C,0x000D,0x000E,0x0010,0x0011,0x0013,0x0015,
+					0x0017,0x0019,0x001C,0x001F,0x0022,0x0025,0x0029,0x002D,0x0032,0x0037,0x003C,0x0042,
+					0x0049,0x0050,0x0058,0x0061,0x006B,0x0076,0x0082,0x008F,0x009D,0x00AD,0x00BE,0x00D1,
+					0x00E6,0x00FD,0x0117,0x0133,0x0151,0x0173,0x0198,0x01C1,0x01EE,0x0220,0x0256,0x0292,
+					0x02D4,0x031C,0x036C,0x03C3,0x0424,0x048E,0x0502,0x0583,0x0610,0x06AB,0x0756,0x0812,
+					0x08E0,0x09C3,0x0ABD,0x0BD0,0x0CFF,0x0E4C,0x0FBA,0x114C,0x1307,0x14EE,0x1706,0x1954,
+					0x1BDC,0x1EA5,0x21B6,0x2515,0x28CA,0x2CDF,0x315B,0x364B,0x3BB9,0x41B2,0x4844,0x4F7E,
+					0x5771,0x602F,0x69CE,0x7462,0x7FFF,
+				];
+				let io = 0x68;
+				let oo = 0;
+				for (let i = 0; i < numBlocks; ++i) {
+					let pcm = stream.getInt16(io, true);
+					let index = stream.getInt16(io + 2, true);
+					io += 4;
+
+					// DO NOT write this pcm value, it is NOT a sample
+
+					let max = i === numBlocks - 1 ? samplesPerLastBlock : samplesPerBlock;
+					for (let j = 0; j < max; j += 2, ++io) {
+						const composite = stream.getUint8(io);
+
+						let d = composite & 0xf;
+						let diff = diffTable[index] >> 3;
+						if (d & 1) diff += diffTable[index] >> 2;
+						if (d & 2) diff += diffTable[index] >> 1;
+						if (d & 4) diff += diffTable[index];
+						index = Math.min(Math.max(index + indexTable[d & 7], 0), 88);
+						if (d & 8) pcm = Math.max(pcm - diff, -0x7fff);
+						else pcm = Math.min(pcm + diff, 0x7fff);
+
+						samples16[oo++] = pcm;
+
+						if (j + 1 < max) {
+							d = composite >> 4;
+							diff = diffTable[index] >> 3;
+							if (d & 1) diff += diffTable[index] >> 2;
+							if (d & 2) diff += diffTable[index] >> 1;
+							if (d & 4) diff += diffTable[index];
+							index = Math.min(Math.max(index + indexTable[d & 7], 0), 88);
+							if (d & 8) pcm = Math.max(pcm - diff, -0x7fff);
+							else pcm = Math.min(pcm + diff, 0x7fff);
+
+							samples16[oo++] = pcm;
+						}
+					}
+
+					io += blockLength * (channels - 1);
+				}
+			}
+
+			const previewCanvas = document.createElement('canvas');
+			previewCanvas.width = 512;
+			previewCanvas.height = 256;
+			preview.appendChild(previewCanvas);
+			const previewCtx = previewCanvas.getContext('2d');
+			const previewBitmap = new Uint32Array(512 * 256);
+			const updatePage = () => {
+				previewBitmap.fill(0, 0, 512 * 256);
+
+				let x = pageSelect.value * 32;
+				for (let i = 0; i < 512; ++i, ++x) {
+					const y = samples16[x] >> 8;
+					let fr = 128, tr = 128;
+					if (y > 0) {
+						fr = 127 - y;
+						tr = 127;
+					} else if (y < 0) {
+						fr = 128;
+						tr = 128 - y;
+					}
+
+					for (let iy = fr; iy < tr; ++iy) {
+						if (x & 0x1ff) previewBitmap[iy * 512 + i] = 0xffffffff;
+						else previewBitmap[iy * 512 + i] = 0xff0000ff;
+					}
+				}
+
+				previewCtx.putImageData(new ImageData(bufToU8Clamped(previewBitmap), 512, 256), 0, 0);
+			};
+			updatePage();
+
+			save = () => {
+				// type: 0 = PCM8 (8-bit), 1 = PCM16 (16-bit), 2 = ADPCM (4-bit)
+				const out = new DataView(new ArrayBuffer(44 + samples16.length * 2));
+				bufToU8(out).set([0x52, 0x49, 0x46, 0x46], 0); // RIFF
+				out.setUint32(4, out.byteLength, true);
+				bufToU8(out).set([0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20], 8); // WAVEfmt<space>
+				out.setUint32(16, 16, true);
+				out.setUint16(20, 1, true); // format (1 = PCM, 17 = ADPCM)
+				out.setUint16(22, 1, true);
+				out.setUint32(24, samplingRate, true);
+				out.setUint32(28, 2, true);
+				out.setUint16(32, 2, true); // data block size
+				out.setUint16(34, 16, true); // bits per sample
+
+				bufToU8(out).set([0x64, 0x61, 0x74, 0x61], 36);
+				out.setUint32(40, samples16.length * 2);
+
+				// PCM16: can copy directly
+				for (let oo = 44, i = 0; i < samples16.length; ++i, oo += 2) {
+					out.setInt16(oo, samples16[i], true);
+				}
+
+				download('out.wav', out);
+			};
+
+			play = () => {
+				// BTW this is copy+pasted from MDN, again, this is a prototype, will remove this later
+				audioCtx ??= new AudioContext();
+
+				// Create an empty three-second stereo buffer at the sample rate of the AudioContext
+				const myArrayBuffer = audioCtx.createBuffer(
+				  1,
+				  samples16.length,
+				  samplingRate,
+				);
+
+				// Fill the buffer with white noise;
+				// just random values between -1.0 and 1.0
+				for (let channel = 0; channel < myArrayBuffer.numberOfChannels; channel++) {
+				  // This gives us the actual array that contains the data
+				  const nowBuffering = myArrayBuffer.getChannelData(channel);
+				  for (let i = 0; i < myArrayBuffer.length; i++) {
+				    // Math.random() is in [0; 1.0]
+				    // audio needs to be in [-1.0; 1.0]
+				    nowBuffering[i] = samples16[i] / 32768;
+				  }
+				}
+
+				// Get an AudioBufferSourceNode.
+				// This is the AudioNode to use when we want to play an AudioBuffer
+				const source = audioCtx.createBufferSource();
+
+				// set the buffer in the AudioBufferSourceNode
+				source.buffer = myArrayBuffer;
+
+				// connect the AudioBufferSourceNode to the
+				// destination so we can hear the sound
+				source.connect(audioCtx.destination);
+
+				// start the source playing
+				source.start();
+			};
+		};
+		update();
+
+		return strm;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
