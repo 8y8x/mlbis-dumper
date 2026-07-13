@@ -1550,7 +1550,7 @@
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
-			fillBattle(ovt.overlays[14], 0x0209caa4, 39, 0x0209c914, 20);
+			fillBattle(ovt.overlays[14], 0x020a58e4, 39, 0x020a5754, 20);
 
 			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
 			fsext.monsters = fixedSegments(0x17098, 0x1846c, 36, fs.overlay(11));
