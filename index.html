@@ -28,6 +28,7 @@
 				--red33: #ff84a833;
 				--green33: #94e59a33;
 				--blue33: #7db6ff33;
+				--sapphire33: #74c7ec33;
 
 				--bg: #11111b;
 				--fg: var(--subtext0);
@@ -84,7 +85,8 @@
 				display: inline-block; font: inherit; font-size: calc(1em - 2px); height: calc(1em + 8px); line-height: calc(1em + 6px);
 				margin: 1px; max-height: unset; min-width: 1.4em; padding: 0 0.5em;
 			}
-			button:hover { color: #9cf; }
+			button.disabled { background: var(--surface0); border-color: var(--overlay2); color: var(--overlay2); }
+			button:not(.disabled):hover { color: #9cf; }
 
 			.dropdown * { user-select: none; -webkit-user-select: none; }
 			.dropdown .left:hover, .dropdown .selection:hover, .dropdown .right:hover {
@@ -130,6 +132,17 @@
 			.clicky.green:hover { --clicky-text: #c7ffcb; --clicky-box: #c7ffcb; }
 
 			.clicky.active { --clicky-text: var(--fg-strong); --clicky-box: var(--text); --clicky-bg: var(--surface1); }
+
+			input, textarea {
+				background: transparent; border: 1px solid var(--overlay2); color: var(--subtext0);
+				font-family: inherit; font-size: 14px; height: calc(1em + 8px); margin: 1px; outline: none;
+			}
+			input { text-align: center; width: 120px; }
+			textarea { padding: 5px; width: 600px; }
+			input:hover, textarea:hover { border-color: var(--text); }
+			input:focus, textarea:focus { border-color: var(--sapphire); color: var(--sapphire); }
+
+			textarea { height: calc(8em + 8px); width: 600px; }
 		</style>
 	</head>
 	<body>

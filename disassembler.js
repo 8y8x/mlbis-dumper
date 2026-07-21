@@ -36,8 +36,8 @@ window.initDisassembler = () => {
 		const conds = [
 			'eq',
 			'ne',
-			'hs',
-			'lo',
+			'cs',
+			'cc',
 			'mi',
 			'pl',
 			'vs',

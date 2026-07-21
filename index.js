@@ -4799,6 +4799,1414 @@
 	window.initDisassembler();
 
 	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: ARM Emulator                                                                                         |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const arm = (window.arm = createSection('ARM Emulator', section => {
+		const arm = {};
+
+		const registerNames =
+			['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12', 'sp', 'lr', 'pc'];
+
+		// #1 : input area
+		// overlay selection
+		arm.input = {};
+		arm.input.overlaysEnabled = new Map();
+
+		const toggleOverlay = (ov, checked) => {
+			const oldEl = arm.input.overlaysEnabled.get(ov);
+			if (!!oldEl === checked) return;
+
+			if (!!oldEl) {
+				oldEl.remove();
+				arm.input.overlaysEnabled.delete(ov);
+			} else {
+				// add overlay
+				const el = document.createElement('div');
+				const left = (ov.ramStart - 0x01ff8000) / (0x02800000 - 0x01ff8000);
+				const width = (ov.ramSize + ov.bssSize) / (0x02800000 - 0x01ff8000);
+				el.style.cssText = `position: absolute; top: 0; left: ${left * 100}%; height: 100%; width: ${width * 100}%; background: var(--surface1); border: 1px solid var(--overlay2);`;
+				overlayRegionPreview.appendChild(el);
+
+				arm.input.overlaysEnabled.set(ov, el);
+			}
+
+			const entries = [...arm.input.overlaysEnabled];
+			const overlaps = new Set();
+			for (let i = 0; i < entries.length; ++i) {
+				for (let j = i + 1; j < entries.length; ++j) {
+					const a = entries[i][0];
+					const b = entries[j][0];
+					const aRight = a.ramStart + a.ramSize + a.bssSize;
+					const bRight = b.ramStart + b.ramSize + b.bssSize;
+					if (a.ramStart < bRight && b.ramStart < aRight) {
+						overlaps.add(i);
+						overlaps.add(j);
+					}
+				}
+			}
+
+			for (let i = 0; i < entries.length; ++i) {
+				if (overlaps.has(i)) {
+					entries[i][1].style.background = 'var(--red)';
+					entries[i][1].style.borderColor = 'var(--red)';
+				} else {
+					entries[i][1].style.background = 'var(--surface1)';
+					entries[i][1].style.borderColor = 'var(--overlay2)';
+				}
+			}
+
+			if (overlaps.size) {
+				overlayOverlapError.innerHTML = `Overlapping: ${[...overlaps].map(i => entries[i][0].name ?? `ov${entries[i][0].id}`).join(', ')}`;
+			} else {
+				overlayOverlapError.innerHTML = '';
+			}
+		};
+
+		const overlayContainer = document.createElement('div');
+		for (const ov of ovt.overlays) {
+			const check = checkbox(`ov${ov.id}`, false, checked => toggleOverlay(ov, checked));
+			overlayContainer.appendChild(check);
+		}
+		section.appendChild(overlayContainer);
+
+		const overlayAutoloads = document.createElement('div');
+		addHTML(overlayAutoloads, 'Autoloads:<br>');
+		addHTML(overlayAutoloads, `<code>${str32(headers.arm9RamOffset)} - ${str32(headers.arm9RamOffset + fs.arm9.byteLength)} - ${str32(headers.arm9RamOffset + fs.arm9.byteLength + fs.arm9BssSize)}</code> | ARM9`);
+		for (const autoload of fs.autoloads) {
+			addHTML(overlayAutoloads, `<br><code>${str32(autoload.ramStart)} - ${str32(autoload.ramStart + autoload.ramSize)} - ${str32(autoload.ramStart + autoload.ramSize + autoload.bssSize)}</code> | ${autoload.name}`);
+		}
+		section.appendChild(overlayAutoloads);
+
+		const overlayRegionPreview = document.createElement('div');
+		overlayRegionPreview.style.cssText = 'background: var(--surface0); width: 100%; height: 20px; position: relative;';
+		section.appendChild(overlayRegionPreview);
+
+		const overlayOverlapError = document.createElement('div');
+		overlayOverlapError.style.color = 'var(--red)';
+		section.appendChild(overlayOverlapError);
+
+		toggleOverlay(
+			{ name: 'ARM9', ramStart: headers.arm9RamOffset, ramSize: fs.arm9.byteLength, bssSize: fs.arm9BssSize, dat: fs.arm9 },
+			true,
+		);
+		for (const autoload of fs.autoloads) toggleOverlay(autoload, true);
+
+		// register selection
+		arm.input.registers = [];
+		for (let i = 0; i < 16; ++i) {
+			const input = document.createElement('input');
+			input.placeholder = '0';
+			input.addEventListener('input', () => {
+				applyInputRegistersButton.classList.remove('disabled');
+				copyRegistersButton.classList.remove('disabled');
+			});
+			arm.input.registers.push(input);
+		}
+
+		arm.input.registers[13].value = '0x027e377c'; // SP (same as System SP from CRT0::_start)
+		arm.input.registers[14].value = '0xffff8000'; // LR (just after BIOS region)
+		arm.input.registers[15].value = '0x' + str32(headers.arm9Entry); // PC
+
+		const inputRegisterTable = document.createElement('table');
+		for (let row = 0; row < 4; ++row) {
+			const tr = document.createElement('tr');
+			for (let col = 0; col < 4; ++col) {
+				addHTML(tr, `<td>${registerNames[row * 4 + col]}</td>`);
+				const td = document.createElement('td');
+				td.appendChild(arm.input.registers[row * 4 + col]);
+				tr.appendChild(td);
+			}
+
+			inputRegisterTable.appendChild(tr);
+		}
+
+		section.appendChild(inputRegisterTable);
+
+		// memory overrides
+		arm.input.overrides = [{ ramStart: 0x02200000, data: new DataView(new ArrayBuffer(16)), i: 1 }];
+
+		const overrideBar = document.createElement('div');
+
+		let overrideSelect = dropdown(
+			['<code>02200000 - 02200010</code> Override 1', '(new)'],
+			0,
+			() => updateOverrideSelect(),
+		);
+		overrideBar.appendChild(overrideSelect);
+
+		const overrideAddress = document.createElement('input');
+		overrideAddress.placeholder = '(RAM address)';
+		overrideAddress.addEventListener('change', () => {
+			// to be consistent with other textboxes, assume hexadecimal only if number starts with '0x' or ends with 'h'
+			const value = overrideAddress.value;
+			let num;
+			if (value.startsWith('-0x')) num = -parseInt(value.slice(3), 16);
+			else if (value.startsWith('0x')) num = parseInt(value.slice(2), 16);
+			else if (value.endsWith('h')) num = parseInt(value.slice(0, -1), 16);
+			else num = parseInt(value);
+
+			num >>>= 0; // also gets rid of NaN
+
+			const override = arm.input.overrides[overrideSelect.value];
+			override.ramStart = num;
+			replaceOverrideDropdown(overrideSelect.value);
+
+			overrideAddress.value = '0x' + str32(num);
+		});
+		overrideBar.appendChild(overrideAddress);
+
+		const overrideDelete = button('Delete memory override', () => deleteOverride());
+		overrideBar.appendChild(overrideDelete);
+
+		section.appendChild(overrideBar);
+
+		const overrideTextarea = document.createElement('textarea');
+		overrideTextarea.style.cssText = 'font: 0.9em "Red Hat Mono"; height: calc(4em + 8px);';
+		overrideTextarea.addEventListener('change', () => {
+			const override = arm.input.overrides[overrideSelect.value];
+			// 1. ignore whitespace
+			// 2. if a character is not 0-9 a-f A-F, replace it with a zero
+			// 3. every two non-whitespace characters makes a byte
+			// 4. if only one character remains, it forms the lower 4 bits of a new byte
+			let i = 0;
+			const raw = [];
+			const value = overrideTextarea.value;
+			let half = undefined;
+			for (; i < value.length; ++i) {
+				const char = value.charCodeAt(i);
+				if (char === 0x20 || char === 9 || char === 0xa || char === 0xd) continue; // whitespace, \t, \n, \r
+
+				let part = 0;
+				if (0x30 <= char && char <= 0x39) part = char - 0x30; // 0-9
+				else if (0x41 <= char && char <= 0x46) part = char - 0x41; // A-F
+				else if (0x61 <= char && char <= 0x66) part = char - 0x61; // a-f
+
+				if (half === undefined) half = part;
+				else {
+					raw.push((half << 4) | part);
+					half = undefined;
+				}
+			}
+
+			if (half !== undefined) raw.push(half);
+
+			let changesSize = raw.length !== override.data.byteLength;
+			override.data = bufToDat(new Uint8Array(raw));
+			overrideTextarea.value = bytes(0, override.data.byteLength, override.data);
+			if (changesSize) replaceOverrideDropdown(overrideSelect.value);
+		});
+		section.appendChild(overrideTextarea);
+
+		const replaceOverrideDropdown = initialValue => {
+			const newOptions = arm.input.overrides.map((x, i) =>
+				`<code>${str32(x.ramStart)} - ${str32(x.ramStart + x.data.byteLength)}</code> Override ${x.i}`);
+			newOptions.push('(new)');
+
+			const newSelect = dropdown(newOptions, initialValue, () => updateOverrideSelect());
+			overrideSelect.replaceWith(newSelect);
+			overrideSelect = newSelect;
+		};
+
+		const updateOverrideSelect = () => {
+			if (overrideSelect.value === arm.input.overrides.length) {
+				// (new)
+				let maxI = 2;
+				for (const override of arm.input.overrides) {
+					if (maxI <= override.i) maxI = override.i + 1;
+				}
+
+				arm.input.overrides.push({ ramStart: 0x02200000, data: new DataView(new ArrayBuffer(16)), i: maxI });
+				replaceOverrideDropdown(arm.input.overrides.length - 1);
+			}
+
+			const override = arm.input.overrides[overrideSelect.value];
+			overrideAddress.value = '0x' + str32(override.ramStart);
+			overrideTextarea.value = bytes(0, override.data.byteLength, override.data);
+		};
+		updateOverrideSelect();
+
+		const deleteOverride = () => {
+			arm.input.overrides.splice(overrideSelect.value, 1);
+			if (!arm.input.overrides.length) {
+				// you must have one override (this is because otherwise the dropdown will only have "(new)" which
+				// should automatically make a new override when you switch to it anyway).
+				// it's better to reset the only override left rather than just disable the "delete" button
+				arm.input.overrides.push({ ramStart: 0x02200000, data: new DataView(new ArrayBuffer(16)), i: 1 });
+			}
+
+			replaceOverrideDropdown(Math.min(overrideSelect.value, arm.input.overrides.length - 1));
+
+			const override = arm.input.overrides[overrideSelect.value];
+			overrideAddress.value = '0x' + str32(override.ramStart);
+			overrideTextarea.value = bytes(0, override.data.byteLength, override.data);
+		};
+
+		// input apply
+		const applyRow = document.createElement('div');
+		const applyInputRegistersButton = button('Apply input registers', () => (applyInputRegisters(), updateStateDisplay()));
+		applyRow.appendChild(applyInputRegistersButton);
+		const copyRegistersButton = button('Move registers to input', () => copyRegisters());
+		applyRow.appendChild(copyRegistersButton);
+		applyRow.appendChild(button('Apply overrides and reset memory, overlays', () => (applyOverrides(), updateStateDisplay())));
+		applyRow.appendChild(button('Step', () => step(1)));
+		applyRow.appendChild(button('Step 1000x', () => step(1000)));
+		const pcDirty = checkbox('PC Marks Memory Accesses', false, () => {});
+		applyRow.appendChild(pcDirty);
+		section.appendChild(applyRow);
+
+		// state view (disassembly, registers)
+		arm.registers = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // will be filled
+		arm.registerDisplays = [];
+		arm.cpsr = 0b11111; // System mode, all other bits are zero
+
+		const stateContainer = document.createElement('div');
+		stateContainer.style.cssText = 'position: relative; width: 100%; height: 20em;';
+		section.appendChild(stateContainer);
+
+		const disassembly = document.createElement('div');
+		disassembly.style.cssText = 'position: absolute; top: 0; left: 0; width: 560px; font: 0.9em "Red Hat Mono"; line-height: 1.25em;';
+		stateContainer.appendChild(disassembly);
+
+		const status = document.createElement('div');
+		status.style.cssText = 'position: absolute; top: 5px; left: 570px; line-height: 20px;';
+		status.textContent = 'Status: OK';
+		stateContainer.appendChild(status);
+
+		const registerTable = document.createElement('table');
+		registerTable.className = 'bordered';
+		registerTable.style.cssText = 'position: absolute; top: 30px; left: 570px;';
+
+		for (let row = 0; row < 4; ++row) {
+			const tr = document.createElement('tr');
+			for (let col = 0; col < 4; ++col) {
+				addHTML(tr, `<td>${registerNames[row * 4 + col]}</td>`);
+				const td = document.createElement('td');
+				td.style.cssText = 'font: 0.9em "Red Hat Mono"';
+				td.innerHTML = '0x0&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+				tr.appendChild(td);
+				arm.registerDisplays[row * 4 + col] = td;
+			}
+			registerTable.appendChild(tr);
+		}
+		stateContainer.appendChild(registerTable);
+
+		const memoryRows = new Map();
+		const memoryTable = document.createElement('table');
+		memoryTable.className = 'bordered';
+		addHTML(memoryTable, '<tr><th>Address</th><th>Data</th></tr>');
+		section.appendChild(memoryTable);
+
+		// memory is fragmented into 0x1000-byte chunks, to make things simple
+		// every 0x80-byte chunk (0x1000 / 32) is marked as "dirty" if a new read/write was done to it recently
+		const memoryChunks = new Map();
+		const newDirtyMemoryChunks = new Set();
+		const memoryChunk = chunkId => {
+			let chunk = memoryChunks.get(chunkId);
+			if (chunk) return chunk;
+
+			memoryChunks.set(chunkId, (chunk = { dat: new DataView(new ArrayBuffer(0x1000)), read: 0, write: 0 }));
+			return chunk;
+		};
+
+		const memoryWrite = (offset, dat, markDirty) => {
+			for (let io = 0, oo = offset; io < dat.byteLength;) {
+				const chunkId = oo & ~0xfff;
+				const chunk = memoryChunk(chunkId);
+
+				// distance between here (oo) and next chunk start, guaranteed to be >0
+				const size = Math.min(chunkId + 0x1000 - oo, dat.byteLength - io);
+				const slice = sliceDataView(dat, io, io + size);
+				bufToU8(chunk.dat).set(bufToU8(slice), oo - chunkId);
+
+				if (markDirty) {
+					const startBit = (oo - chunkId) >>> 7;
+					const endBit = (oo - chunkId + size + 0x7f) >>> 7;
+					chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
+					newDirtyMemoryChunks.add(chunkId);
+				}
+
+				io += size;
+				oo += size;
+			}
+		};
+
+		const memoryReadValue = (offset, method, dirtySize) => {
+			const chunkId = offset & ~0xfff;
+			const o = offset & 0xfff;
+			const chunk = memoryChunk(chunkId);
+
+			if (dirtySize) {
+				const startBit = o >>> 7;
+				const endBit = (o + dirtySize + 0x7f) >>> 7;
+				chunk.read |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
+				newDirtyMemoryChunks.add(chunkId);
+			}
+
+			// no need to worry about cross-chunk reads, since reads cannot cross 4-byte boundaries
+			return method.call(chunk.dat, o, true); // little-endian read (ignored with 8-bit)
+		};
+
+		const memoryWriteValue = (offset, value, method, dirtySize) => {
+			const chunkId = offset & ~0xfff;
+			const o = offset & 0xfff;
+			const chunk = memoryChunk(chunkId);
+
+			if (dirtySize) {
+				const startBit = o >>> 7;
+				const endBit = (o + dirtySize + 0x7f) >>> 7;
+				chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
+				newDirtyMemoryChunks.add(chunkId);
+			}
+
+			method.call(chunk.dat, o, value, true); // little-endian write (ignored with 8-bit)
+
+			if (0x04000280 <= offset && offset < 0x040002a0) {
+				// division, done anytime writing to DIVCNT/DIV_NUMER/DIV_DENOM.
+				// technically this is supposed to take many cycles to complete, but that won't be an issue
+				const divcnt = chunk.dat.getUint32(0x280, true);
+				let divNumer, divDenom;
+				if (divcnt === 0) {
+					// s32/s32, s32 quotient, s32 remainder
+					divNumer = BigInt(chunk.dat.getInt32(0x290, true));
+					divDenom = BigInt(chunk.dat.getInt32(0x298, true));
+				} else if (divcnt === 1) {
+					// s64/s32, s64 quotient, s32 remainder
+					divNumer = chunk.dat.getBigInt64(0x290, true);
+					divDenom = BigInt(chunk.dat.getInt32(0x298, true));
+				} else if (divcnt === 2) {
+					// s64/s64, s64 quotient, s64 remainder
+					divNumer = chunk.dat.getBigInt64(0x290, true);
+					divDenom = chunk.dat.getBigInt64(0x298, true);
+				}
+				
+				if (divDenom === 0n) {
+					// div0 error not handled
+					chunk.dat.setBigInt64(0x2a0, divNumer < 0n ? 1n : -1n, true); // DIV_RESULT
+					chunk.dat.setBigInt64(0x2a8, divNumer, true); // DIVREM_RESULT
+				} else if (divNumer === -0x80000000n && divDenom === -1n) {
+					chunk.dat.setBigInt64(0x2a0, -0x80000000n, true); // DIV_RESULT
+					chunk.dat.setBigInt64(0x2a8, 1n, true); // DIVREM_RESULT
+				} else {
+					chunk.dat.setBigInt64(0x2a0, divNumer / divDenom, true); // DIV_RESULT
+					chunk.dat.setBigInt64(0x2a8, divNumer % divDenom, true); // DIVREM_RESULT
+				}
+			} else if (0x040002b0 <= offset && offset < 0x040002c0) {
+				// 64-bit square root, done without any JS library functions to avoid floating point
+				const sqrtcnt = chunk.dat.getUint32(0x2b0, true);
+				const sqrtParam = chunk.dat.getBigUint64(0x2b8, true);
+
+				let result = 0n;
+				for (let i = 0, bit = 1n << 63n; i < 64; ++i, bit >>= 1n) {
+					const acc = result | bit;
+					if (acc * acc < sqrtParam) result = acc;
+				}
+
+				chunk.dat.setUint32(0x2b4, Number(result), true);
+			}
+		};
+
+		// current instruction is the 5th line (index 4)
+		const updateStateDisplay = () => {
+			disassembly.innerHTML = '';
+
+			// 16-line preview, may cross chunk boundaries
+			const pc = arm.registers[15];
+			const previewPc = pc - 0x10;
+			let lines;
+			if (0x1000 - 0x40 < (previewPc & 0xfff)) {
+				// crosses chunk boundaries
+				const chunk1 = memoryChunk(previewPc & ~0xfff).dat;
+				const chunk2 = memoryChunk((previewPc & ~0xfff) + 0x1000).dat;
+
+				lines = disassembler.arm(sliceDataView(chunk1, previewPc & 0xfff, 0x1000), 'asm', true);
+				lines.push(...disassembler.arm(sliceDataView(chunk2, 0, (previewPc + 0x40) & 0xfff), 'asm', true));
+			} else {
+				// doesn't cross chunk boundaries
+				const chunk = memoryChunk(previewPc & ~0xfff).dat;
+				lines = disassembler.arm(sliceDataView(chunk, previewPc & 0xfff, (previewPc & 0xfff) + 0x40), 'asm', true);
+			}
+
+			for (let i = 0; i < lines.length; ++i) {
+				let style = '';
+				if (i === 4) style = 'style="background: var(--surface0)"';
+				addHTML(disassembly, `<div ${style}><span style="color: var(--fg-dim);">${str32((previewPc >>> 0) + i * 4)}</span> ${lines[i]}</div>`);
+			}
+
+			// register preview
+			for (let i = 0; i < 16; ++i) {
+				const value = arm.registers[i] >>> 0;
+				let str = '0x' + (value < 0 ? -value : value).toString(16);
+				str += '&nbsp;'.repeat(10 - str.length);
+				arm.registerDisplays[i].innerHTML = str;
+			}
+
+			for (const chunkId of [...newDirtyMemoryChunks].sort((a, b) => a - b)) {
+				const chunk = memoryChunks.get(chunkId);
+
+				for (let bit = 1, i = 0; i < 32; ++i, bit <<= 1) {
+					const read = chunk.read & bit;
+					const write = chunk.write & bit;
+					if (!read && !write) continue;
+
+					let mode = '';
+					if (read && write) mode = '(R/W)';
+					else if (read) mode = '(R)';
+					else mode = '(W)';
+					
+					const localOffset = i << 7;
+					const offset = chunkId | localOffset;
+					let view = memoryRows.get(offset);
+					if (!view) {
+						const tr = document.createElement('tr');
+						const address = document.createElement('td');
+						tr.appendChild(address);
+
+						const data = document.createElement('td');
+						data.style.font = '0.9em "Red Hat Mono"';
+						tr.appendChild(data);
+
+						// TODO: unsorted insert
+						memoryTable.appendChild(tr);
+
+						memoryRows.set(offset, view = { address, data, tr });
+					}
+
+					view.address.innerHTML = `<code>${str32(offset >>> 0)}</code><br>${mode}`;
+					view.data.innerHTML = [
+						bytes(localOffset, 16, chunk.dat),
+						bytes(localOffset + 0x10, 16, chunk.dat),
+						bytes(localOffset + 0x20, 16, chunk.dat),
+						bytes(localOffset + 0x30, 16, chunk.dat),
+						bytes(localOffset + 0x40, 16, chunk.dat),
+						bytes(localOffset + 0x50, 16, chunk.dat),
+						bytes(localOffset + 0x60, 16, chunk.dat),
+						bytes(localOffset + 0x70, 16, chunk.dat),
+					].join('<br>');
+				}
+			}
+
+			newDirtyMemoryChunks.clear();
+		};
+
+		const applyInputRegisters = () => {
+			for (let i = 0; i < 16; ++i) {
+				const value = arm.input.registers[i].value;
+				let num;
+				if (value.startsWith('-0x')) num = -parseInt(value.slice(3), 16);
+				else if (value.startsWith('0x')) num = parseInt(value.slice(2), 16);
+				else if (value.endsWith('h')) num = parseInt(value.slice(0, -1), 16);
+				else num = Number(value);
+
+				if (num < 13) num |= 0; // signed, NaN => 0
+				else num >>>= 0; // unsigned (sp, lr, pc), NaN => 0
+				if (i === 15) num &= ~3; // PC must be aligned to 4 bytes
+
+				arm.registers[i] = num;
+			}
+
+			arm.cpsr = 0b11111; // reset all status flags
+
+			applyInputRegistersButton.className = 'disabled';
+			copyRegistersButton.className = 'disabled';
+		};
+
+		const applyOverrides = () => {
+			newDirtyMemoryChunks.clear();
+			memoryChunks.clear();
+			for (const { tr } of memoryRows.values()) tr.remove();
+			memoryRows.clear();
+
+			for (const ov of arm.input.overlaysEnabled.keys()) {
+				let dat = ov.dat; // autoloads only
+				if (!dat) dat = fs.overlay(ov.id); // caching is OK, it will be copied
+				memoryWrite(ov.ramStart, dat, false);
+			}
+
+			for (const override of arm.input.overrides) {
+				memoryWrite(override.ramStart, override.data, false);
+			}
+		};
+
+		const copyRegisters = () => {
+			for (let i = 0; i < 16; ++i) {
+				let value = arm.registers[i];
+				if (13 <= i) value >>>= 0; // sp, lr, pc should all be unsigned
+
+				const input = arm.input.registers[i];
+				if (value === 0) input.value = '';
+				else if (value < 0) input.value = '-0x' + (-value).toString(16);
+				else input.value = '0x' + value.toString(16);
+			}
+
+			applyInputRegistersButton.className = 'disabled';
+			copyRegistersButton.className = 'disabled';
+		};
+
+		applyInputRegisters();
+		applyOverrides();
+		updateStateDisplay();
+
+		const step = steps => {
+			let pc = arm.registers[15]; // when reading PC, it will always be 8 ahead of the current instruction address
+			arm.registers[15] += 4;
+
+			let statusText = 'OK';
+			let statusColor = 'unset';
+			const undefinedInstruction = () => {
+				statusText = 'unhandled or undefined instruction';
+				statusColor = 'var(--red)';
+				arm.registers[15] -= 4; // undo instruction step
+				pc -= 4;
+			};
+
+			for (let i = 0; i < steps; ++i) {
+				// cache lines are not emulated
+				const inst = memoryReadValue(pc, DataView.prototype.getUint32, pcDirty.checked);
+				pc += 4;
+				arm.registers[15] += 4;
+
+				let n = (arm.cpsr >>> 31) & 1;
+				let z = (arm.cpsr >>> 30) & 1;
+				let c = (arm.cpsr >>> 29) & 1;
+				let v = (arm.cpsr >>> 28) & 1;
+
+				const cond = inst >>> 28;
+				if (cond === 0xe); // unconditional, nearly all instructions
+				else if (cond < 0xe) {
+					if (cond === 0) { if (!z) continue; } // eq (equal)
+					else if (cond === 1) { if (z) continue; } // ne (not equal)
+					else if (cond === 2) { if (!c) continue; } // cs/hs (carry set/unsigned higher or same)
+					else if (cond === 3) { if (c) continue; } // cc/lo (carry clear/unsigned lower)
+					else if (cond === 4) { if (!n) continue; } // mi (minus/negative)
+					else if (cond === 5) { if (n) continue; } // pl (plus/not negative)
+					else if (cond === 6) { if (!v) continue; } // vs (overflow set)
+					else if (cond === 7) { if (v) continue; } // vc (overflow clear)
+					else if (cond === 8) { if (!(c && !z)) continue; } // hi (unsigned higher)
+					else if (cond === 9) { if (!(!c || z)) continue; } // ls (unsigned lower or same)
+					else if (cond === 0xa) { if (!(n === v)) continue; } // ge (signed greater or equal)
+					else if (cond === 0xb) { if (!(n !== v)) continue; } // lt (signed less than)
+					else if (cond === 0xc) { if (!(!z && n === v)) continue; } // gt (signed greater than)
+					else if (cond === 0xd) { if (!(z || n !== v)) continue; } // le (signed less or equal)
+				} else {
+					// special instructions
+					// BLX (1)
+					if ((inst & 0x0e000000) === 0x0a000000) {
+						statusText = 'Exchange to Thumb unsupported';
+						statusColor = 'var(--red)';
+						break;
+					}
+
+					undefinedInstruction();
+					break;
+				}
+
+				// A3.3 - branch instructions
+				if ((inst & 0x0e000000) === 0x0a000000) {
+					// A.4.1.5 - B, BL
+					const L = (inst >>> 24) & 1;
+					const immed = (inst & 0xffffff) << 8 >> 6;
+					if (L) arm.registers[14] = pc; // next instruction address
+					pc = arm.registers[15] + immed;
+					arm.registers[15] = pc + 4;
+					continue;
+				} else if ((inst & 0x0ff000f0) === 0x01200030) {
+					// A4.1.9 - BLX (2) (case 1 is unconditional)
+					const Rm = inst & 0xf;
+					const target = arm.registers[Rm];
+					if (target & 1) {
+						statusText = 'Exchange to Thumb unsupported';
+						statusColor = 'var(--red)';
+						break;
+					}
+
+					arm.registers[14] = pc; // next instruction address
+					pc = target & ~1;
+					arm.registers[15] = pc + 4;
+					continue;
+				} else if ((inst & 0x0ff000f0) === 0x01200010) {
+					// A4.1.10 - BX
+					const Rm = inst & 0xf;
+					const target = arm.registers[Rm];
+					if (target & 1) {
+						statusText = 'Exchange to Thumb unsupported';
+						statusColor = 'var(--red)';
+						break;
+					}
+
+					pc = target & ~1;
+					arm.registers[15] = pc + 4;
+					continue;
+				}
+
+				// A3.4 - data-processing instructions
+				if ((inst & 0x0c000000) === 0x00000000) {
+					const opcode = (inst >>> 21) & 0xf;
+					const I = (inst >>> 25) & 1;
+					const S = (inst >>> 20) & 1;
+					const Rn = (inst >>> 16) & 0xf;
+					const Rd = (inst >>> 12) & 0xf;
+
+					let notDataInstruction = false;
+					let shifter = 0;
+					let sc = 0;
+					if (I === 1) {
+						// A5.1.3 - 32-bit immediate
+						const rotate = (inst >>> 8) & 0xf;
+						const immed = inst & 0xff;
+						shifter = (immed >>> (rotate * 2)) | (immed << (32 - rotate * 2));
+						if (rotate) sc = shifter >>> 31;
+					} else if ((inst & 0x00000070) === 0x00000000) {
+						// A5.1.4, A5.1.5 - register
+						const shift = (inst >>> 7) & 0x1f;
+						const Rm = inst & 0xf;
+						shifter = arm.registers[Rm] << shift;
+						if (shift) sc = arm.registers[Rm] >>> (32 - shift);
+					} else if ((inst & 0x000000f0) === 0x00000010) {
+						// A5.1.6 - lsl by register
+						const Rs = (inst >>> 8) & 0xf;
+						const Rm = inst & 0xf;
+						const shift = arm.registers[Rs] & 0xff;
+						if (shift === 0) {
+							shifter = arm.registers[Rm];
+						} else if (shift < 32) {
+							shifter = arm.registers[Rm] << shift;
+							sc = arm.registers[Rm] >>> (32 - shift);
+						} else if (shift === 32) {
+							sc = arm.registers[Rm] & 1;
+						}
+					} else if ((inst & 0x00000070) === 0x00000020) {
+						// A5.1.7 - lsr by immediate
+						const shift = (inst >>> 7) & 0x1f;
+						const Rm = inst & 0xf;
+						if (shift === 0) {
+							// treated as a ">>> 32"
+							sc = arm.registers[Rm] >>> 31;
+						} else {
+							shifter = arm.registers[Rm] >>> shift; // no sign extend
+							sc = arm.registers[Rm] >>> (shift - 1);
+						}
+					} else if ((inst & 0x000000f0) === 0x00000030) {
+						// A5.1.8 - lsr by register
+						const Rs = (inst >>> 8) & 0xf;
+						const Rm = inst & 0xf;
+						const shift = arm.registers[Rs] & 0xff;
+						if (shift === 0) {
+							shifter = arm.registers[Rm];
+						} else if (shift < 32) {
+							shifter = arm.registers[Rm] >>> shift; // no sign extend
+							sc = arm.registers[Rm] >>> (shift - 1);
+						} else if (shift === 32) {
+							sc = arm.registers[Rm] >>> 31;
+						}
+					} else if ((inst & 0x00000070) === 0x00000040) {
+						// A5.1.9 - asr by immediate
+						const shift = (inst >>> 7) & 0x1f;
+						const Rm = inst & 0xf;
+						if (shift === 0) {
+							// treated as a ">> 32"
+							sc = arm.registers[Rm] >>> 31;
+						} else {
+							shifter = arm.registers[Rm] >> shift;
+							sc = arm.registers[Rm] >>> (shift - 1);
+						}
+					} else if ((inst & 0x000000f0) === 0x00000050) {
+						// A5.1.10 - asr by register
+						const Rs = (inst >>> 8) & 0xf;
+						const Rm = inst & 0xf;
+						const shift = arm.registers[Rs] & 0xff;
+						if (shift === 0) {
+							shifter = arm.registers[Rm];
+						} else if (shift < 32) {
+							shifter = arm.registers[Rm] >> shift;
+							sc = arm.registers[Rm] >>> (shift - 1);
+						} else {
+							// shifter = 0 or -1
+							shifter = arm.registers[Rm] >> 31;
+							sc = arm.registers[Rm] >>> 31;
+						}
+					} else if ((inst & 0x00000070) === 0x00000060) {
+						// A5.1.11 - ror by immediate
+						const shift = (inst >>> 7) & 0x1f;
+						const Rm = inst & 0xf;
+						if (shift === 0) {
+							// A5.1.13 - ror with extend
+							shifter = (c << 31) | (arm.registers[Rm] >>> 1);
+							sc = arm.registers[Rm] & 1;
+						} else {
+							shifter = (arm.registers[Rm] >>> shift) | (arm.registers[Rm] << (32 - shift));
+							sc = arm.registers[Rm] >>> (shift - 1);
+						}
+					} else if ((inst & 0x000000f0) === 0x00000070) {
+						// A5.1.12 - ror by register
+						const Rs = (inst >>> 8) & 0xf;
+						const Rm = inst & 0xf;
+						const shift8 = arm.registers[Rs] & 0xff;
+						const shift4 = shift8 & 0xf;
+						if (shift8 === 0) {
+							shifter = arm.registers[Rm];
+						} else if (shift4 === 0) {
+							shifter = arm.registers[Rm];
+							sc = arm.registers[Rm] >>> 31;
+						} else {
+							shifter = (arm.registers[Rm] >>> shift4) | (arm.registers[Rm] << (32 - shift4));
+							sc = arm.registers[Rm] >>> (shift4 - 1);
+						}
+					} else {
+						notDataInstruction = true;
+					}
+
+					sc &= 1; // this was deferred
+
+					if (!notDataInstruction) {
+						// BorrowFrom: "if the subtraction [...] caused a borrow (the true result is less than 0, where the operands are treated as unsigned integers)."
+						// CarryFrom: "if the addition [...] caused a carry (true result is bigger than 2^32 - 1, where the operands are treated as unsigned integers)."
+						// OverflowFrom (addition): "if both operands have the same sign, and the sign of the result is different to the signs of both operands."
+						// OverflowFrom (subtraction): "if the operands have different signs, and the first operand and the result have different signs."
+
+						if (opcode === 0) {
+							// AND (logical AND)
+							const rd = arm.registers[Rd] = arm.registers[Rn] & shifter;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							c = sc;
+						} else if (opcode === 1) {
+							// EOR (logical exclusive-OR)
+							const rd = arm.registers[Rd] = arm.registers[Rn] ^ shifter;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							c = sc;
+						} else if (opcode === 2) {
+							// SUB (subtract)
+							const rn = arm.registers[Rn];
+							const rd = arm.registers[Rd] = (rn - shifter) | 0;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							// NOT BorrowFrom(Rn - shifter)
+							c = 1 ^ Number((rn >>> 0) - (shifter >>> 0) < 0);
+							// OverflowFrom(Rn - shifter)
+							v = Number((rn >> 31) !== (shifter >> 31) && (rn >> 31) !== (rd >> 31));
+						} else if (opcode === 3) {
+							// RSB (reverse subtract)
+							const rn = arm.registers[Rn];
+							const rd = arm.registers[Rd] = (shifter - rn) | 0;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							// NOT BorrowFrom(shifter - Rn)
+							c = 1 ^ Number((shifter >>> 0) - (rn >>> 0) < 0);
+							// OverflowFrom(shifter - Rn)
+							v = Number((shifter >> 31) !== (rn >> 31) && (shifter >> 31) !== (rd >> 31));
+						} else if (opcode === 4) {
+							// ADD
+							const rn = arm.registers[Rn];
+							const rd = arm.registers[Rd] = (rn + shifter) | 0;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							// CarryFrom(Rn + shifter_operand)
+							c = Number((rn >>> 0) + (shifter >>> 0) > 0xffffffff);
+							// OverflowFrom(Rn + shifter_operand)
+							v = Number((rn >> 31) === (shifter >> 31) && (rn >> 31) !== (rd >> 31));
+						} else if (opcode === 5) {
+							// ADC (add with carry)
+							const rn = arm.registers[Rn];
+							const rd = arm.registers[Rd] = (rn + shifter + c) | 0;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							// CarryFrom(Rn + shifter_operand + C Flag)
+							c = Number((rn >>> 0) + (shifter >>> 0) + c > 0xffffffff);
+							// OverflowFrom(Rn + shifter_operand + C Flag)
+							v = Number((rn >> 31) === (shifter >> 31) && (rn >> 31) === 0 && (rn >> 31) !== (rd >> 31));
+						} else if (opcode === 6) {
+							// SBC (subtract with carry)
+							const rn = arm.registers[Rn];
+							const rd = arm.registers[Rd] = (rn - shifter - (c ^ 1));
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							// NOT BorrowFrom(Rn - shifter - NOT(C Flag))
+							c = 1 ^ Number((rn >>> 0) - (shifter >>> 0) - (c ^ 1) < 0);
+							// OverflowFrom(Rn - shifter - NOT(C Flag)) (TODO: correct?)
+							v = Number((rn >> 31) !== ((shifter + (c ^ 1)) >> 31) && (rn >> 31) !== (rd >> 31));
+						} else if (opcode === 7) {
+							// RSC (reverse subtract with carry)
+							const rn = arm.registers[Rn];
+							const rd = arm.registers[Rd] = (shifter - rn - (c ^ 1));
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							// NOT BorrowFrom(shifter - Rn - NOT(C Flag))
+							c = 1 ^ Number((shifter >>> 0) - (rn >>> 0) - (c ^ 1) < 0);
+							// OverflowFrom(shifter - Rn - NOT(C Flag))
+							v = Number((shifter >> 31) !== ((rn + (c ^ 1)) >> 31) && (shifter >> 31) !== (rd >> 31));
+						} else if (opcode === 8) {
+							// TST (test)
+							const out = arm.registers[Rn] & shifter;
+							n = out >>> 31;
+							z = out === 0 ? 1 : 0;
+						} else if (opcode === 9) {
+							// TEQ (test equivalence)
+							const out = arm.registers[Rn] ^ shifter;
+							n = out >>> 31;
+							z = out === 0 ? 1 : 0;
+							c = sc;
+						} else if (opcode === 0xa) {
+							// CMP (compare)
+							const rn = arm.registers[Rn];
+							const out = (rn - shifter) | 0;
+							n = out >>> 31;
+							z = out === 0 ? 1 : 0;
+							// NOT BorrowFrom(Rn - shifter)
+							c = 1 ^ Number((rn >>> 0) - (shifter >>> 0) < 0);
+							// OverflowFrom(Rn - shifter)
+							v = Number((rn >> 31) !== (shifter >> 31) && (rn >> 31) !== (rd >> 31));
+						} else if (opcode === 0xb) {
+							// CMN (compare negative)
+							const rn = arm.registers[Rn];
+							const out = (rn + shifter) | 0;
+							n = out >>> 31;
+							z = out === 0 ? 1 : 0;
+							// CarryFrom(Rn + shifter)
+							c = Number((rn >>> 0) + (shifter >>> 0) > 0xffffffff);
+							// OverflowFrom(Rn + shifter)
+							v = Number((rn >> 31) === (shifter >> 31) && (rn >> 31) !== (rd >> 31));
+						} else if (opcode === 0xc) {
+							// ORR (logical OR)
+							const rd = arm.registers[Rd] = arm.registers[Rn] | shifter;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							c = sc;
+						} else if (opcode === 0xd) {
+							// MOV (move)
+							const rd = arm.registers[Rd] = shifter;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							c = sc;
+						} else if (opcode === 0xe) {
+							// BIC (bit clear)
+							const rd = arm.registers[Rd] = arm.registers[Rn] & ~shifter;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							c = sc;
+						} else if (opcode === 0xf) {
+							// MVN (move not)
+							const rd = arm.registers[Rd] = ~shifter;
+							n = rd >>> 31;
+							z = rd === 0 ? 1 : 0;
+							c = sc;
+						}
+
+						if (Rd === 15) {
+							pc = arm.registers[Rd];
+							arm.registers[Rd] = (arm.registers[Rd] + 4) | 0;
+						}
+
+						if (S) {
+							arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+						}
+
+						continue;
+					}
+				}
+
+				// A3.5 - multiply instructions
+				if ((inst & 0x0fe000f0) === 0x00200090) {
+					// A4.1.34 - MLA
+					const S = (inst >>> 20) & 1;
+					const Rd = (inst >>> 16) & 0xf;
+					const Rn = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const Rm = inst & 0xf;
+
+					const rn = BigInt(arm.registers[Rn]);
+					const rm = BigInt(arm.registers[Rm]);
+					const rs = BigInt(arm.registers[Rs]);
+					const rd = arm.registers[Rd] = Number((rm * rs + rn) & 0xffffffffn) | 0;
+
+					if (S) {
+						n = rd >>> 31;
+						z = rd === 0 ? 1 : 0;
+						arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+					}
+					continue;
+				} else if ((inst & 0x0fe000f0) === 0x00000090) {
+					// A4.1.40 - MUL
+					const S = (inst >>> 20) & 1;
+					const Rd = (inst >>> 16) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const Rm = inst & 0xf;
+
+					const rm = BigInt(arm.registers[Rm]);
+					const rs = BigInt(arm.registers[Rs]);
+					const rd = arm.registers[Rd] = Number((rm * rs) & 0xffffffffn) | 0;
+
+					if (S) {
+						n = rd >>> 31;
+						z = rd === 0 ? 1 : 0;
+						arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+					}
+					continue;
+				} else if ((inst & 0x0ff00090) === 0x01000080) {
+					// A4.1.74 - SMLA<x><y>
+					const Rd = (inst >>> 16) & 0xf;
+					const Rn = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const y = (inst >>> 6) & 1;
+					const x = (inst >>> 5) & 1;
+					const Rm = inst & 0xf;
+
+					const rm = arm.registers[Rm];
+					const op1 = x ? (rm >> 16) : (rm << 16 >> 16);
+					const rs = arm.registers[Rs];
+					const op2 = y ? (rs >> 16) : (rs << 16 >> 16);
+
+					arm.registers[Rd] = (op1 * op2 + arm.registers[Rn]) | 0;
+					continue;
+				} else if ((inst & 0x0fe000f0) === 0x00e00090) {
+					// A4.1.76 - SMLAL
+					const S = (inst >>> 20) & 1;
+					const RdHi = (inst >>> 16) & 0xf;
+					const RdLo = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const Rm = inst & 0xf;
+
+					const rm = BigInt(arm.registers[Rm]);
+					const rs = BigInt(arm.registers[Rs]);
+					const rd = BigInt(arm.registers[RdLo]) | (BigInt(arm.registers[RdHi]) << 32n);
+					const result = ((rm * rs) + rd);
+					arm.registers[RdLo] = Number(result & 0xffffffffn);
+					arm.registers[RdHi] = Number((result >> 32n) & 0xffffffffn);
+
+					if (S) {
+						n = arm.registers[RdHi] >>> 31;
+						z = result === 0n ? 1 : 0;
+						arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+					}
+					continue;
+				} else if ((inst & 0x0ff00090) === 0x01400080) {
+					// A4.1.77 - SMLAL<x><y>
+					const RdHi = (inst >>> 16) & 0xf;
+					const RdLo = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const y = (inst >>> 6) & 1;
+					const x = (inst >>> 5) & 1;
+					const Rm = inst & 0xf;
+
+					const rm = arm.registers[Rm];
+					const op1 = x ? (rm >> 16) : (rm << 16 >> 16);
+					const rs = arm.registers[Rs];
+					const op2 = y ? (rs >> 16) : (rs << 16 >> 16);
+
+					let rdlo = arm.registers[RdLo];
+					rdlo = arm.registers[RdLo] = (rdlo + op1 * op2) | 0;
+					let rdhi = arm.registers[RdHi];
+					const carryFrom = (rdlo + op1 * op2 > 0xffffffff) ? 1 : 0;
+					arm.registers[RdHi] = ((rdhi + (op1 * op2 < 0) ? -1 : 0) + carryFrom) | 0;
+					continue;
+				} else if ((inst & 0x0ff000b0) === 0x01200080) {
+					// A4.1.79 - SMLAW<y>
+					const Rd = (inst >>> 16) & 0xf;
+					const Rn = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const y = (inst >>> 6) & 1;
+					const Rm = inst & 0xf;
+
+					const rs = arm.registers[Rs];
+					const op2 = y ? (rs >> 16) : (rs << 16 >> 16);
+					arm.registers[Rd] = (((arm.registers[Rm] * op2) / 65536) + arm.registers[Rn]) | 0;
+					continue;
+				} else if ((inst & 0x0ff00090) === 0x01600080) {
+					// A4.1.86 - SMUL<x><y>
+					const Rd = (inst >>> 16) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const y = (inst >>> 6) & 1;
+					const x = (inst >>> 5) & 1;
+					const Rm = inst & 0xf;
+
+					const rm = arm.registers[Rm];
+					const op1 = x ? (rm >> 16) : (rm << 16 >> 16);
+					const rs = arm.registers[Rs];
+					const op2 = y ? (rs >> 16) : (rs << 16 >> 16);
+
+					arm.registers[Rd] = op1 * op2;
+					continue;
+				} else if ((inst & 0x0fe000f0) === 0x00c00090) {
+					// A4.1.87 - SMULL
+					const S = (inst >>> 20) & 1;
+					const RdHi = (inst >>> 16) & 0xf;
+					const RdLo = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const Rm = inst & 0xf;
+
+					const result = BigInt(arm.registers[Rm]) * BigInt(arm.registers[Rs]);
+					arm.registers[RdHi] = Number(result >> 32n) | 0;
+					arm.registers[RdLo] = Number(result & 0xffffffffn) | 0;
+					if (S) {
+						n = arm.registers[RdHi] >>> 31;
+						z = result === 0n ? 1 : 0;
+						arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+					}
+					continue;
+				} else if ((inst & 0x0ff000b0) === 0x012000a0) {
+					// A4.1.88 - SMULW<y>
+					const Rd = (inst >>> 16) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const y = (inst >>> 6) & 1;
+					const Rm = inst & 0xf;
+
+					const rs = arm.registers[Rs];
+					const op2 = y ? (rs >> 16) : (rs << 16 >> 16);
+					arm.registers[Rd] = (rs * op2 / 65536) | 0;
+					continue;
+				} else if ((inst & 0x0fe000f0) === 0x00a00090) {
+					// A4.1.128 - UMLAL
+					const S = (inst >>> 20) & 1;
+					const RdHi = (inst >>> 16) & 0xf;
+					const RdLo = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const Rm = inst & 0xf;
+
+					let rd = BigInt(arm.registers[RdLo]) | (BigInt(arm.registers[RdHi]) << 32n);
+					rd += BigInt(arm.registers[Rm] >>> 0) * BigInt(arm.registers[Rs] >>> 0);
+					arm.registers[RdLo] = Number(rd & 0xffffffffn) | 0;
+					arm.registers[RdHi] = Number((rd >> 32n) & 0xffffffffn) | 0;
+
+					if (S) {
+						n = arm.registers[RdHi] >>> 31;
+						// rd may be larger than 64-bit
+						z = (!arm.registers[RdLo] && !arm.registers[RdHi]) ? 1 : 0;
+						arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+					}
+					continue;
+				} else if ((inst & 0x0fe000f0) === 0x00800090) {
+					// A4.1.129 - UMULL
+					const S = (inst >>> 20) & 1;
+					const RdHi = (inst >>> 16) & 0xf;
+					const RdLo = (inst >>> 12) & 0xf;
+					const Rs = (inst >>> 8) & 0xf;
+					const Rm = inst & 0xf;
+
+					const rd = BigInt(arm.registers[Rm] >>> 0) * BigInt(arm.registers[Rs] >>> 0);
+					arm.registers[RdHi] = Number(rd >> 32n) | 0;
+					arm.registers[RdLo] = Number(rd & 0xffffffffn) | 0;
+
+					if (S) {
+						n = arm.registers[RdHi] >>> 31;
+						z = rd === 0n ? 1 : 0;
+						arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+					}
+					continue;
+				}
+
+				// A3.8 - miscellaneous arithmetic instructions
+				if ((inst & 0x0ff000f0) === 0x01600010) {
+					// A4.1.13 - CLZ
+					const Rd = (inst >>> 12) & 0xf;
+					const Rm = inst & 0xf;
+
+					let rm = arm.registers[Rm];
+					if (rm === 0) {
+						arm.registers[Rd] = 32;
+					} else {
+						let lz = 0;
+						if (!(rm & 0xffff0000)) (rm <<= 16, lz += 16);
+						if (!(rm & 0xff000000)) (rm <<= 8, lz += 8);
+						if (!(rm & 0xf0000000)) (rm <<= 4, lz += 4);
+						if (!(rm & 0xc0000000)) (rm <<= 2, lz += 2);
+						if (!(rm & 0x80000000)) ++lz;
+						arm.registers[Rd] = lz;
+					}
+					continue;
+				}
+
+				// A3.10 - status register access instructions (unimplemented)
+
+				// A3.11 - load and store instructions
+				if ((inst & 0x0c000000) === 0x04000000) {
+					// A3.11.2 - load/store word or unsigned byte
+					const B = (inst >>> 22) & 1;
+					const L = (inst >>> 20) & 1;
+					const Rd = (inst >>> 12) & 0xf;
+
+					const I = (inst >>> 25) & 1;
+					const P = (inst >>> 24) & 1;
+					const U = (inst >>> 23) & 1;
+					const W = (inst >>> 21) & 1;
+					const Rn = (inst >>> 16) & 0xf;
+
+					let address;
+					let index;
+					let invalid = false;
+					if (!I) index = inst & 0xfff; // offset
+					else {
+						// scaled register
+						const shiftImm = (inst >>> 7) & 0x1f;
+						const shift = (inst >>> 5) & 3;
+						const Rm = inst & 0xf;
+
+						if (inst & 0x10) invalid = true;
+
+						if (shift === 0) {
+							index = arm.registers[Rm] << shiftImm;
+						} else if (shift === 1) {
+							index = shiftImm === 0 ? 0 : (arm.registers[Rm] >>> shiftImm);
+						} else if (shift === 2) {
+							if (shiftImm === 0) {
+								index = arm.registers[Rm] >> 31 >> 1;
+							} else {
+								index = arm.registers[Rm] >> shiftImm;
+							}
+						} else if (shift === 3) {
+							if (shiftImm === 0) {
+								index = (c << 31) | (arm.registers[Rm] >>> 1);
+							} else {
+								index = (arm.registers[Rm] >>> shiftImm) | (arm.registers[Rm] << (32 - shiftImm));
+							}
+						}
+					}
+
+					if (P && !W) {
+						// A5.2.2 - immediate offset
+						// A5.2.3, A.5.2.4 - (scaled) register offset
+						if (U) address = (arm.registers[Rn] + index) | 0;
+						else address = (arm.registers[Rn] - index) | 0;
+					} else if (P && W) {
+						// A5.2.5 - immediate pre-indexed
+						// A5.2.6, A5.2.7 - (scaled) register pre-indexed
+						if (U) arm.registers[Rn] = address = (arm.registers[Rn] + index) | 0;
+						else arm.registers[Rn] = address = (arm.registers[Rn] - index) | 0;
+					} else if (!P) {
+						// !P && !W => LDRB, LDR, STRB, STR
+						// !P && W => LDRBT, LDRT, STRBT, STRT (no difference in this emulator)
+						// A5.2.8 - immediate post-indexed
+						// A5.2.9, A5.2.10 - (scaled) register post-indexed
+						address = arm.registers[Rn];
+						if (U) arm.registers[Rn] = (arm.registers[Rn] + index) | 0;
+						else arm.registers[Rn] = (arm.registers[Rn] - index) | 0;
+					}
+
+					if (!invalid) {
+						if (!B && L) {
+							// A4.1.23 - LDR
+							const data = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							if (Rd === 15) {
+								if (data & 1) {
+									statusText = 'Exchange to Thumb unsupported';
+									statusColor = 'var(--red)';
+									break;
+								}
+
+								arm.registers[15] = data & ~1;
+							} else {
+								arm.registers[Rd] = data;
+							}
+							continue;
+						} else if (B && L) {
+							// A4.1.24, A4.1.25 - LDRB, LDRBT
+							// LDRBT is a fancy label for a small subset of LDRB instructions, minus the privileges
+							const data = memoryReadValue(address, DataView.prototype.getUint8, 1);
+							arm.registers[Rd] = data; // writing to PC is unpredictable
+							continue;
+						} else if (!B && !L) {
+							// A4.1.99 - STR
+							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setInt32, 4);
+							continue;
+						} else if (B && !L) {
+							// A4.1.100 - STRB, STRBT
+							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setUint8, 1);
+							continue;
+						}
+					}
+				} else if ((inst & 0x0e000090) === 0x00000090) {
+					// A3.11.3 - load/store halfword or doubleword, or load signed byte
+					const I = (inst >>> 22) & 1;
+					const L = (inst >>> 20) & 1;
+					const S = (inst >>> 6) & 1;
+					const H = (inst >>> 5) & 1;
+
+					const P = (inst >>> 24) & 1;
+					const U = (inst >>> 23) & 1;
+					const W = (inst >>> 21) & 1;
+					const Rn = (inst >>> 16) & 0xf;
+					const Rd = (inst >>> 12) & 0xf;
+
+					if (S || H) {
+						// if S == 0 and H == 0, this is not part of this instruction group
+						let address, index;
+						if (I) {
+							// immediate
+							const immedH = (inst >>> 8) & 0xf;
+							const immedL = inst & 0xf;
+							index = (immedH << 4) | immedL;
+						} else {
+							// register
+							const Rm = inst & 0xf;
+							index = arm.registers[Rm];
+						}
+
+						if (P && !W) {
+							// A5.3.2, A5.3.3 - immediate/register offset
+							if (U) address = (arm.registers[Rn] + index) | 0;
+							else address = (arm.registers[Rn] - index) | 0;
+						} else if (P && W) {
+							// A5.3.4, A5.3.5 - immediate/register pre-indexed
+							if (U) address = (arm.registers[Rn] + index) | 0;
+							else address = (arm.registers[Rn] - index) | 0;
+							arm.registers[Rn] = address;
+						} else if (!P && !W) {
+							// A5.3.6, A5.3.7 - immediate/register post-indexed
+							address = arm.registers[Rn];
+							if (U) arm.registers[Rn] = (arm.registers[Rn] + index) | 0;
+							else arm.registers[Rn] = (arm.registers[Rn] - index) | 0;
+						}
+						// if !P && W, the instruction is unpredictable
+
+						if (!L && S && !H) {
+							// A4.1.26 - LDRD (note, can be unpredictable in several cases)
+							arm.registers[Rd] = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							arm.registers[Rd + 1] = memoryReadValue(address + 4, DataView.prototype.getInt32, 4);
+						} else if (L && !S && H) {
+							// A4.1.28 - LDRH
+							arm.registers[Rd] = memoryReadValue(address, DataView.prototype.getUint16, 2);
+						} else if (L && S && !H) {
+							// A4.1.29 - LDRSB
+							arm.registers[Rd] = memoryReadValue(address, DataView.prototype.getInt8, 1);
+						} else if (L && S && H) {
+							// A4.1.30 - LDRSH
+							arm.registers[Rd] = memoryReadValue(address, DataView.prototype.getInt16, 2);
+						} else if (!L && S && H) {
+							// A4.1.102 - STRD
+							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setInt32, 4);
+							memoryWriteValue(address + 4, arm.registers[Rd + 1], DataView.prototype.setInt32, 4);
+						} else if (!L && !S && H) {
+							// A4.1.104 - STRH
+							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setInt16, 2);
+						}
+
+						continue;
+					}
+				}
+
+				// A3.12 - load and store multiple instructions
+				if ((inst & 0x0e000000) === 0x08000000) {
+					const P = (inst >>> 24) & 1;
+					const U = (inst >>> 23) & 1;
+					const S = (inst >>> 22) & 1;
+					const W = (inst >>> 21) & 1;
+					const L = (inst >>> 20) & 1;
+					const Rn = (inst >>> 16) & 0xf;
+
+					let numRegisters = 0;
+					for (let i = 0; i < 16; ++i) {
+						if (inst & (1 << i)) ++numRegisters;
+					}
+
+					let address;
+					if (!P && U) {
+						// A5.4.2 - increment after
+						address = arm.registers[Rn];
+						if (W) arm.registers[Rn] = (arm.registers[Rn] + numRegisters * 4) | 0;
+					} else if (P && U) {
+						// A5.4.3 - increment before
+						address = (arm.registers[Rn] + 4) | 0;
+						if (W) arm.registers[Rn] = (arm.registers[Rn] + numRegisters * 4) | 0;
+					} else if (!P && !U) {
+						// A5.4.4 - decrement after
+						address = (arm.registers[Rn] - numRegisters * 4 + 4) | 0;
+						if (W) arm.registers[Rn] = (arm.registers[Rn] - numRegisters * 4) | 0;
+					} else if (P && !U) {
+						// A5.4.5 - decrement before
+						address = (arm.registers[Rn] - numRegisters * 4) | 0;
+						if (W) arm.registers[Rn] = (arm.registers[Rn] - numRegisters * 4) | 0;
+					}
+
+					if (!S && L) {
+						// A4.1.20 - LDM (1)
+						for (let i = 0; i < 15; ++i) {
+							if (inst & (1 << i)) {
+								arm.registers[i] = memoryReadValue(address, DataView.prototype.getInt32, 4);
+								address += 4;
+							}
+						}
+
+						if (inst & 0x8000) {
+							const value = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							if (value & 1) {
+								statusText = 'Exchange to Thumb unsupported';
+								statusColor = 'var(--red)';
+								break;
+							}
+
+							pc = value;
+							arm.registers[15] = pc + 4;
+						}
+					} else if (S && L) {
+						// A4.1.21, A4.1.22 - LDM (2, 3)
+						// unpredictable in User/System mode
+					} else if (!S && !L) {
+						// A4.1.97 - STM (1)
+						for (let i = 0; i < 16; ++i) {
+							if (inst & (1 << i)) {
+								memoryWriteValue(address, arm.registers[i], DataView.prototype.setInt32, 4);
+								address += 4;
+							}
+						}
+					} else if (S && !L) {
+						// A4.1.98 - STM (2)
+						// unpredictable in User/System mode
+					}
+
+					continue;
+				}
+
+				// A3.13 - semaphore instructions
+				if ((inst & 0x0ff000f0) === 0x01000090) {
+					// A4.1.108 - SWP
+					const Rn = (inst >>> 16) & 0xf;
+					const Rd = (inst >>> 12) & 0xf;
+					const Rm = inst & 0xf;
+
+					const address = arm.registers[Rn];
+					const temp = memoryReadValue(address, DataView.prototype.getInt32, 4);
+					memoryWriteValue(address, arm.registers[Rm], DataView.prototype.setInt32, 4);
+					arm.registers[Rd] = temp;
+					continue;
+				} else if ((inst & 0x0ff000f0) === 0x01400090) {
+					// A4.1.109 - SWPB
+					const Rn = (inst >>> 16) & 0xf;
+					const Rd = (inst >>> 12) & 0xf;
+					const Rm = inst & 0xf;
+
+					const address = arm.registers[Rn];
+					const temp = memoryReadValue(address, DataView.prototype.getUint8, 1);
+					memoryWriteValue(address, arm.registers[Rm], DataView.prototype.setUint8, 1);
+					arm.registers[Rd] = temp;
+					continue;
+				}
+
+				// A3.14 - exception-generating instructions (unimplemented)
+
+				// A3.15 - coprocessor instructions (unimplemented)
+
+				undefinedInstruction();
+				break;
+			}
+
+			const parts = [];
+			if ((arm.cpsr >>> 31) & 1) parts.push('N');
+			if ((arm.cpsr >>> 30) & 1) parts.push('Z');
+			if ((arm.cpsr >>> 29) & 1) parts.push('C');
+			if ((arm.cpsr >>> 28) & 1) parts.push('V');
+			status.style.color = statusColor;
+			status.textContent = `Status: ${statusText} ${parts.length ? '(' + parts.join('') + ')' : ''}`;
+
+			arm.registers[15] -= 4;
+			applyInputRegistersButton.classList.remove('disabled');
+			copyRegistersButton.classList.remove('disabled');
+			updateStateDisplay();
+		};
+
+		return arm;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: RTTI VTables                                                                                         |
 	// | Section: RTTI Inheritance Trees                                                                               |
 	// +---------------------------------------------------------------------------------------------------------------+
