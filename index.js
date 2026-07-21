@@ -5663,7 +5663,7 @@
 							// NOT BorrowFrom(Rn - shifter)
 							c = 1 ^ Number((rn >>> 0) - (shifter >>> 0) < 0);
 							// OverflowFrom(Rn - shifter)
-							v = Number((rn >> 31) !== (shifter >> 31) && (rn >> 31) !== (rd >> 31));
+							v = Number((rn >> 31) !== (shifter >> 31) && (rn >> 31) !== (out >> 31));
 						} else if (opcode === 0xb) {
 							// CMN (compare negative)
 							const rn = arm.registers[Rn];
@@ -5673,7 +5673,7 @@
 							// CarryFrom(Rn + shifter)
 							c = Number((rn >>> 0) + (shifter >>> 0) > 0xffffffff);
 							// OverflowFrom(Rn + shifter)
-							v = Number((rn >> 31) === (shifter >> 31) && (rn >> 31) !== (rd >> 31));
+							v = Number((rn >> 31) === (shifter >> 31) && (rn >> 31) !== (out >> 31));
 						} else if (opcode === 0xc) {
 							// ORR (logical OR)
 							const rd = arm.registers[Rd] = arm.registers[Rn] | shifter;
