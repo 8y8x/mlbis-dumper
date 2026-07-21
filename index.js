@@ -4963,8 +4963,9 @@
 
 		const overrideTextarea = document.createElement('textarea');
 		overrideTextarea.style.cssText = 'font: 0.9em "Red Hat Mono"; height: calc(4em + 8px);';
-		overrideTextarea.addEventListener('change', () => {
-			const override = arm.input.overrides[overrideSelect.value];
+		let previousOverrideSelectValue; // start undefined
+		const overrideTextareaChanged = () => {
+			const override = arm.input.overrides[previousOverrideSelectValue];
 			// 1. ignore whitespace
 			// 2. if a character is not 0-9 a-f A-F, replace it with a zero
 			// 3. every two non-whitespace characters makes a byte
@@ -4995,7 +4996,8 @@
 			override.data = bufToDat(new Uint8Array(raw));
 			overrideTextarea.value = bytes(0, override.data.byteLength, override.data);
 			if (changesSize) replaceOverrideDropdown(overrideSelect.value);
-		});
+		};
+		overrideTextarea.addEventListener('change', overrideTextareaChanged);
 		section.appendChild(overrideTextarea);
 
 		const replaceOverrideDropdown = initialValue => {
@@ -5009,6 +5011,8 @@
 		};
 
 		const updateOverrideSelect = () => {
+			if (previousOverrideSelectValue !== undefined) overrideTextareaChanged();
+
 			if (overrideSelect.value === arm.input.overrides.length) {
 				// (new)
 				let maxI = 2;
@@ -5023,6 +5027,7 @@
 			const override = arm.input.overrides[overrideSelect.value];
 			overrideAddress.value = '0x' + str32(override.ramStart);
 			overrideTextarea.value = bytes(0, override.data.byteLength, override.data);
+			previousOverrideSelectValue = overrideSelect.value;
 		};
 		updateOverrideSelect();
 
@@ -5040,6 +5045,7 @@
 			const override = arm.input.overrides[overrideSelect.value];
 			overrideAddress.value = '0x' + str32(override.ramStart);
 			overrideTextarea.value = bytes(0, override.data.byteLength, override.data);
+			previousOverrideSelectValue = overrideSelect.value;
 		};
 
 		// input apply
@@ -5070,7 +5076,6 @@
 
 		const status = document.createElement('div');
 		status.style.cssText = 'position: absolute; top: 5px; left: 570px; line-height: 20px;';
-		status.textContent = 'Status: OK';
 		stateContainer.appendChild(status);
 
 		const registerTable = document.createElement('table');
@@ -5309,6 +5314,8 @@
 
 			applyInputRegistersButton.className = 'disabled';
 			copyRegistersButton.className = 'disabled';
+			status.style.color = 'unset';
+			status.textContent = '';
 		};
 
 		const applyOverrides = () => {
