@@ -15,7 +15,7 @@ possible. It works on all known releases of the game (JP/NA/EU/KO releases and
 NA/EU kiosk demos) and it should work on any mod that hasn't significantly
 altered the game's code (such as the Chinese fan translation).
 
-A fork of the project, mlpit-dumper, is available at
+A fork of the project for Mario & Luigi: Partners In Time is available at
 https://github.com/JeyLists/mlpit-dumper.
 
 Join us on the M&L Modding Server: https://discord.gg/VQAGjEVEvr
