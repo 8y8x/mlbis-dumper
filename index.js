@@ -5057,8 +5057,6 @@
 		applyRow.appendChild(button('Apply overrides and reset memory, overlays', () => (applyOverrides(), updateStateDisplay())));
 		applyRow.appendChild(button('Step', () => step(1)));
 		applyRow.appendChild(button('Step 1000x', () => step(1000)));
-		const pcDirty = checkbox('PC Marks Memory Accesses', false, () => {});
-		applyRow.appendChild(pcDirty);
 		section.appendChild(applyRow);
 
 		// state view (disassembly, registers)
@@ -5095,6 +5093,13 @@
 			registerTable.appendChild(tr);
 		}
 		stateContainer.appendChild(registerTable);
+
+		const memoryBar = document.createElement('div');
+		const pcDirty = checkbox('Record Instruction Reads', false, () => {});
+		memoryBar.appendChild(pcDirty);
+		const showPcRelativeAccesses = checkbox('Record PC-Relative Reads', false, () => {});
+		memoryBar.appendChild(showPcRelativeAccesses);
+		section.appendChild(memoryBar);
 
 		const memoryRows = new Map();
 		const memoryTable = document.createElement('table');
@@ -5938,8 +5943,8 @@
 					const W = (inst >>> 21) & 1;
 					const Rn = (inst >>> 16) & 0xf;
 
-					let address;
-					let index;
+					let address, index;
+					let clean = false;
 					let invalid = false;
 					if (!I) index = inst & 0xfff; // offset
 					else {
@@ -5974,6 +5979,12 @@
 						// A5.2.3, A.5.2.4 - (scaled) register offset
 						if (U) address = (arm.registers[Rn] + index) | 0;
 						else address = (arm.registers[Rn] - index) | 0;
+
+						if (Rn === 15) {
+							// PC-relative accesses are most likely just constant lookups, they are not actually
+							// relevant to execution
+							clean = !showPcRelativeAccesses.checked;
+						}
 					} else if (P && W) {
 						// A5.2.5 - immediate pre-indexed
 						// A5.2.6, A5.2.7 - (scaled) register pre-indexed
@@ -5992,7 +6003,7 @@
 					if (!invalid) {
 						if (!B && L) {
 							// A4.1.23 - LDR
-							const data = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							const data = memoryReadValue(address, DataView.prototype.getInt32, clean ? 0 : 4);
 							if (Rd === 15) {
 								if (data & 1) {
 									statusText = 'Exchange to Thumb unsupported';
@@ -6008,16 +6019,16 @@
 						} else if (B && L) {
 							// A4.1.24, A4.1.25 - LDRB, LDRBT
 							// LDRBT is a fancy label for a small subset of LDRB instructions, minus the privileges
-							const data = memoryReadValue(address, DataView.prototype.getUint8, 1);
+							const data = memoryReadValue(address, DataView.prototype.getUint8, clean ? 0 : 1);
 							arm.registers[Rd] = data; // writing to PC is unpredictable
 							continue;
 						} else if (!B && !L) {
 							// A4.1.99 - STR
-							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setInt32, 4);
+							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setInt32, clean ? 0 : 4);
 							continue;
 						} else if (B && !L) {
 							// A4.1.100 - STRB, STRBT
-							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setUint8, 1);
+							memoryWriteValue(address, arm.registers[Rd], DataView.prototype.setUint8, clean ? 0 : 1);
 							continue;
 						}
 					}
