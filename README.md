@@ -1,7 +1,7 @@
 # mlbis-dumper
 This work-in-progress tool displays data from Mario & Luigi: Bowser's Inside
 Story. It runs completely offline in the browser. Try it out at
-https://8y8x.github.io/mlbis-dumper/!
+https://8y8x.github.io/mlbis-dumper/ or https://inf.gg/mlbis/dumper!
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/8y8x/mlbis-dumper/refs/heads/main/assets/gallery-field-maps-or8.png" width="45%"></img>
@@ -11,8 +11,12 @@ https://8y8x.github.io/mlbis-dumper/!
 </div>
 
 The primary motivation for this project is to find as much unused content as
-possible. It works on all known versions of the game (JP/NA/EU/KO releases, NA/EU kiosk demos, and the Chinese fan
-translation) and it should work on any mod that hasn't significantly altered the game's code.
+possible. It works on all known releases of the game (JP/NA/EU/KO releases and
+NA/EU kiosk demos) and it should work on any mod that hasn't significantly
+altered the game's code (such as the Chinese fan translation).
+
+A fork of the project, mlpit-dumper, is available at
+https://github.com/JeyLists/mlpit-dumper.
 
 Join us on the M&L Modding Server: https://discord.gg/VQAGjEVEvr
 
@@ -34,34 +38,46 @@ These sections are useful for everyone:
   for the complicated ones yet
 
 These sections are useful for reverse engineers:
-- **ROM Headers:** just some offsets for the tool to function
-- **File System:** lists ROM files and overlays, extract individual files or
-  decompressed overlays, or everything as a .zip
+- **ROM Headers:** game icon/titles, some offsets for the tool to function
+- **File System:** lists ROM files, overlays, and autoloads, extract individual
+  files or decompressed overlays or everything as a .zip, see NitroSDK version
 - **File System (Extended):** hidden section, accessed via `fsext` in code,
   contains hardcoded offsets into many files across all known releases
 - **Overlay Table:** shows the NDS memory regions each overlay occupies,
   highlghts overlapping/incompatible overlays, shows overlay initializers, finds
   strings (class and file names specifically)
+- **Field Palette Animations:** list of field maps palette animations that are
+  controlled by FEvent scripts
 - **Monsters:** shows all enemies' name, sprite, and script id, also some basic
   stats; use [Dataglobin](https://github.com/MnL-Modding/Dataglobin) for more
   in-depth enemy info
 - **FX Alls:** WIP
 - **FX Sprites:** displays the \*fxTex.dat and \*fxPal.dat files, which are
   spritesheets used by the elusive FX system
+- **Disassembler:** maps each uint32_t/uint16_t in an overlay to its ARMv5TE or
+  ARMv4T instruction (ARM or Thumb mode), also highlights "unpredictable"
+  instructions
+- **ARM Emulator:** emulates a very barebones NDS environment for ARMv5TE
+  instructions with custom registers, overlays, and memory, useful for verifying
+  strange algorithms (division, matrix multiplication, trigonometry, etc.)
+- **RTTI VTables:** shows RTTI information for classes with virtual functions,
+  including vtable offsets and superclass offsets
+- **RTTI Inheritance Trees:** shows class inheritance structure provided by
+  RTTI information (MLBIS heavily relies on virtual functions, so most classes
+  are visible here)
+- **ROM Packing:** verifies padding and alignment of several known ROM features,
+  alerts if something is off or hidden (this can show if a ROM was re-packaged
+  by a third-party tool)
 
 These sections aren't too useful:
-- **Field Palette Animations:** list of field maps palette animations that are
-  controlled by FEvent scripts
 - **FMapData Tile Viewer:** was used to reverse engineer tile animations, but
   now it's useless
 - **Giant Battle Maps:** WIP, just the backgrounds so far, no Export PNG button
   yet, and no unused data to be seen so it's not useful
 - **Menu Maps:** would be useful (several of these are unused), but you have to
   figure out the correct palette + tileset + tilemap + size + color depth yourself
-- **Disassembler:** maps each uint32_t/uint16_t in an overlay to its ARMv5TE or
-  ARMv4T instruction (ARM or Thumb mode), also highlights "unpredictable"
-  instructions
-- **Sound:** shows some music names but that's about it
+- **Sound:** WIP, shows some music names but that's about it
+- **Sound STRM:** WIP prototype
 - **Object Palette Animations:** not really useful
 
 ## Developing
@@ -75,9 +91,9 @@ file for code cleanup but you don't need it.
 While this tool isn't made for modding, you can do basic patches from your
 browser's console (Ctrl+Shift+J or Cmd+Option+I). For example:
 ```js
-propsDatComp = fsext.fmapdata.segments[field.rooms[0x239].props];
+propsDatComp = fsext.fmapdata[field.rooms[0x239].props];
 propsDat = lzBis(propsDatComp);
-props = unpackSegmented(propsDat);
+props = unpackSegmented32(propsDat);
 loadingZones = bufToU16(props[7]);
 loadingZones[24 + 1] = 0x15b; // right zone, room id
 loadingZones[24 + 7] = 30; // right zone, enter x
