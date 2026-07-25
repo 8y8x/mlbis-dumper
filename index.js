@@ -816,9 +816,12 @@
 		// some games compress the ARM9 region, but only partially
 		// headers.arm9Size cannot be trusted - for example, JP version specifies 0x550b8 (decompressed size) when the
 		// ARM9 is actually 0x3718c in size
-		const moduleParamsAddr = fs.arm9.getUint32(headers.arm9AutoLoadHook - 4 - headers.arm9RamOffset, true);
+		let moduleParamsAddr;
+		if (headers.arm9AutoLoadHook) {
+			moduleParamsAddr = fs.arm9.getUint32(headers.arm9AutoLoadHook - 4 - headers.arm9RamOffset, true);
+		}
 		if (
-			headers.arm9RamOffset < moduleParamsAddr &&
+			moduleParamsAddr && headers.arm9RamOffset < moduleParamsAddr &&
 			moduleParamsAddr + 0x24 < headers.arm9RamOffset + fs.arm9.byteLength
 		) {
 			const [
@@ -911,7 +914,7 @@
 		const names = new Map();
 		names.set(0xf000, ''); // so every file path starts with '/'
 		const parents = new Map();
-		const numDirectories = file.getUint16(headers.fntOffset + 6, true);
+		const numDirectories = headers.fntOffset ? file.getUint16(headers.fntOffset + 6, true) : 0;
 		for (let i = 0; i < numDirectories; ++i) {
 			let o = file.getUint32(headers.fntOffset + i * 8, true);
 			let fileId = file.getUint16(headers.fntOffset + i * 8 + 4, true);
