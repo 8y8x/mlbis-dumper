@@ -4980,8 +4980,8 @@
 
 				let part = 0;
 				if (0x30 <= char && char <= 0x39) part = char - 0x30; // 0-9
-				else if (0x41 <= char && char <= 0x46) part = char - 0x41; // A-F
-				else if (0x61 <= char && char <= 0x66) part = char - 0x61; // a-f
+				else if (0x41 <= char && char <= 0x46) part = char - 0x41 + 10; // A-F
+				else if (0x61 <= char && char <= 0x66) part = char - 0x61 + 10; // a-f
 
 				if (half === undefined) half = part;
 				else {
