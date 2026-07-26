@@ -5579,6 +5579,7 @@
 						// OverflowFrom (addition): "if both operands have the same sign, and the sign of the result is different to the signs of both operands."
 						// OverflowFrom (subtraction): "if the operands have different signs, and the first operand and the result have different signs."
 
+						let handled = true; // MRS instruction overlaps the TST instruction, the only difference is whether S is set
 						if (opcode === 0) {
 							// AND (logical AND)
 							const rd = arm.registers[Rd] = arm.registers[Rn] & shifter;
@@ -5651,18 +5652,18 @@
 							c = 1 ^ Number((shifter >>> 0) - (rn >>> 0) - (c ^ 1) < 0);
 							// OverflowFrom(shifter - Rn - NOT(C Flag))
 							v = Number((shifter >> 31) !== ((rn + (c ^ 1)) >> 31) && (shifter >> 31) !== (rd >> 31));
-						} else if (opcode === 8) {
+						} else if (opcode === 8 && S) {
 							// TST (test)
 							const out = arm.registers[Rn] & shifter;
 							n = out >>> 31;
 							z = out === 0 ? 1 : 0;
-						} else if (opcode === 9) {
+						} else if (opcode === 9 && S) {
 							// TEQ (test equivalence)
 							const out = arm.registers[Rn] ^ shifter;
 							n = out >>> 31;
 							z = out === 0 ? 1 : 0;
 							c = sc;
-						} else if (opcode === 0xa) {
+						} else if (opcode === 0xa && S) {
 							// CMP (compare)
 							const rn = arm.registers[Rn];
 							const out = (rn - shifter) | 0;
@@ -5672,7 +5673,7 @@
 							c = 1 ^ Number((rn >>> 0) - (shifter >>> 0) < 0);
 							// OverflowFrom(Rn - shifter)
 							v = Number((rn >> 31) !== (shifter >> 31) && (rn >> 31) !== (out >> 31));
-						} else if (opcode === 0xb) {
+						} else if (opcode === 0xb && S) {
 							// CMN (compare negative)
 							const rn = arm.registers[Rn];
 							const out = (rn + shifter) | 0;
@@ -5706,18 +5707,24 @@
 							n = rd >>> 31;
 							z = rd === 0 ? 1 : 0;
 							c = sc;
+						} else {
+							// some instructions, like MRS, overlap with this space.
+							// for example opcode 8: S=1 => TST, S=0 => MRS
+							handled = false;
 						}
 
-						if (Rd === 15) {
-							pc = arm.registers[Rd];
-							arm.registers[Rd] = (arm.registers[Rd] + 4) | 0;
-						}
+						if (handled) {
+							if (Rd === 15) {
+								pc = arm.registers[Rd];
+								arm.registers[Rd] = (arm.registers[Rd] + 4) | 0;
+							}
 
-						if (S) {
-							arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
-						}
+							if (S) {
+								arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+							}
 
-						continue;
+							continue;
+						}
 					}
 				}
 
