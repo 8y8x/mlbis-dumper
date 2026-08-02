@@ -63,9 +63,10 @@ window.initDisassembler = () => {
 		].map(x => `<span style="color: #d7c;">${x}</span>`);
 		const imm = x => (x <= -10 ? '-0x' + (-x).toString(16) : x <= 10 ? x : '0x' + x.toString(16));
 		const unpredictable = c => (c ? ' <span style="color: #e96;">(UNPREDICTABLE)</span>' : '');
+		const addr = x => `<span style="color: var(--yellow)">0x${str32(x)}</span>`;
 
 		/** `style` can be 'object' or 'asm' */
-		const disassembleArm = (disassembler.arm = (overlay, style, isArmv5) => {
+		const disassembleArm = (disassembler.arm = (overlay, style, isArmv5, ramStart) => {
 			const OBJECT = style === 'object';
 			const ASM = style === 'asm';
 
@@ -459,8 +460,9 @@ window.initDisassembler = () => {
 				// B, BL (A4.1.5)
 				if ((inst & 0x0e000000) === 0x0a000000 && cond !== conds[0b1111]) {
 					const L = (inst >>> 24) & 1;
-					const immed = (inst & 0xffffff) - (inst & 0x800000) * 2; // signed
-					if (ASM) lines.push(`b${L ? 'l' : ''}${cond} ${imm(immed)}`);
+					const immed = ((inst & 0xffffff) << 8) >> 6;
+					const target = ramStart + i * 4 + 8 + immed;
+					if (ASM) lines.push(`b${L ? 'l' : ''}${cond} ${addr(target)} (${imm(immed)})`);
 					continue;
 				}
 
@@ -487,8 +489,10 @@ window.initDisassembler = () => {
 				if ((inst & 0xfe000000) === (0xfa000000 | 0) && isArmv5) {
 					// (1) (A4.1.8)
 					const H = (inst >>> 24) & 1;
-					const immed = inst & 0xffffff;
-					if (ASM) lines.push(`blx ${imm((immed << 2) | (H << 1))}`);
+					const immed = ((inst & 0xffffff) << 8) >> 8;
+					const fixedImmed = (immed << 2) | (H << 1);
+					const target = ramStart + i * 4 + 8 + fixedImmed;
+					if (ASM) lines.push(`blx ${addr(target)} (${imm(fixedImmed)})`);
 					continue;
 				} else if ((inst & 0x0ff000f0) === 0x01200030 && cond !== conds[0b1111] && isArmv5) {
 					// (2) (A4.1.9) OK
@@ -1972,10 +1976,10 @@ window.initDisassembler = () => {
 
 			const disassembleStart = performance.now();
 			const instructions = [
-				() => disassembleArm(binary, 'asm', true),
-				() => disassembleArm(binary, 'asm', false),
-				() => disassembleThumb(binary, 'asm', true),
-				() => disassembleThumb(binary, 'asm', false),
+				() => disassembleArm(binary, 'asm', true, ramStart),
+				() => disassembleArm(binary, 'asm', false, ramStart),
+				() => disassembleThumb(binary, 'asm', true, ramStart),
+				() => disassembleThumb(binary, 'asm', false, ramStart),
 			][setSelect.value]();
 			const disassembleTime = performance.now() - disassembleStart;
 

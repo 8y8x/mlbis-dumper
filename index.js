@@ -5327,12 +5327,12 @@
 				const chunk1 = memoryChunk(previewPc & ~0xfff).dat;
 				const chunk2 = memoryChunk((previewPc & ~0xfff) + 0x1000).dat;
 
-				lines = disassembler.arm(sliceDataView(chunk1, previewPc & 0xfff, 0x1000), 'asm', true);
-				lines.push(...disassembler.arm(sliceDataView(chunk2, 0, (previewPc + 0x40) & 0xfff), 'asm', true));
+				lines = disassembler.arm(sliceDataView(chunk1, previewPc & 0xfff, 0x1000), 'asm', true, previewPc);
+				lines.push(...disassembler.arm(sliceDataView(chunk2, 0, (previewPc + 0x40) & 0xfff), 'asm', true), (previewPc + 0x40) & ~0xfff);
 			} else {
 				// doesn't cross chunk boundaries
 				const chunk = memoryChunk(previewPc & ~0xfff).dat;
-				lines = disassembler.arm(sliceDataView(chunk, previewPc & 0xfff, (previewPc & 0xfff) + 0x40), 'asm', true);
+				lines = disassembler.arm(sliceDataView(chunk, previewPc & 0xfff, (previewPc & 0xfff) + 0x40), 'asm', true, previewPc);
 			}
 
 			for (let i = 0; i < lines.length; ++i) {
