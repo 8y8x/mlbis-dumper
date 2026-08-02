@@ -806,44 +806,97 @@
 		fs.arm9 = sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size);
 		fs.arm9BssSize = 0;
 		fs.arm7 = sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size);
+		fs.arm7BssSize = 0;
 		fs.autoloads = [];
 
+		let arm7Unpacked = false;
 		let arm9DecompressedPacked;
 		let arm9Unpacked = false;
 
-		const moduleParamsInfo = document.createElement('div'); // add to DOM later
+		// add to DOM later
+		const sdkInfo = document.createElement('div');
+		const autoloadInfo = document.createElement('div');
+
+		if (headers.arm7AutoLoadHook) {
+			const autoload7Ptr = fs.arm7.getUint32(headers.arm7AutoLoadHook - 4 - headers.arm7RamOffset, true);
+			if (
+				autoload7Ptr && headers.arm7RamOffset < autoload7Ptr &&
+				autoload7Ptr + 0x14 <= headers.arm7RamOffset + fs.arm7.byteLength
+			) {
+				const local = autoload7Ptr - headers.arm7RamOffset;
+				const [listStart, listEnd, srcStart, bssStart, bssEnd]
+					= bufToU32(sliceDataView(fs.arm7, local, local + 0x14));
+
+				fs.arm7BssSize = bssEnd - bssStart;
+
+				let copyAddr = srcStart;
+				for (let i = 0, o = listStart; o < listEnd; ++i, o += 0xc) {
+					const ramStart = fs.arm7.getUint32(o - headers.arm7RamOffset, true);
+					const ramSize = fs.arm7.getUint32(o + 4 - headers.arm7RamOffset, true);
+					const bssSize = fs.arm7.getUint32(o + 8 - headers.arm7RamOffset, true);
+
+					let name, fileName;
+					if (ramStart === 0x027e0000) {
+						// ARM7 code is loaded into the middle of memory, all code is either moved under DTCM or WRAM
+						name = 'A7UP';
+						fileName = 'a7up.bin';
+					} else if (ramStart === 0x037f8000) {
+						// WRAM (32 KB shared memory specified by WRAMCNT=3 in ARM9, then 64 KB ARM7 WRAM)
+						name = 'WRAM';
+						fileName = 'wram.bin';
+					} else {
+						name = `ARM7 Autoload[${i}]`;
+						fileName = `autoload7_${i}.bin`;
+					}
+
+					fs.autoloads.push({
+						name,
+						fileName,
+						ramStart,
+						ramSize,
+						bssSize,
+						arm9: false,
+						dat: sliceDataView(
+							fs.arm7,
+							copyAddr - headers.arm7RamOffset,
+							copyAddr + ramSize - headers.arm7RamOffset,
+						),
+					});
+
+					addHTML(
+						autoloadInfo,
+						`<div>
+							<code>[${i}]</code> ${name}: <code>${str32(ramStart)} - ${str32(ramStart + ramSize)}</code>
+							(len <code>0x${ramSize.toString(16)}</code>, BSS <code>0x${bssSize.toString(16)}</code>),
+							copied from ARM7 <code>${str32(copyAddr)} - ${str32((copyAddr += ramSize))}</code>
+						</div>`,
+					);
+				}
+
+				fs.arm7 = sliceDataView(fs.arm7, 0, bssStart - headers.arm7RamOffset);
+				arm7Unpacked = true;
+			}
+		}
 
 		// some games compress the ARM9 region, but only partially
 		// headers.arm9Size cannot be trusted - for example, JP version specifies 0x550b8 (decompressed size) when the
 		// ARM9 is actually 0x3718c in size
-		let moduleParamsAddr;
 		if (headers.arm9AutoLoadHook) {
-			moduleParamsAddr = fs.arm9.getUint32(headers.arm9AutoLoadHook - 4 - headers.arm9RamOffset, true);
-		}
-		if (
-			moduleParamsAddr && headers.arm9RamOffset < moduleParamsAddr &&
-			moduleParamsAddr + 0x24 < headers.arm9RamOffset + fs.arm9.byteLength
-		) {
-			const [
-				autoloadListStart,
-				autoloadListEnd,
-				autoloadStart,
-				arm9BssStart,
-				arm9BssEnd,
-				compressionHead,
-				sdkVersion,
-				code1,
-				code2,
-			] = bufToU32(
-				sliceDataView(
-					fs.arm9,
-					moduleParamsAddr - headers.arm9RamOffset,
-					moduleParamsAddr + 0x28 - headers.arm9RamOffset,
-				),
-			);
+			const autoload9Ptr = fs.arm9.getUint32(headers.arm9AutoLoadHook - 4 - headers.arm9RamOffset, true);
+			if (
+				autoload9Ptr && headers.arm9RamOffset < autoload9Ptr &&
+				autoload9Ptr + 0x24 <= headers.arm9RamOffset + fs.arm9.byteLength
+			) {
+				const local = autoload9Ptr - headers.arm9RamOffset;
+				const [listStart, listEnd, srcStart, bssStart, bssEnd, compressionHead, sdkVersion, code1, code2]
+					= bufToU32(sliceDataView(fs.arm9, local, local + 0x24));
 
-			if (code1 === 0xdec00621 && code2 === 0x2106c0de) {
-				fs.arm9BssSize = arm9BssEnd - arm9BssStart;
+				if (code1 === 0xdec00621 && code2 === 0x2106c0de) {
+					const sdkMajorVersion = sdkVersion >>> 24;
+					const sdkMinorVersion = (sdkVersion >>> 16) & 0xff;
+					const sdkPatch = sdkVersion & 0xffff;
+					sdkInfo.innerHTML = `NitroSDK ${sdkMajorVersion}.${sdkMinorVersion} (patch ${sdkPatch})`;
+				}
 
 				if (compressionHead) {
 					// the rest of the ARM9 is compressed, so decompress it
@@ -854,16 +907,8 @@
 					);
 				}
 
-				const sdkMajorVersion = sdkVersion >>> 24;
-				const sdkMinorVersion = (sdkVersion >>> 16) & 0xff;
-				const sdkPatch = sdkVersion & 0xffff;
-				addHTML(
-					moduleParamsInfo,
-					`<div>NitroSDK ${sdkMajorVersion}.${sdkMinorVersion} (patch ${sdkPatch})</div>`,
-				);
-
-				let copyAddr = autoloadStart;
-				for (let i = 0, o = autoloadListStart; o < autoloadListEnd; ++i, o += 12) {
+				let copyAddr = srcStart;
+				for (let i = 0, o = listStart; o < listEnd; ++i, o += 0xc) {
 					const ramStart = fs.arm9.getUint32(o - headers.arm9RamOffset, true);
 					const ramSize = fs.arm9.getUint32(o + 4 - headers.arm9RamOffset, true);
 					const bssSize = fs.arm9.getUint32(o + 8 - headers.arm9RamOffset, true);
@@ -873,12 +918,12 @@
 						name = 'ITCM';
 						fileName = 'itcm.bin';
 					} else if (ramStart === 0x027e0000) {
-						// DTCM can be put elsewhere but i think it's usually put here
+						// DTCM (invisible to ARM7)
 						name = 'DTCM';
 						fileName = 'dtcm.bin';
 					} else {
 						name = `ARM9 Autoload[${i}]`;
-						fileName = `autoload${i}.bin`;
+						fileName = `autoload9_${i}.bin`;
 					}
 
 					fs.autoloads.push({
@@ -887,6 +932,7 @@
 						ramStart,
 						ramSize,
 						bssSize,
+						arm9: true,
 						dat: sliceDataView(
 							fs.arm9,
 							copyAddr - headers.arm9RamOffset,
@@ -895,19 +941,18 @@
 					});
 
 					addHTML(
-						moduleParamsInfo,
+						autoloadInfo,
 						`<div>
-							${name}: <code>${str32(ramStart)} - ${str32(ramStart + ramSize)}</code>
+							<code>[${fs.autoloads.length - 1}]</code> ${name}:
+							<code>${str32(ramStart)} - ${str32(ramStart + ramSize)}</code>
 							(len <code>0x${ramSize.toString(16)}</code>, BSS <code>0x${bssSize.toString(16)}</code>),
 							copied from ARM9 <code>${str32(copyAddr)} - ${str32((copyAddr += ramSize))}</code>
 						</div>`,
 					);
 				}
 
-				fs.arm9 = sliceDataView(fs.arm9, 0, arm9BssStart - headers.arm9RamOffset);
+				fs.arm9 = sliceDataView(fs.arm9, 0, bssStart - headers.arm9RamOffset);
 				arm9Unpacked = true;
-			} else {
-				addHTML(moduleParamsInfo, `<div>(Can't read autoload section - is this a DSi game?)</div>`);
 			}
 		}
 
@@ -991,22 +1036,30 @@
 		};
 		const singleSelectEntries = [
 			{
-				label: `ARM9 (len 0x${fs.arm9.byteLength.toString(16)})`,
-				fileName: 'arm9.bin',
-				getDat: () => sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size),
-				getBlzDat: () => arm9DecompressedPacked || error(),
-				getBlzUnpackedDat: () => fs.arm9,
-			},
-			{
 				label: `ARM7 (len 0x${fs.arm7.byteLength.toString(16)})`,
 				fileName: 'arm7.bin',
 				getDat: () => sliceDataView(file, headers.arm7RomOffset, headers.arm7RomOffset + headers.arm7Size),
-				getBlzDat: () => fs.arm7,
+				getUnpackedDat: () => fs.arm7,
 			},
 		];
-
-		for (let i = 0; i < fs.autoloads.length; ++i) {
-			const autoload = fs.autoloads[i];
+		for (const autoload of fs.autoloads) {
+			if (autoload.arm9) continue;
+			singleSelectEntries.push({
+				label: `${autoload.name} (len 0x${autoload.dat.byteLength.toString(16)})`,
+				fileName: autoload.fileName,
+				getDat: () => autoload.dat,
+			});
+		}
+		
+		singleSelectEntries.push({
+			label: `ARM9 (len 0x${fs.arm9.byteLength.toString(16)})`,
+			fileName: 'arm9.bin',
+			getDat: () => sliceDataView(file, headers.arm9RomOffset, headers.arm9RomOffset + headers.arm9Size),
+			getBlzDat: () => arm9DecompressedPacked || error(),
+			getBlzUnpackedDat: () => fs.arm9,
+		});
+		for (const autoload of fs.autoloads) {
+			if (!autoload.arm9) continue;
 			singleSelectEntries.push({
 				label: `${autoload.name} (len 0x${autoload.dat.byteLength.toString(16)})`,
 				fileName: autoload.fileName,
@@ -1033,20 +1086,20 @@
 		}
 
 		// ARM9: "Raw" or "BLZ" or "BLZ + Unpacked"
-		// ARM7: "Raw"
+		// ARM7: "Raw" or "Unpacked"
 		// overlays: "Raw" or "BLZ"
 		// files: "Raw"
 		const singleSelect = dropdown(
 			singleSelectEntries.map(x => x.label),
 			0,
 			() => {
-				// when switching files, change the selected dropdown, and change the value of that dropdown to whatever was
-				// selected on the previous dropdown (or "Raw" if it's not available anymore)
+				// when switching files, change the selected dropdown
 				const entry = singleSelectEntries[singleSelect.value];
 
 				let newDecompDropdown;
 				if (entry.getBlzUnpackedDat) newDecompDropdown = decompBlzUnpacked;
 				else if (entry.getBlzDat) newDecompDropdown = decompBlz;
+				else if (entry.getUnpackedDat) newDecompDropdown = decompRawUnpacked;
 				else newDecompDropdown = decompRawOnly;
 
 				if (newDecompDropdown === singleDecompDropdown) return; // no need to change
@@ -1059,6 +1112,7 @@
 		singleExport.appendChild(singleSelect);
 
 		const decompRawOnly = dropdown(['Raw'], 0, () => {}, undefined, true);
+		const decompRawUnpacked = dropdown(['Raw', 'Unpacked'], 1, () => {}, undefined, true);
 		const decompBlz = dropdown(['Raw', 'Decompressed (BLZ)'], 1, () => {}, undefined, true);
 		const decompBlzUnpacked = dropdown(
 			['Raw', 'Decompressed (BLZ)', 'Decompressed + Unpacked'],
@@ -1067,12 +1121,14 @@
 			undefined,
 			true,
 		);
-		decompRawOnly.style.display = decompBlz.style.display = decompBlzUnpacked.style.display = 'none';
+		decompRawOnly.style.display = decompRawUnpacked.style.display = 'none';
+		decompBlz.style.display = decompBlzUnpacked.style.display = 'none';
 		singleExport.appendChild(decompRawOnly);
+		singleExport.appendChild(decompRawUnpacked);
 		singleExport.appendChild(decompBlz);
 		singleExport.appendChild(decompBlzUnpacked);
 
-		let singleDecompDropdown = arm9Unpacked ? decompBlzUnpacked : decompBlz;
+		let singleDecompDropdown = arm7Unpacked ? decompRawUnpacked : decompRaw;
 		singleDecompDropdown.style.display = 'inline-block';
 
 		const singleDump = button('Dump', () => {
@@ -1080,9 +1136,15 @@
 
 			let dat;
 			try {
-				if (singleDecompDropdown.value === 0) dat = entry.getDat();
-				else if (singleDecompDropdown.value === 1) dat = entry.getBlzDat();
-				else if (singleDecompDropdown.value === 2) dat = entry.getBlzUnpackedDat();
+				if (singleDecompDropdown === decompRawUnpacked) {
+					// decompRawUnpacked doesn't follow the "Raw" > "BLZ" > "BLZ + Unpacked" chain
+					if (singleDecompDropdown.value === 0) dat = entry.getDat();
+					else if (singleDecompDropdown.value === 1) dat = entry.getUnpackedDat();
+				} else {
+					if (singleDecompDropdown.value === 0) dat = entry.getDat();
+					else if (singleDecompDropdown.value === 1) dat = entry.getBlzDat();
+					else if (singleDecompDropdown.value === 2) dat = entry.getBlzUnpackedDat();
+				}
 			} catch (err) {
 				console.error(err);
 				singleOutput.textContent = '(Failed to decompress)';
@@ -1130,7 +1192,8 @@
 		multiExport.appendChild(multiDump);
 
 		addHTML(section, '<br>');
-		section.appendChild(moduleParamsInfo);
+		section.appendChild(sdkInfo);
+		section.appendChild(autoloadInfo);
 		addHTML(section, '<br>');
 
 		const sorting = dropdown(['Sort by index', 'Sort by length'], 0, () => update(), undefined, true);
@@ -1193,11 +1256,12 @@
 			let selected;
 			const updateColors = () => {
 				if (selected) {
-					const sl = selected.leftAddress;
-					const sr = selected.leftAddress + selected.size + selected.bss;
+					// use displayAddress, where for example 023e0000 and 027e0000 WILL overlap
+					const sl = selected.displayAddress;
+					const sr = selected.displayAddress + selected.size + selected.bss;
 					for (const entry of entries) {
-						const l = entry.leftAddress;
-						const r = entry.leftAddress + entry.size + entry.bss;
+						const l = entry.displayAddress;
+						const r = entry.displayAddress + entry.size + entry.bss;
 						// start < other.start + other.length && other.start < start + length
 						if (entry === selected) {
 							entry.row.classList.remove('red');
@@ -1213,17 +1277,19 @@
 
 						// show pointer if this overlay starts where the selected ends (they could be part of the same
 						// group)
-						if (entry !== selected && sr === l) {
-							entry.pointer.style.display = '';
-						} else {
-							entry.pointer.style.display = 'none';
+						if (!entry.outOfBounds) {
+							if (entry !== selected && sr === l) {
+								entry.pointer.style.display = '';
+							} else {
+								entry.pointer.style.display = 'none';
+							}
 						}
 					}
 				} else {
-					for (const { row, pointer } of entries) {
+					for (const { row, pointer, outOfBounds } of entries) {
 						row.classList.remove('red');
 						row.classList.remove('green');
-						pointer.style.display = 'none';
+						if (!outOfBounds) pointer.style.display = 'none';
 					}
 				}
 			};
@@ -1232,6 +1298,13 @@
 			const END = 0x02400000;
 			const SIZE = END - START;
 			const addEntry = (label, leftAddress, size, bss) => {
+				const outOfBounds = leftAddress >= 0x03000000;
+
+				// 02000000 - 02400000 and 02400000 - 02800000 are mirrors of each other
+				// however, debug overlays are placed at 023e0000 SPECIFICALLY, NOT 027e0000. so don't hide it
+				let displayAddress = leftAddress;
+				if (0x02400000 <= displayAddress && displayAddress < 0x02800000) displayAddress -= 0x00400000;
+
 				const row = document.createElement('div');
 				row.style.cssText = `position: absolute; top: ${contentHeight}px; left: 0px; height: 20px; width: 100%; color: var(--clicky-text);`;
 				row.className = 'clicky';
@@ -1249,38 +1322,51 @@
 
 				const boxExecutable = document.createElement('div');
 				boxExecutable.style.cssText = `background: var(--clicky-fill); border: 1px solid var(--clicky-box); position: absolute; top: 0; height: 20px;`;
-				boxExecutable.style.left = `${((leftAddress - START) / SIZE) * 100}%`;
+				boxExecutable.style.left = `${((displayAddress - START) / SIZE) * 100}%`;
 				boxExecutable.style.width = `${(size / SIZE) * 100}%`;
-				right.appendChild(boxExecutable);
+				if (!outOfBounds) right.appendChild(boxExecutable);
 
 				const boxStatic = document.createElement('div');
 				boxStatic.style.cssText = `background: var(--clicky-fill); position: absolute; top: 0; height: 20px;`;
-				boxStatic.style.left = `${((leftAddress + size - START) / SIZE) * 100}%`;
+				boxStatic.style.left = `${((displayAddress + size - START) / SIZE) * 100}%`;
 				boxStatic.style.width = `${(bss / SIZE) * 100}%`;
-				right.appendChild(boxStatic);
+				if (!outOfBounds) right.appendChild(boxStatic);
 
 				const pointer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-				pointer.style.cssText = `width: 20px; height: 20px; position: absolute; top: 0; left: calc(${((leftAddress - START) / SIZE) * 100}% - 20px); display: none;`;
+				pointer.style.cssText = `width: 20px; height: 20px; position: absolute; top: 0;`;
 				pointer.setAttribute('viewBox', '0 0 20 20');
-				pointer.innerHTML = '<path stroke="currentColor" stroke-width="1" fill="none" \
+				if (outOfBounds) {
+					pointer.style.right = '5px';
+					pointer.innerHTML = '<path stroke="currentColor" stroke-width="1" fill="none" \
+					d="M4,10 L16,10 m-4,-4 l4,4 l-4,4"></path>';
+				} else {
+					pointer.style.left = `calc(${((displayAddress - START) / SIZE) * 100}% - 20px)`;
+					pointer.style.display = 'none';
+					pointer.innerHTML = '<path stroke="currentColor" stroke-width="1" fill="none" \
 					d="M4,0 L4,10 L16,10 m-4,-4 l4,4 l-4,4"></path>';
+				}
 				right.appendChild(pointer);
 
 				let bssLabel;
 				if (bss) {
 					bssLabel = document.createElement('div');
-					bssLabel.style.cssText = `position: absolute; top: 0; height: 20px; font: 1em "Red Hat Mono"`;
-					const leftPercent = ((leftAddress + size + bss - START) / SIZE) * 100;
-					if (leftPercent < 80) {
-						bssLabel.style.left = `calc(${leftPercent}% + 10px)`;
+					if (leftAddress >= 0x03000000) {
+						// for WRAM
+						bssLabel.style.cssText = `position: absolute; top: 0; left: 50%; height: 20px; font: 1em "Red Hat Mono"; transform: translateX(-50%);`;
 					} else {
-						bssLabel.style.right = `calc(${100 - ((leftAddress - START) / SIZE) * 100}% + 10px)`;
+						bssLabel.style.cssText = `position: absolute; top: 0; height: 20px; font: 1em "Red Hat Mono"`;
+						const leftPercent = ((displayAddress + size + bss - START) / SIZE) * 100;
+						if (leftPercent < 80) {
+							bssLabel.style.left = `calc(${leftPercent}% + 10px)`;
+						} else {
+							bssLabel.style.right = `calc(${100 - ((displayAddress - START) / SIZE) * 100}% + 10px)`;
+						}
 					}
 					bssLabel.textContent = `(BSS 0x${bss.toString(16)})`;
 					right.appendChild(bssLabel);
 				}
 
-				const entry = { label, leftAddress, size, bss, row, pointer };
+				const entry = { label, leftAddress, displayAddress, size, bss, row, pointer, outOfBounds };
 				entries.push(entry);
 				row.addEventListener('mousedown', () => {
 					if (selected) {
@@ -1300,21 +1386,27 @@
 				contentHeight += 20;
 			};
 
-			addEntry('ARM9', headers.arm9RamOffset, fs.arm9.byteLength, fs.arm9BssSize);
-
-			for (let i = 0; i < fs.autoloads.length; ++i) {
-				const autoload = fs.autoloads[i];
-
+			const addAutoload = (autoload, i) => {
 				let name = autoload.name;
-				if (autoload.name !== 'ITCM' && autoload.name !== 'DTCM') name = 'al' + String(i);
-
-				let addr = autoload.ramStart;
-				// 02000000 - 02400000 and 02400000 - 02800000 are mirrors of each other
-				if (0x02400000 <= addr && addr < 0x02800000) addr -= 0x00400000;
-				addEntry(name, addr, autoload.ramSize, autoload.bssSize);
-			}
+				if (autoload.name.length > 4) name = 'al' + String(i);
+				addEntry(name, autoload.ramStart, autoload.ramSize, autoload.bssSize);
+			};
 
 			addEntry('ARM7', headers.arm7RamOffset, fs.arm7.byteLength, 0);
+			for (let i = 0; i < fs.autoloads.length; ++i) {
+				if (fs.autoloads[i].arm9) continue;
+				addAutoload(fs.autoloads[i], i);
+			}
+
+			// add a line separating ARM7 from ARM9, since ARM7 can access different memory (e.g. under DTCM, WRAM)
+			addHTML(preview, `<hr style="color: var(--overlay2); position: absolute; top: ${contentHeight + 10}px; width: 100%;">`);
+			contentHeight += 20;
+
+			addEntry('ARM9', headers.arm9RamOffset, fs.arm9.byteLength, fs.arm9BssSize);
+			for (let i = 0; i < fs.autoloads.length; ++i) {
+				if (!fs.autoloads[i].arm9) continue;
+				addAutoload(fs.autoloads[i], i);
+			}
 
 			for (let i = 0, o = headers.ovt9Offset; o < headers.ovt9Offset + headers.ovt9Length; ++i, o += 0x20) {
 				const overlayU32 = bufToU32(sliceDataView(file, o, o + 0x20));
@@ -4877,6 +4969,7 @@
 		addHTML(overlayAutoloads, 'Autoloads:<br>');
 		addHTML(overlayAutoloads, `<code>${str32(headers.arm9RamOffset)} - ${str32(headers.arm9RamOffset + fs.arm9.byteLength)} - ${str32(headers.arm9RamOffset + fs.arm9.byteLength + fs.arm9BssSize)}</code> | ARM9`);
 		for (const autoload of fs.autoloads) {
+			if (!autoload.arm9) continue; // emulator only handles ARM9
 			addHTML(overlayAutoloads, `<br><code>${str32(autoload.ramStart)} - ${str32(autoload.ramStart + autoload.ramSize)} - ${str32(autoload.ramStart + autoload.ramSize + autoload.bssSize)}</code> | ${autoload.name}`);
 		}
 		section.appendChild(overlayAutoloads);
@@ -4893,7 +4986,9 @@
 			{ name: 'ARM9', ramStart: headers.arm9RamOffset, ramSize: fs.arm9.byteLength, bssSize: fs.arm9BssSize, dat: fs.arm9 },
 			true,
 		);
-		for (const autoload of fs.autoloads) toggleOverlay(autoload, true);
+		for (const autoload of fs.autoloads) {
+			if (autoload.arm9) toggleOverlay(autoload, true);
+		}
 
 		// register selection
 		arm.input.registers = [];

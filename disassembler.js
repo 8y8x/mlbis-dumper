@@ -9,15 +9,25 @@ window.initDisassembler = () => {
 		const disassembler = {};
 
 		const options = [
-			'Select an overlay',
-			`arm9 entry (len ${fs.arm9.byteLength})`,
-			`arm7 entry (len ${fs.arm7.byteLength})`,
+			['Select an overlay', undefined],
+			[`ARM7 (len 0x${fs.arm7.byteLength.toString(16)})`, () => fs.arm7, headers.arm7RamOffset],
 		];
+		for (const autoload of fs.autoloads) {
+			if (autoload.arm9) continue;
+			options.push([`${autoload.name} (len 0x${autoload.ramSize.toString(16)})`, () => autoload.dat, autoload.ramStart]);
+		}
+
+		options.push([`ARM9 (len 0x${fs.arm9.byteLength.toString(16)})`, () => fs.arm9, headers.arm9RamOffset]);
+		for (const autoload of fs.autoloads) {
+			if (!autoload.arm9) continue;
+			options.push([`${autoload.name} (len 0x${autoload.ramSize.toString(16)})`, () => autoload.dat, autoload.ramStart]);
+		}
+
 		for (const entry of fs.overlayEntries.values()) {
 			const file = fs.get(entry.fileId);
-			options.push(`${String(entry.id).padStart(4, '0')} (len ${entry.ramSize})`);
+			options.push([`${String(entry.id).padStart(4, '0')} (len 0x${entry.ramSize.toString(16)})`, () => fs.overlay(entry.id, true), entry.ramStart]);
 		}
-		const select = dropdown(options, 0, () => update(), undefined, true);
+		const select = dropdown(options.map(x => x[0]), 0, () => update(), undefined, true);
 		section.appendChild(select);
 
 		const setSelect = dropdown(
@@ -1955,18 +1965,8 @@ window.initDisassembler = () => {
 		const update = () => {
 			display.innerHTML = '';
 			if (select.value === 0) return;
-			let binary;
-			let ramStart;
-			if (select.value === 1) {
-				binary = fs.arm9;
-				ramStart = headers.arm9RamOffset;
-			} else if (select.value === 2) {
-				binary = fs.arm7;
-				ramStart = headers.arm7RamOffset;
-			} else {
-				binary = fs.overlay(select.value - 3);
-				ramStart = ovt.overlays[select.value - 3].ramStart;
-			}
+			let [_, binary, ramStart] = options[select.value];
+			binary = binary();
 
 			const instSize = setSelect.value === 2 || setSelect.value === 3 ? 2 : 4;
 
