@@ -891,6 +891,8 @@
 				const [listStart, listEnd, srcStart, bssStart, bssEnd, compressionHead, sdkVersion, code1, code2]
 					= bufToU32(sliceDataView(fs.arm9, local, local + 0x24));
 
+				fs.arm9BssSize = bssEnd - bssStart;
+
 				if (code1 === 0xdec00621 && code2 === 0x2106c0de) {
 					const sdkMajorVersion = sdkVersion >>> 24;
 					const sdkMinorVersion = (sdkVersion >>> 16) & 0xff;
