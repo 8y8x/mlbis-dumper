@@ -389,7 +389,7 @@ window.initBai = () => {
 					name: 'music_set',
 					note: cmd => {
 						if (cmd.registers & 1) return;
-						return sound.names[cmd.args[0]];
+						return soundOld.names[cmd.args[0]];
 					},
 				},
 			],
@@ -399,7 +399,7 @@ window.initBai = () => {
 					name: 'music_set2',
 					note: cmd => {
 						if (cmd.registers & 1) return;
-						return sound.names[cmd.args[0]];
+						return soundOld.names[cmd.args[0]];
 					},
 				},
 			],
