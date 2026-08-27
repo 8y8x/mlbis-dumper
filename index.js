@@ -1982,7 +1982,7 @@
 			const outB = (baseB * (32 - alpha) + b * alpha) >> 5;
 
 			const outRGB = (outB << 16) | (outG << 8) | outR;
-			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x1c1c1c) >> 2);
 		};
 
 		const rgb15Add = (base, r, g, b, alpha) => {
@@ -2006,7 +2006,7 @@
 			const outB = Math.max(baseB - ((b * alpha) >> 5), 0);
 
 			const outRGB = (outB << 16) | (outG << 8) | outR;
-			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x1c1c1c) >> 2);
 		};
 
 		const rgb15Tint = (base, r, g, b, alpha) => {
@@ -2020,7 +2020,7 @@
 			const outB = (baseB * (32 - alpha) + (((b * luminance) >> 5) * alpha)) >> 5;
 
 			const outRGB = (outB << 16) | (outG << 8) | outR;
-			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x1c1c1c) >> 2);
 		};
 
 		const rgb15Invert = (base, alpha) => {
@@ -2032,7 +2032,7 @@
 			const outB = (baseB * (32 - alpha) + (32 - baseB) * alpha) >> 5;
 
 			const outRGB = (outB << 16) | (outG << 8) | outR;
-			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x181818) >> 2);
+			return 0xff000000 | (outRGB << 3) | ((outRGB & 0x1c1c1c) >> 2);
 		};
 
 		// 2. Per-dialect rfx functionality
