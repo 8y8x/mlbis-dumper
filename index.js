@@ -5209,7 +5209,7 @@
 
 		// memory is fragmented into 0x1000-byte chunks, to make things simple
 		// every 0x80-byte chunk (0x1000 / 32) is marked as "dirty" if a new read/write was done to it recently
-		const memoryChunks = new Map();
+		const memoryChunks = arm.memoryChunks = new Map();
 		const newDirtyMemoryChunks = new Set();
 		const memoryChunk = chunkId => {
 			let chunk = memoryChunks.get(chunkId);
@@ -5232,7 +5232,8 @@
 				if (markDirty) {
 					const startBit = (oo - chunkId) >>> 7;
 					const endBit = (oo - chunkId + size + 0x7f) >>> 7;
-					chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
+					if (endBit >= 32) chunk.write |= ((1 << startBit) - 1) ^ -1;
+					else chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
 					newDirtyMemoryChunks.add(chunkId);
 				}
 
@@ -5249,7 +5250,8 @@
 			if (dirtySize) {
 				const startBit = o >>> 7;
 				const endBit = (o + dirtySize + 0x7f) >>> 7;
-				chunk.read |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
+				if (endBit >= 32) chunk.read |= ((1 << startBit) - 1) ^ -1;
+				else chunk.read |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
 				newDirtyMemoryChunks.add(chunkId);
 			}
 
@@ -5265,7 +5267,8 @@
 			if (dirtySize) {
 				const startBit = o >>> 7;
 				const endBit = (o + dirtySize + 0x7f) >>> 7;
-				chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
+				if (endBit >= 32) chunk.write |= ((1 << startBit) - 1) ^ -1;
+				else chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
 				newDirtyMemoryChunks.add(chunkId);
 			}
 
