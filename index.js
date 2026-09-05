@@ -5357,25 +5357,27 @@
 		memoryBar.appendChild(showPcRelativeAccesses);
 		section.appendChild(memoryBar);
 
-		const memoryRows = new Map();
+		let memoryRowsHead = undefined;
+		let memoryRowsTail = undefined; // this just makes it easier to append to it
 		const memoryTable = document.createElement('table');
 		memoryTable.className = 'bordered';
-		addHTML(memoryTable, '<tr><th>Address</th><th>Data</th></tr>');
 		section.appendChild(memoryTable);
 
 		// memory is fragmented into 0x1000-byte chunks, to make things simple
-		// every 0x80-byte chunk (0x1000 / 32) is marked as "dirty" if a new read/write was done to it recently
+		// every byte is marked as "dirty" if a new read/write was done to it recently
 		const memoryChunks = arm.memoryChunks = new Map();
 		const newDirtyMemoryChunks = new Set();
 		const memoryChunk = chunkId => {
 			let chunk = memoryChunks.get(chunkId);
 			if (chunk) return chunk;
 
-			memoryChunks.set(chunkId, (chunk = { dat: new DataView(new ArrayBuffer(0x1000)), read: 0, write: 0 }));
+			const read = new Uint32Array(0x1000 / 32);
+			const write = new Uint32Array(0x1000 / 32);
+			memoryChunks.set(chunkId, (chunk = { dat: new DataView(new ArrayBuffer(0x1000)), read, write }));
 			return chunk;
 		};
 
-		const memoryWrite = (offset, dat, markDirty) => {
+		const memoryWrite = (offset, dat) => {
 			for (let io = 0, oo = offset; io < dat.byteLength;) {
 				const chunkId = oo & ~0xfff;
 				const chunk = memoryChunk(chunkId);
@@ -5384,14 +5386,6 @@
 				const size = Math.min(chunkId + 0x1000 - oo, dat.byteLength - io);
 				const slice = sliceDataView(dat, io, io + size);
 				bufToU8(chunk.dat).set(bufToU8(slice), oo - chunkId);
-
-				if (markDirty) {
-					const startBit = (oo - chunkId) >>> 7;
-					const endBit = (oo - chunkId + size + 0x7f) >>> 7;
-					if (endBit >= 32) chunk.write |= ((1 << startBit) - 1) ^ -1;
-					else chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
-					newDirtyMemoryChunks.add(chunkId);
-				}
 
 				io += size;
 				oo += size;
@@ -5403,13 +5397,8 @@
 			const o = offset & 0xfff;
 			const chunk = memoryChunk(chunkId);
 
-			if (dirtySize) {
-				const startBit = o >>> 7;
-				const endBit = (o + dirtySize + 0x7f) >>> 7;
-				if (endBit >= 32) chunk.read |= ((1 << startBit) - 1) ^ -1;
-				else chunk.read |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
-				newDirtyMemoryChunks.add(chunkId);
-			}
+			if (dirtySize) newDirtyMemoryChunks.add(chunkId);
+			for (let i = 0; i < dirtySize; ++i) chunk.read[(o + i) >> 5] |= 1 << ((o + i) & 0x1f);
 
 			// no need to worry about cross-chunk reads, since reads cannot cross 4-byte boundaries
 			return method.call(chunk.dat, o, true); // little-endian read (ignored with 8-bit)
@@ -5420,13 +5409,8 @@
 			const o = offset & 0xfff;
 			const chunk = memoryChunk(chunkId);
 
-			if (dirtySize) {
-				const startBit = o >>> 7;
-				const endBit = (o + dirtySize + 0x7f) >>> 7;
-				if (endBit >= 32) chunk.write |= ((1 << startBit) - 1) ^ -1;
-				else chunk.write |= ((1 << startBit) - 1) ^ ((1 << endBit) - 1);
-				newDirtyMemoryChunks.add(chunkId);
-			}
+			if (dirtySize) newDirtyMemoryChunks.add(chunkId);
+			for (let i = 0; i < dirtySize; ++i) chunk.write[(o + i) >> 5] |= 1 << ((o + i) & 0x1f);
 
 			method.call(chunk.dat, o, value, true); // little-endian write (ignored with 8-bit)
 
@@ -5534,7 +5518,123 @@
 			setDisplayDimming(arm.display.sp_irq, arm.display.lr_irq, mode !== 0x12);
 
 			// memory preview
-			for (const chunkId of [...newDirtyMemoryChunks].sort((a, b) => a - b)) {
+			// displayed as a table. each row holds 16 bytes. continuous memory regions are joined into the same <tr>.
+			if (newDirtyMemoryChunks.size) {
+				memoryTable.innerHTML = '';
+				addHTML(memoryTable, '<tr><th>Address</th><th>Accessed Data</th></tr>');
+
+				// merge memoryRows with newDirtyMemoryChunks
+				const newChunkIds = [...newDirtyMemoryChunks].sort((a, b) => a - b); // cheap
+				newDirtyMemoryChunks.clear();
+
+				let node = memoryRowsHead; // { address: number, next: MemoryRow, prev: MemoryRow }
+				let i = 0;
+				while (i < newChunkIds.length) {
+					// check if we should insert a new chunk before this one
+					const newChunk = memoryChunks.get(newChunkIds[i]);
+					for (let row = 0; row < 0x100; ++row) {
+						const maskIndex = row >> 1;
+						const mask = (row & 1) ? 0xffff0000 : 0x0000ffff;
+						if (!(newChunk.read[maskIndex] & mask) && !(newChunk.write[maskIndex] & mask)) continue;
+
+						const address = newChunkIds[i] + row * 0x10;
+						// catch up node
+						while (node && node.address < address) {
+							node = node.next;
+						}
+
+						// now: !node OR address <= node.address
+						// possibilities:
+						// - the list is empty
+						// - <new node> already exists (address === address)
+						// - <new node> should be the new head
+						// - <new node> should be the new tail
+						// - <new node> should be inserted between: <node.prev>-<new node>-<node>
+						const newNode = { address, next: undefined, prev: undefined };
+						if (!node) {
+							if (!memoryRowsHead) {
+								// either the list is empty...
+								memoryRowsHead = memoryRowsTail = newNode;
+							} else {
+								// ...or we reached the tail
+								memoryRowsTail.next = newNode;
+								newNode.prev = memoryRowsTail;
+								memoryRowsTail = newNode;
+							}
+						} else if (address !== node.address) {
+							// (node.prev?.address ?? 0) < address < node.address guaranteed.
+							if (node === memoryRowsHead) {
+								// no previous node
+								newNode.next = memoryRowsHead;
+								memoryRowsHead.prev = newNode;
+								memoryRowsHead = newNode;
+							} else {
+								// insert in between
+								newNode.next = node;
+								newNode.prev = node.prev;
+								newNode.next.prev = newNode;
+								newNode.prev.next = newNode;
+							}
+						}
+					}
+
+					++i; // all rows in newChunkIds[i] have been exhausted
+				}
+
+				// print out rows
+				const rwColors = ['var(--fg-dim)', 'var(--red)', 'var(--green)', 'var(--blue)']; // [-, R, W, RW]
+				const rowQueue = [];
+				const printRow = node => {
+					const top = rowQueue[rowQueue.length - 1];
+					if (top && (!node || node.address - top.address > 0x10)) {
+						// flush rowQueue
+						const addresses = rowQueue.map(n => (n.address >>> 4).toString(16).padStart(7, '0') + 'x');
+						const views = rowQueue.map(n => {
+							const chunk = memoryChunks.get(n.address & ~0xfff);
+							const maskIndex = (n.address >> 5) & 0x7f;
+							const maskBitStart = ((n.address >> 4) & 1) ? 16 : 0;
+
+							let previousRW;
+							let parts = [];
+							for (let i = 0; i < 16; ++i) {
+								const read = chunk.read[maskIndex] & (1 << (maskBitStart + i));
+								const write = chunk.write[maskIndex] & (1 << (maskBitStart + i));
+								const rw = (read ? 1 : 0) | (write ? 2 : 0);
+								if (previousRW !== rw) {
+									if (i) parts.push('</span>');
+									parts.push(`<span style="color: ${rwColors[rw]}">`);
+									previousRW = rw;
+								}
+
+								parts.push(byteToHex[chunk.dat.getUint8((n.address & 0xfff) + i)], ' ');
+							}
+
+							parts.push('</span>');
+							return parts.join('');
+						});
+
+						addHTML(
+							memoryTable,
+							`<tr>
+								<td style="font: 0.9rem 'Red Hat Mono'">${addresses.join('<br>')}</td>
+								<td style="font: 0.9rem 'Red Hat Mono'">${views.join('<br>')}</td>
+							</tr>`,
+						);
+
+						rowQueue.length = 0;
+					}
+					
+					rowQueue.push(node);
+				};
+
+				node = memoryRowsHead;
+				while (node) {
+					printRow(node);
+					node = node.next;
+				}
+				printRow(); // flush
+			}
+			/* for (const chunkId of [...newDirtyMemoryChunks].sort((a, b) => a - b)) {
 				const chunk = memoryChunks.get(chunkId);
 
 				for (let bit = 1, i = 0; i < 32; ++i, bit <<= 1) {
@@ -5579,7 +5679,7 @@
 				}
 			}
 
-			newDirtyMemoryChunks.clear();
+			newDirtyMemoryChunks.clear(); */
 		};
 
 		const applyInputRegisters = () => {
@@ -5638,17 +5738,17 @@
 		const applyOverrides = () => {
 			newDirtyMemoryChunks.clear();
 			memoryChunks.clear();
-			for (const { tr } of memoryRows.values()) tr.remove();
-			memoryRows.clear();
+			memoryRowsHead = memoryRowsTail = undefined;
+			memoryTable.innerHTML = '';
 
 			for (const ov of arm.input.overlaysEnabled.keys()) {
 				let dat = ov.dat; // autoloads only
 				if (!dat) dat = fs.overlay(ov.id); // caching is OK, it will be copied
-				memoryWrite(ov.ramStart, dat, false);
+				memoryWrite(ov.ramStart, dat);
 			}
 
 			for (const override of arm.input.overrides) {
-				memoryWrite(override.ramStart, override.data, false);
+				memoryWrite(override.ramStart, override.data);
 			}
 		};
 
