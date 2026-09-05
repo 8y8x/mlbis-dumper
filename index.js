@@ -5350,15 +5350,29 @@
 
 		stateContainer.appendChild(registerTable);
 
+		let memoryRowsHead = undefined;
+		let memoryRowsTail = undefined; // this just makes it easier to append to it
+
 		const memoryBar = document.createElement('div');
 		const pcDirty = checkbox('Record Instruction Reads', false, () => {});
 		memoryBar.appendChild(pcDirty);
 		const showPcRelativeAccesses = checkbox('Record PC-Relative Reads', false, () => {});
 		memoryBar.appendChild(showPcRelativeAccesses);
+		const resetAccessColors = button('Reset colors', () => {
+			let node = memoryRowsHead;
+			while (node) {
+				const index = (node.address & 0xfff) >> 5;
+				const chunk = memoryChunks.get(node.address & ~0xfff);
+				chunk.read[index] = 0;
+				chunk.write[index] = 0;
+				node = node.next;
+			}
+
+			updateStateDisplay(true);
+		});
+		memoryBar.appendChild(resetAccessColors);
 		section.appendChild(memoryBar);
 
-		let memoryRowsHead = undefined;
-		let memoryRowsTail = undefined; // this just makes it easier to append to it
 		const memoryTable = document.createElement('table');
 		memoryTable.className = 'bordered';
 		section.appendChild(memoryTable);
@@ -5460,7 +5474,7 @@
 		};
 
 		// current instruction is the 5th line (index 4)
-		const updateStateDisplay = () => {
+		const updateStateDisplay = forceUpdateMemoryPreview => {
 			disassembly.innerHTML = '';
 
 			// 16-line preview, may cross chunk boundaries
@@ -5519,9 +5533,9 @@
 
 			// memory preview
 			// displayed as a table. each row holds 16 bytes. continuous memory regions are joined into the same <tr>.
-			if (newDirtyMemoryChunks.size) {
+			if (newDirtyMemoryChunks.size || forceUpdateMemoryPreview) {
 				memoryTable.innerHTML = '';
-				addHTML(memoryTable, '<tr><th>Address</th><th>Accessed Data</th></tr>');
+				addHTML(memoryTable, '<tr><th>Address</th><th>Accessed Data (<span style="color:var(--red)">read</span>, <span style="color:var(--green)">write</span>, <span style="color:var(--blue)">both</span>)</th></tr>');
 
 				// merge memoryRows with newDirtyMemoryChunks
 				const newChunkIds = [...newDirtyMemoryChunks].sort((a, b) => a - b); // cheap
@@ -5588,7 +5602,7 @@
 					const top = rowQueue[rowQueue.length - 1];
 					if (top && (!node || node.address - top.address > 0x10)) {
 						// flush rowQueue
-						const addresses = rowQueue.map(n => (n.address >>> 4).toString(16).padStart(7, '0') + 'x');
+						const addresses = rowQueue.map(n => (n.address >>> 4).toString(16).padStart(7, '0') + '_');
 						const views = rowQueue.map(n => {
 							const chunk = memoryChunks.get(n.address & ~0xfff);
 							const maskIndex = (n.address >> 5) & 0x7f;
@@ -5634,52 +5648,6 @@
 				}
 				printRow(); // flush
 			}
-			/* for (const chunkId of [...newDirtyMemoryChunks].sort((a, b) => a - b)) {
-				const chunk = memoryChunks.get(chunkId);
-
-				for (let bit = 1, i = 0; i < 32; ++i, bit <<= 1) {
-					const read = chunk.read & bit;
-					const write = chunk.write & bit;
-					if (!read && !write) continue;
-
-					let mode = '';
-					if (read && write) mode = '(R/W)';
-					else if (read) mode = '(R)';
-					else mode = '(W)';
-					
-					const localOffset = i << 7;
-					const offset = chunkId | localOffset;
-					let view = memoryRows.get(offset);
-					if (!view) {
-						const tr = document.createElement('tr');
-						const address = document.createElement('td');
-						tr.appendChild(address);
-
-						const data = document.createElement('td');
-						data.style.font = '0.9em "Red Hat Mono"';
-						tr.appendChild(data);
-
-						// TODO: unsorted insert
-						memoryTable.appendChild(tr);
-
-						memoryRows.set(offset, view = { address, data, tr });
-					}
-
-					view.address.innerHTML = `<code>${str32(offset >>> 0)}</code><br>${mode}`;
-					view.data.innerHTML = [
-						bytes(localOffset, 16, chunk.dat),
-						bytes(localOffset + 0x10, 16, chunk.dat),
-						bytes(localOffset + 0x20, 16, chunk.dat),
-						bytes(localOffset + 0x30, 16, chunk.dat),
-						bytes(localOffset + 0x40, 16, chunk.dat),
-						bytes(localOffset + 0x50, 16, chunk.dat),
-						bytes(localOffset + 0x60, 16, chunk.dat),
-						bytes(localOffset + 0x70, 16, chunk.dat),
-					].join('<br>');
-				}
-			}
-
-			newDirtyMemoryChunks.clear(); */
 		};
 
 		const applyInputRegisters = () => {
@@ -5805,7 +5773,7 @@
 
 			for (let i = 0; i < steps; ++i) {
 				// cache lines are not emulated
-				const inst = memoryReadValue(pc, DataView.prototype.getUint32, pcDirty.checked);
+				const inst = memoryReadValue(pc, DataView.prototype.getUint32, pcDirty.checked ? 4 : 0);
 				pc += 4;
 				arm.registers[15] += 4;
 
