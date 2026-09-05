@@ -462,6 +462,7 @@ window.initDisassembler = () => {
 					const L = (inst >>> 24) & 1;
 					const immed = ((inst & 0xffffff) << 8) >> 6;
 					const target = ramStart + i * 4 + 8 + immed;
+					console.log('b', target, addr(target));
 					if (ASM) lines.push(`b${L ? 'l' : ''}${cond} ${addr(target)} (${imm(immed)})`);
 					continue;
 				}

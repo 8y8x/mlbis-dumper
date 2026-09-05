@@ -4993,34 +4993,130 @@
 		}
 
 		// register selection
-		arm.input.registers = [];
-		for (let i = 0; i < 16; ++i) {
+		const cpsrInput = document.createElement('div');
+		addHTML(cpsrInput, 'CPSR: ');
+		cpsrInput.appendChild((arm.input.n = checkbox('N', false, () => updateCpsrInput())));
+		cpsrInput.appendChild((arm.input.z = checkbox('Z', false, () => updateCpsrInput())));
+		cpsrInput.appendChild((arm.input.c = checkbox('C', false, () => updateCpsrInput())));
+		cpsrInput.appendChild((arm.input.v = checkbox('V', false, () => updateCpsrInput())));
+		cpsrInput.appendChild((arm.input.i = checkbox('I', false, () => updateCpsrInput())));
+		cpsrInput.appendChild((arm.input.f = checkbox('F', false, () => updateCpsrInput())));
+		arm.input.mode = dropdown(['IRQ (0x12)', 'Supervisor (0x13)', 'System (0x1f)'], 2, () => updateCpsrInput());
+		cpsrInput.appendChild(arm.input.mode);
+
+		const cpsrDisplay = document.createElement('code');
+		cpsrDisplay.textContent = ' 0x0000001f';
+		cpsrInput.appendChild(cpsrDisplay);
+
+		arm.input.cpsrValue = 0x1f; // to be updated immediately in updateCpsrInput()
+		const updateCpsrInput = () => {
+			let cpsr = 0;
+			if (arm.input.n.checked) cpsr |= 1 << 31;
+			if (arm.input.z.checked) cpsr |= 1 << 30;
+			if (arm.input.c.checked) cpsr |= 1 << 29;
+			if (arm.input.v.checked) cpsr |= 1 << 28;
+			if (arm.input.i.checked) cpsr |= 0x80;
+			if (arm.input.f.checked) cpsr |= 0x40;
+			if (arm.input.mode.value === 0) cpsr |= 0x12; // IRQ
+			else if (arm.input.mode.value === 1) cpsr |= 0x13; // Supervisor
+			else cpsr |= 0x1f; // System
+
+			arm.input.cpsrValue = cpsr;
+			cpsrDisplay.textContent = ' 0x' + str32(cpsr >>> 0);
+
+			applyInputRegistersButton.classList.remove('disabled');
+			copyRegistersButton.classList.remove('disabled');
+		};
+
+		const setCpsrInput = cpsr => {
+			arm.input.n.set(!!((cpsr >>> 31) & 1), true);
+			arm.input.z.set(!!((cpsr >>> 30) & 1), true);
+			arm.input.c.set(!!((cpsr >>> 29) & 1), true);
+			arm.input.v.set(!!((cpsr >>> 28) & 1), true);
+			arm.input.i.set(!!(cpsr & 0x80), true);
+			arm.input.f.set(!!(cpsr & 0x40), true);
+			if ((cpsr & 0x1f) === 0x12) arm.input.mode.select(0, true); // IRQ
+			else if ((cpsr & 0x1f) === 0x13) arm.input.mode.select(1, true); // Supervisor
+			else arm.input.mode.select(2, true); // System
+
+			arm.input.cpsrValue = cpsr;
+			cpsrDisplay.textContent = ' 0x' + str32(cpsr >>> 0);
+		};
+
+		section.appendChild(cpsrInput);
+
+		const registerInput = () => {
 			const input = document.createElement('input');
 			input.placeholder = '0';
 			input.addEventListener('input', () => {
 				applyInputRegistersButton.classList.remove('disabled');
 				copyRegistersButton.classList.remove('disabled');
 			});
-			arm.input.registers.push(input);
-		}
+			return input;
+		};
+		arm.input.registers = []; // SP and LR are for System here
+		for (let i = 0; i < 16; ++i) arm.input.registers.push(registerInput());
+		arm.input.sp_svc = registerInput();
+		arm.input.lr_svc = registerInput();
+		arm.input.spsr_svc = registerInput();
+		arm.input.sp_irq = registerInput();
+		arm.input.lr_irq = registerInput();
+		arm.input.spsr_irq = registerInput();
 
-		arm.input.registers[13].value = '0x027e377c'; // SP (same as System SP from CRT0::_start)
-		arm.input.registers[14].value = '0xffff8000'; // LR (just after BIOS region)
+		arm.input.registers[13].value = '0x027e377c'; // sp_sys (all of these match what CLJE's CRT0::_start sets)
+		arm.input.sp_svc.value = '0x027e3fc0'; // sp_svc (matches CRT0::_start init)
+		arm.input.sp_irq.value = '0x027e3f78'; // sp_irq (matches CRT0::_start init)
+		arm.input.registers[14].value = '0xffff8000'; // lr_sys (just after BIOS region, garbage address)
+		arm.input.lr_svc.value = '0xffff8000'; // lr_svc (garbage address)
+		arm.input.lr_irq.value = '0xffff8000'; // lr_irq (garbage address)
 		arm.input.registers[15].value = '0x' + str32(headers.arm9Entry); // PC
+		arm.input.spsr_irq.value = '0x1f'; // spsr_irq (same as System cpsr)
+		arm.input.spsr_svc.value = '0x1f'; // spsr_svc (same as System cpsr)
 
-		const inputRegisterTable = document.createElement('table');
-		for (let row = 0; row < 4; ++row) {
+		// used for input AND display
+		const pushRegisterRow = (table, l1, i1, l2, i2, l3, i3, l4, i4) => {
 			const tr = document.createElement('tr');
-			for (let col = 0; col < 4; ++col) {
-				addHTML(tr, `<td>${registerNames[row * 4 + col]}</td>`);
-				const td = document.createElement('td');
-				td.appendChild(arm.input.registers[row * 4 + col]);
+			let td;
+
+			if (i1) {
+				addHTML(tr, `<td style="text-align:right">${l1}</td>`);
+				td = document.createElement('td');
+				td.appendChild(i1);
 				tr.appendChild(td);
+			} else {
+				// used for "Supervisor:" or "IRQ:" labels
+				addHTML(tr, `<td colspan="2">${l1}</td>`);
 			}
 
-			inputRegisterTable.appendChild(tr);
-		}
+			addHTML(tr, `<td style="text-align:right">${l2}</td>`);
+			td = document.createElement('td');
+			td.appendChild(i2);
+			tr.appendChild(td);
 
+			addHTML(tr, `<td style="text-align:right">${l3}</td>`);
+			td = document.createElement('td');
+			td.appendChild(i3);
+			tr.appendChild(td);
+
+			addHTML(tr, `<td style="text-align:right">${l4}</td>`);
+			td = document.createElement('td');
+			td.appendChild(i4);
+			tr.appendChild(td);
+
+			table.appendChild(tr);
+		};
+
+		const inputRegisterTable = document.createElement('table');
+		{
+			const nr = registerNames; // convenience
+			const ir = arm.input.registers; // convenience
+			pushRegisterRow(inputRegisterTable, nr[0], ir[0], nr[1], ir[1], nr[2], ir[2], nr[3], ir[3]);
+			pushRegisterRow(inputRegisterTable, nr[4], ir[4], nr[5], ir[5], nr[6], ir[6], nr[7], ir[7]);
+			pushRegisterRow(inputRegisterTable, nr[8], ir[8], nr[9], ir[9], nr[10], ir[10], nr[11], ir[11]);
+			pushRegisterRow(inputRegisterTable, nr[12], ir[12], 'sp_sys', ir[13], 'lr_sys', ir[14], nr[15], ir[15]);
+			pushRegisterRow(inputRegisterTable, 'Supervisor:', undefined, 'sp_svc', arm.input.sp_svc, 'lr_svc', arm.input.lr_svc, 'spsr_svc', arm.input.spsr_svc);
+			pushRegisterRow(inputRegisterTable, 'IRQ:', undefined, 'sp_irq', arm.input.sp_irq, 'lr_irq', arm.input.lr_irq, 'spsr_irq', arm.input.spsr_irq);
+		}
 		section.appendChild(inputRegisterTable);
 
 		// memory overrides
@@ -5150,26 +5246,50 @@
 
 		// input apply
 		const applyRow = document.createElement('div');
+		applyRow.style.cssText = 'position: sticky; top: 0; background: var(--bg); z-index: 3;';
+
 		const applyInputRegistersButton = button('Apply input registers', () => (applyInputRegisters(), updateStateDisplay()));
 		applyRow.appendChild(applyInputRegistersButton);
 		const copyRegistersButton = button('Move registers to input', () => copyRegisters());
 		applyRow.appendChild(copyRegistersButton);
-		applyRow.appendChild(button('Apply overrides and reset memory, overlays', () => (applyOverrides(), updateStateDisplay())));
+		applyRow.appendChild(button('Apply overrides and reset memory, overlays', () => (overrideTextareaChanged(), applyOverrides(), updateStateDisplay())));
 		applyRow.appendChild(button('Step', () => step(1)));
+		applyRow.appendChild(button('Step 10x', () => step(10)));
+		applyRow.appendChild(button('Step 100x', () => step(100)));
 		applyRow.appendChild(button('Step 1000x', () => step(1000)));
+
 		section.appendChild(applyRow);
 
 		// state view (disassembly, registers)
+		// arm.registers holds the currently accessible registers (e.g. in supervisor, [13] is sp_svc)
 		arm.registers = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // will be filled
-		arm.registerDisplays = [];
 		arm.cpsr = 0b11111; // System mode, all other bits are zero
+		arm.spsr_svc = arm.cpsr; // init to System cpsr
+		arm.spsr_irq = arm.cpsr; // init to System cpsr
+		// arm.stored holds registers that aren't accessible by default. e.g. when in System mode, arm.stored.sys is
+		// OUT OF DATE!!! DO NOT USE IT!!!
+		arm.stored = {
+			irq: { sp: 0, lr: 0 },
+			svc: { sp: 0, lr: 0 },
+			sys: { sp: 0, lr: 0 },
+		};
+
+		arm.display = {};
+		arm.display.registers = [];
+		arm.display.cpsr = undefined;
+		arm.display.sp_svc = undefined;
+		arm.display.lr_svc = undefined;
+		arm.display.spsr_svc = undefined;
+		arm.display.sp_irq = undefined;
+		arm.display.lr_irq = undefined;
+		arm.display.spsr_irq = undefined;
 
 		const stateContainer = document.createElement('div');
 		stateContainer.style.cssText = 'position: relative; width: 100%; height: 20em;';
 		section.appendChild(stateContainer);
 
 		const disassembly = document.createElement('div');
-		disassembly.style.cssText = 'position: absolute; top: 0; left: 0; width: 560px; font: 0.9em "Red Hat Mono"; line-height: 1.25em;';
+		disassembly.style.cssText = 'position: absolute; top: 0; left: 0; width: 560px; font: 0.9rem "Red Hat Mono"; line-height: 1.25rem;';
 		stateContainer.appendChild(disassembly);
 
 		const status = document.createElement('div');
@@ -5180,18 +5300,54 @@
 		registerTable.className = 'bordered';
 		registerTable.style.cssText = 'position: absolute; top: 30px; left: 570px;';
 
-		for (let row = 0; row < 4; ++row) {
-			const tr = document.createElement('tr');
-			for (let col = 0; col < 4; ++col) {
-				addHTML(tr, `<td>${registerNames[row * 4 + col]}</td>`);
-				const td = document.createElement('td');
-				td.style.cssText = 'font: 0.9em "Red Hat Mono"';
-				td.innerHTML = '0x0&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
-				tr.appendChild(td);
-				arm.registerDisplays[row * 4 + col] = td;
+		const registerDisplay = () => {
+			const td = document.createElement('td');
+			td.style.font = '0.9em "Red Hat Mono"';
+			return td;
+		};
+
+		const pushDisplaySlot = (tr, label, td) => {
+			addHTML(tr, `<td style="text-align:right">${label}</td>`);
+			tr.appendChild(td);
+		};
+		{
+			let tr = document.createElement('tr');
+			arm.display.cpsr = registerDisplay();
+			arm.display.cpsr.colSpan = '7';
+			pushDisplaySlot(tr, 'cpsr', arm.display.cpsr);
+			registerTable.appendChild(tr);
+
+			for (let row = 0; row < 3; ++row) {
+				tr = document.createElement('tr');
+				pushDisplaySlot(tr, registerNames[row * 4], (arm.display.registers[row * 4] = registerDisplay()));
+				pushDisplaySlot(tr, registerNames[row * 4 + 1], (arm.display.registers[row * 4 + 1] = registerDisplay()));
+				pushDisplaySlot(tr, registerNames[row * 4 + 2], (arm.display.registers[row * 4 + 2] = registerDisplay()));
+				pushDisplaySlot(tr, registerNames[row * 4 + 3], (arm.display.registers[row * 4 + 3] = registerDisplay()));
+				registerTable.appendChild(tr);
 			}
+
+			tr = document.createElement('tr');
+			pushDisplaySlot(tr, 'r12', (arm.display.registers[12] = registerDisplay()));
+			pushDisplaySlot(tr, 'sp_sys', (arm.display.registers[13] = registerDisplay()));
+			pushDisplaySlot(tr, 'lr_sys', (arm.display.registers[14] = registerDisplay()));
+			pushDisplaySlot(tr, 'pc', (arm.display.registers[15] = registerDisplay()));
+			registerTable.appendChild(tr);
+
+			tr = document.createElement('tr');
+			addHTML(tr, '<td colspan="2">Supervisor:</td>');
+			pushDisplaySlot(tr, 'sp_svc', (arm.display.sp_svc = registerDisplay()));
+			pushDisplaySlot(tr, 'lr_svc', (arm.display.lr_svc = registerDisplay()));
+			pushDisplaySlot(tr, 'spsr_svc', (arm.display.spsr_svc = registerDisplay()));
+			registerTable.appendChild(tr);
+
+			tr = document.createElement('tr');
+			addHTML(tr, '<td colspan="2">IRQ:</td>');
+			pushDisplaySlot(tr, 'sp_irq', (arm.display.sp_irq = registerDisplay()));
+			pushDisplaySlot(tr, 'lr_irq', (arm.display.lr_irq = registerDisplay()));
+			pushDisplaySlot(tr, 'spsr_irq', (arm.display.spsr_irq = registerDisplay()));
 			registerTable.appendChild(tr);
 		}
+
 		stateContainer.appendChild(registerTable);
 
 		const memoryBar = document.createElement('div');
@@ -5333,7 +5489,7 @@
 				const chunk2 = memoryChunk((previewPc & ~0xfff) + 0x1000).dat;
 
 				lines = disassembler.arm(sliceDataView(chunk1, previewPc & 0xfff, 0x1000), 'asm', true, previewPc);
-				lines.push(...disassembler.arm(sliceDataView(chunk2, 0, (previewPc + 0x40) & 0xfff), 'asm', true), (previewPc + 0x40) & ~0xfff);
+				lines.push(...disassembler.arm(sliceDataView(chunk2, 0, (previewPc + 0x40) & 0xfff), 'asm', true, (previewPc + 0x40) & ~0xfff));
 			} else {
 				// doesn't cross chunk boundaries
 				const chunk = memoryChunk(previewPc & ~0xfff).dat;
@@ -5347,13 +5503,37 @@
 			}
 
 			// register preview
-			for (let i = 0; i < 16; ++i) {
-				const value = arm.registers[i] >>> 0;
+			const updateRegisterDisplay = (td, value) => {
+				value >>>= 0;
 				let str = '0x' + (value < 0 ? -value : value).toString(16);
 				str += '&nbsp;'.repeat(10 - str.length);
-				arm.registerDisplays[i].innerHTML = str;
+				td.innerHTML = str;
+			};
+			updateRegisterDisplay(arm.display.cpsr, arm.cpsr);
+			for (let i = 0; i < 16; ++i) {
+				if (i === 13 || i === 14) continue; // sp_sys and lr_sys are displayed differently
+				updateRegisterDisplay(arm.display.registers[i], arm.registers[i]);
 			}
 
+			const mode = arm.cpsr & 0x1f;
+			updateRegisterDisplay(arm.display.registers[13], mode === 0x1f ? arm.registers[13] : arm.stored.sys.sp);
+			updateRegisterDisplay(arm.display.registers[14], mode === 0x1f ? arm.registers[14] : arm.stored.sys.lr);
+			updateRegisterDisplay(arm.display.sp_svc, mode === 0x13 ? arm.registers[13] : arm.stored.svc.sp);
+			updateRegisterDisplay(arm.display.lr_svc, mode === 0x13 ? arm.registers[14] : arm.stored.svc.lr);
+			updateRegisterDisplay(arm.display.sp_irq, mode === 0x12 ? arm.registers[13] : arm.stored.irq.sp);
+			updateRegisterDisplay(arm.display.lr_irq, mode === 0x12 ? arm.registers[14] : arm.stored.irq.lr);
+
+			updateRegisterDisplay(arm.display.spsr_svc, arm.spsr_svc);
+			updateRegisterDisplay(arm.display.spsr_irq, arm.spsr_irq);
+
+			const setDisplayDimming = (td1, td2, dim) => {
+				td1.style.color = td2.style.color = dim ? 'var(--fg-dim)' : 'var(--fg)';
+			};
+			setDisplayDimming(arm.display.registers[13], arm.display.registers[14], mode !== 0x1f);
+			setDisplayDimming(arm.display.sp_svc, arm.display.lr_svc, mode !== 0x13);
+			setDisplayDimming(arm.display.sp_irq, arm.display.lr_irq, mode !== 0x12);
+
+			// memory preview
 			for (const chunkId of [...newDirtyMemoryChunks].sort((a, b) => a - b)) {
 				const chunk = memoryChunks.get(chunkId);
 
@@ -5403,22 +5583,51 @@
 		};
 
 		const applyInputRegisters = () => {
-			for (let i = 0; i < 16; ++i) {
-				const value = arm.input.registers[i].value;
+			const getValue = input => {
+				const value = input.value;
 				let num;
 				if (value.startsWith('-0x')) num = -parseInt(value.slice(3), 16);
 				else if (value.startsWith('0x')) num = parseInt(value.slice(2), 16);
 				else if (value.endsWith('h')) num = parseInt(value.slice(0, -1), 16);
 				else num = Number(value);
 
-				if (num < 13) num |= 0; // signed, NaN => 0
+				/* if (num < 13) num |= 0; // signed, NaN => 0
 				else num >>>= 0; // unsigned (sp, lr, pc), NaN => 0
-				if (i === 15) num &= ~3; // PC must be aligned to 4 bytes
+				if (i === 15) num &= ~3; // PC must be aligned to 4 bytes */
+				return num;
+			};
 
-				arm.registers[i] = num;
+			// cpsr
+			let cpsr = arm.input.cpsrValue;
+			let mode = cpsr & 0x1f;
+			if (mode !== 0x12 && mode !== 0x13 && mode !== 0x1f) {
+				// force mode to be valid
+				arm.cpsr |= 0x1f; // System (no need to clear bits beforehand)
+				mode = 0x1f;
 			}
+			cpsr &= 0xf00000df; // N C V Z, I F, and mode. notably, disallow setting the Thumb bit
+			arm.cpsr = cpsr;
 
-			arm.cpsr = 0b11111; // reset all status flags
+			// r0-r12
+			for (let i = 0; i < 12; ++i) arm.registers[i] = getValue(arm.input.registers[i]);
+
+			// sp and lr. arm.registers is the currently-accessible set of registers (e.g. sp_svc in Supervisor mode)
+			arm.stored.sys.sp = getValue(arm.input.registers[13]) >>> 0;
+			arm.stored.sys.lr = getValue(arm.input.registers[14]) >>> 0;
+			arm.stored.svc.sp = getValue(arm.input.sp_svc) >>> 0;
+			arm.stored.svc.lr = getValue(arm.input.lr_svc) >>> 0;
+			arm.stored.irq.sp = getValue(arm.input.sp_irq) >>> 0;
+			arm.stored.irq.lr = getValue(arm.input.lr_irq) >>> 0;
+
+			let bank;
+			if (mode === 0x12) bank = arm.stored.irq;
+			else if (mode === 0x13) bank = arm.stored.svc;
+			else bank = arm.stored.sys;
+			arm.registers[13] = bank.sp;
+			arm.registers[14] = bank.lr;
+
+			// pc
+			arm.registers[15] = getValue(arm.input.registers[15]) >>> 0;
 
 			applyInputRegistersButton.className = 'disabled';
 			copyRegistersButton.className = 'disabled';
@@ -5444,15 +5653,34 @@
 		};
 
 		const copyRegisters = () => {
-			for (let i = 0; i < 16; ++i) {
-				let value = arm.registers[i];
-				if (13 <= i) value >>>= 0; // sp, lr, pc should all be unsigned
+			setCpsrInput(arm.cpsr);
 
-				const input = arm.input.registers[i];
+			const setValue = (input, value) => {
 				if (value === 0) input.value = '';
 				else if (value < 0) input.value = '-0x' + (-value).toString(16);
 				else input.value = '0x' + value.toString(16);
-			}
+			};
+
+			// r0-r12
+			for (let i = 0; i < 12; ++i) setValue(arm.input.registers[i], arm.registers[i]);
+
+			// sp and lr
+			const mode = arm.cpsr & 0x1f;
+			// ensure arm.stored is valid for *all* banks
+			let bank;
+			if (mode === 0x12) bank = arm.stored.irq;
+			else if (mode === 0x13) bank = arm.stored.svc;
+			else bank = arm.stored.sys;
+
+			bank.sp = arm.registers[13];
+			bank.lr = arm.registers[14];
+
+			arm.input.registers[13].value = '0x' + arm.stored.sys.sp.toString(16);
+			arm.input.registers[14].value = '0x' + arm.stored.sys.lr.toString(16);
+			arm.input.sp_svc.value = '0x' + arm.stored.svc.sp.toString(16);
+			arm.input.lr_svc.value = '0x' + arm.stored.svc.lr.toString(16);
+			arm.input.sp_irq.value = '0x' + arm.stored.irq.sp.toString(16);
+			arm.input.lr_irq.value = '0x' + arm.stored.irq.lr.toString(16);
 
 			applyInputRegistersButton.className = 'disabled';
 			copyRegistersButton.className = 'disabled';
@@ -5820,7 +6048,26 @@
 							}
 
 							if (S) {
-								arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+								if (Rd === 15) {
+									// CPSR = SPSR (except on CMN, CMP, and TST, but those put Rd as should-be-zero)
+									const mode = arm.cpsr & 0x1f;
+									if (mode === 0x12) arm.cpsr = arm.spsr_irq;
+									else if (mode === 0x13) arm.cpsr = arm.spsr_svc;
+									else {
+										statusText = 'SPSR doesn\'t exist in System mode';
+										statusColor = 'var(--red)';
+										break;
+									}
+
+									const newMode = arm.cpsr & 0x1f;
+									if (newMode !== 0x12 && newMode !== 0x13 && newMode !== 0x1f) {
+										statusText = `Invalid execution mode 0x${newMode.toString(16)}`;
+										statusColor = 'var(--red)';
+										break;
+									}
+								} else {
+									arm.cpsr = (arm.cpsr & 0xfffffff) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+								}
 							}
 
 							continue;
@@ -6038,7 +6285,81 @@
 					continue;
 				}
 
-				// A3.10 - status register access instructions (unimplemented)
+				// A3.10 - status register access instructions
+				if ((inst & 0x0fb00000) === 0x01000000) {
+					// A4.1.38 - MRS
+					const R = (inst >>> 22) & 1;
+					const Rd = (inst >>> 12) & 0xf;
+					if (R) {
+						// SPSR
+						const mode = arm.cpsr & 0x1f;
+						if (mode === 0x12) arm.registers[Rd] = arm.spsr_irq;
+						else if (mode === 0x13) arm.registers[Rd] = arm.spsr_svc;
+						else {
+							statusText = 'SPSR doesn\'t exist in System mode';
+							statusColor = 'var(--red)';
+							break;
+						}
+					} else {
+						arm.registers[Rd] = arm.cpsr;
+					}
+					continue;
+				} else if (((inst & 0x0fb00000) === 0x03200000) || ((inst & 0x0fb000f0) === 0x01200000)) {
+					// A4.1.39 - MSR
+					const I = (inst >>> 25) & 1; // immediate (1) or register (0)
+					const R = (inst >>> 22) & 1;
+					const fieldMask = (inst >>> 16) & 0xf;
+
+					let operand;
+					if (I) {
+						const rotateImm = (inst >>> 8) & 0xf;
+						const immed = inst & 0xff;
+						operand = (immed >> (rotateImm * 2)) | (immed << (32 - rotateImm * 2));
+					} else {
+						const Rm = inst & 0xf;
+						operand = arm.registers[Rm];
+					}
+
+					let mask = 0;
+					if (fieldMask & 1) mask |= 0xff;
+					if (fieldMask & 2) mask |= 0xff00;
+					if (fieldMask & 4) mask |= 0xff0000;
+					if (fieldMask & 8) mask |= 0xff000000;
+
+					if (R === 0) {
+						// CPSR
+						// InAPrivilegedMode(): yes
+						if (operand & 0x20 /* StateMask */) {
+							statusText = 'Attempt to set non-ARM execution state';
+							statusColor = 'var(--red)';
+							break;
+						} else {
+							mask &= 0xf8000000 /* UserMask */ | 0xf /* PrivMask */;
+						}
+
+						arm.cpsr = (arm.cpsr & ~mask) | (operand & mask);
+						const newMode = arm.cpsr & 0x1f;
+						if (newMode !== 0x12 && newMode !== 0x13 && newMode !== 0x1f) {
+							statusText = `Invalid execution mode 0x${newMode.toString(16)}`;
+							statusColor = 'var(--red)';
+							break;
+						}
+					} else {
+						// SPSR
+						mask &= 0xf8000000 /* UserMask */ | 0xf /* PrivMask */ | 0x20 /* StateMask */;
+
+						const mode = arm.cpsr & 0x1f;
+						if (mode === 0x12) arm.spsr_irq = (arm.spsr_irq & ~mask) | (operand & mask);
+						else if (mode === 0x13) arm.spsr_svc = (arm.spsr_svc & ~mask) | (operand & mask);
+						else {
+							statusText = 'SPSR doesn\'t exist in System mode';
+							statusColor = 'var(--red)';
+							break;
+						}
+					}
+
+					continue;
+				}
 
 				// A3.11 - load and store instructions
 				if ((inst & 0x0c000000) === 0x04000000) {
@@ -6121,7 +6442,8 @@
 									break;
 								}
 
-								arm.registers[15] = data & ~1;
+								pc = (data & ~1);
+								arm.registers[15] = (pc + 4) | 0;
 							} else {
 								arm.registers[Rd] = data;
 							}
@@ -6263,11 +6585,52 @@
 							}
 
 							pc = value;
-							arm.registers[15] = pc + 4;
+							arm.registers[15] = (pc + 4) | 0;
 						}
 					} else if (S && L) {
 						// A4.1.21, A4.1.22 - LDM (2, 3)
-						// unpredictable in User/System mode
+						// NOTE: funny business is happening here!!!
+						const mode = arm.cpsr & 0x1f;
+						if (mode === 0x1f) {
+							// this can happen due to user error, so this should be flagged
+							statusText = 'LDM with ^ unpredictable in System mode';
+							statusColor = 'var(--red)';
+							break;
+						}
+
+						for (let i = 0; i < 12; ++i) {
+							if (inst & (1 << i)) {
+								memoryReadValue(address, DataView.prototype.getInt32, 4);
+								address += 4;
+							}
+						}
+
+						if (inst & (1 << 13)) {
+							arm.stored.sys.sp = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							address += 4;
+						}
+						if (inst & (1 << 14)) {
+							arm.stored.sys.lr = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							address += 4;
+						}
+
+						// LDM (2) forces no-PC, LDM (3) forces PC
+						if (inst & (1 << 15)) {
+							// LDM (3)
+							if (mode === 0x12) arm.cpsr = arm.spsr_irq;
+							else if (mode === 0x13) arm.cpsr = arm.spsr_svc;
+
+							const newMode = arm.cpsr & 0x1f;
+							if (newMode !== 0x12 && newMode !== 0x13 && newMode !== 0x1f) {
+								statusText = `Invalid execution mode 0x${newMode.toString(16)}`;
+								statusColor = 'var(--red)';
+								break;
+							}
+
+							pc = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							arm.registers[15] = (pc + 4) | 0;
+							address += 4;
+						}
 					} else if (!S && !L) {
 						// A4.1.97 - STM (1)
 						for (let i = 0; i < 16; ++i) {
@@ -6279,6 +6642,20 @@
 					} else if (S && !L) {
 						// A4.1.98 - STM (2)
 						// unpredictable in User/System mode
+						const mode = arm.cpsr & 0x1f;
+						if (mode === 0x1f) {
+							// this can happen due to user error, so this should be flagged
+							statusText = 'STM with ^ unpredictable in System mode';
+							statusColor = 'var(--red)';
+							break;
+						}
+
+						for (let i = 0; i < 16; ++i) {
+							if (inst & (1 << i)) {
+								memoryWriteValue(address, arm.registers[i], DataView.prototype.setInt32, 4);
+								address += 4;
+							}
+						}
 					}
 
 					continue;
