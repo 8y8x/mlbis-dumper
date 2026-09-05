@@ -6434,7 +6434,7 @@
 							statusColor = 'var(--red)';
 							break;
 						} else {
-							mask &= 0xf8000000 /* UserMask */ | 0xf /* PrivMask */;
+							mask &= 0xf8000000 /* UserMask */ | 0xf /* PrivMask */ | 0xc0 /* ??? */;
 						}
 
 						arm.cpsr = (arm.cpsr & ~mask) | (operand & mask);
@@ -6446,7 +6446,7 @@
 						}
 					} else {
 						// SPSR
-						mask &= 0xf8000000 /* UserMask */ | 0xf /* PrivMask */ | 0x20 /* StateMask */;
+						mask &= 0xf8000000 /* UserMask */ | 0xf /* PrivMask */ | 0x20 /* StateMask */ | 0xc0 /* ??? */;
 
 						const mode = arm.cpsr & 0x1f;
 						if (mode === 0x12) arm.spsr_irq = (arm.spsr_irq & ~mask) | (operand & mask);
