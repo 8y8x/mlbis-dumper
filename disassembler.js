@@ -868,12 +868,13 @@ window.initDisassembler = () => {
 				}
 
 				// MRS (A4.1.38)
-				if ((inst & 0x0fb00000) === 0x01000000 && cond !== conds[0b1111]) {
-					// TODO: unpredictable when accessing SPSR in User mode or System mode. should this be noted?
+				if ((inst & 0x0fbf0fff) === 0x010f0000 && cond !== conds[0b1111]) {
+					// this mask requires the SBZ and SBO to be correct, otherwise some STRH instructions will be
+					// picked up as MRS instead
 					const R = (inst >>> 22) & 1;
 					const Rd = (inst >>> 12) & 0xf;
 					// should-be-one or -zero
-					const u = unpredictable(Rd === 15 || ((inst >>> 16) & 0xf) !== 0xf || inst & 0xfff);
+					const u = unpredictable(Rd === 15);
 					if (ASM) lines.push(`mrs${cond} ${r[Rd]}, ${R ? 'spsr' : 'cpsr'}` + u);
 					continue;
 				}
