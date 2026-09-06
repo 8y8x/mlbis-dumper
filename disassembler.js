@@ -65,6 +65,34 @@ window.initDisassembler = () => {
 		const unpredictable = c => (c ? ' <span style="color: #e96;">(UNPREDICTABLE)</span>' : '');
 		const addr = x => `<span style="color: var(--yellow)">0x${str32(x)}</span>`;
 
+		// pretty-prints a list of registers from LDM or STM
+		// for r0-r12, if there are 4 or more consecutive registers, say "r0, r1, r2, r3", they'll be printed as "r0-r3"
+		// sp, lr, pc are printed as-is
+		const registerList = bitfield => {
+			const parts = [];
+			for (let i = 0; i < 16;) {
+				if (i <= 9 && (bitfield & (0xf << i))) {
+					// at least 4 registers matched, try and match more
+					const start = i;
+					i += 4;
+					for (; i <= 12; ++i) {
+						if (!(bitfield & (1 << i))) break;
+					}
+					parts.push(`r${start}-r${i - 1}`);
+				} else {
+					if (bitfield & (1 << i)) {
+						if (i === 13) parts.push('sp');
+						else if (i === 14) parts.push('lr');
+						else if (i === 15) parts.push('pc');
+						else parts.push(`r${i}`);
+					}
+					++i;
+				}
+			}
+
+			return parts.join(', ');
+		};
+
 		/** `style` can be 'object' or 'asm' */
 		const disassembleArm = (disassembler.arm = (overlay, style, isArmv5, ramStart) => {
 			const OBJECT = style === 'object';
@@ -609,12 +637,8 @@ window.initDisassembler = () => {
 
 					if (addressing) {
 						if (ASM) {
-							const list = [];
-							for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
-								if (registers & bit) list.push(r[i]);
-							}
 							lines.push(
-								`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` +
+								`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${registerList(inst)}}` +
 									u,
 							);
 						}
@@ -629,13 +653,8 @@ window.initDisassembler = () => {
 
 					if (addressing) {
 						if (ASM) {
-							const list = [];
-							for (let bit = 1, i = 0; i < 15; bit <<= 1, ++i) {
-								if (registers & bit) list.push(r[i]);
-							}
-
 							lines.push(
-								`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}, {${list.join(', ')}}^` +
+								`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}, {${registerList(inst)}}^` +
 									u,
 							);
 						}
@@ -650,14 +669,8 @@ window.initDisassembler = () => {
 					const u = unpredictable(Rn === 15 || (W && registers & (1 << Rn)));
 
 					if (ASM) {
-						const list = [];
-						for (let bit = 1, i = 0; i < 15; bit <<= 1, ++i) {
-							if (registers & bit) list.push(r[i]);
-						}
-						list.push(r[15]);
-
 						lines.push(
-							`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}^` +
+							`<span style="color:var(--green);">ldm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${registerList(inst)}}^` +
 								u,
 						);
 					}
@@ -1182,12 +1195,8 @@ window.initDisassembler = () => {
 						Rn === 15 || registers === 0 || (W && registers & (1 << Rn) && registers & ((1 << Rn) - 1)),
 					);
 					if (ASM) {
-						const list = [];
-						for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
-							if (registers & bit) list.push(r[i]);
-						}
 						lines.push(
-							`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}` +
+							`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${registerList(inst)}}` +
 								u,
 						);
 					}
@@ -1202,12 +1211,8 @@ window.initDisassembler = () => {
 					const addressing = loadMultipleAddressingMode(inst);
 					const u = unpredictable(Rn === 15 || registers === 0 || W);
 					if (ASM) {
-						const list = [];
-						for (let bit = 1, i = 0; i < 16; bit <<= 1, ++i) {
-							if (registers & bit) list.push(r[i]);
-						}
 						lines.push(
-							`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${list.join(', ')}}^` +
+							`<span style="color:var(--green);">stm${cond}${addressing}</span> ${r[Rn]}${W ? '!' : ''}, {${registerList(inst)}}^` +
 								u,
 						);
 					}
