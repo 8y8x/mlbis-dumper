@@ -1170,6 +1170,9 @@
 		multiExport.textContent = 'Everything: ';
 		section.appendChild(multiExport);
 
+		const exportFolders = checkbox('Folders', true, () => {});
+		multiExport.appendChild(exportFolders);
+
 		const multiDump = button('Dump Everything', () => {
 			const files = [
 				{ name: 'arm9.bin', dat: fs.arm9 },
@@ -1186,7 +1189,8 @@
 					const suffix = dat === fsentry ? '' : '-decomp';
 					files.push({ name: `overlay${String(overlayId).padStart(4, '0')}${suffix}.bin`, dat });
 				} else {
-					files.push({ name: fsentry.name, dat: fsentry });
+					// fsentry.path always starts with a slash, but .zip files don't want that
+					files.push({ name: exportFolders.checked ? fsentry.path.slice(1) : fsentry.name, dat: fsentry });
 				}
 			}
 			download(`${headers.gamecode}.zip`, zipStore(files));
