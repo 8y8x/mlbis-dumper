@@ -5653,16 +5653,10 @@
 		const applyInputRegisters = () => {
 			const getValue = input => {
 				const value = input.value;
-				let num;
-				if (value.startsWith('-0x')) num = -parseInt(value.slice(3), 16);
-				else if (value.startsWith('0x')) num = parseInt(value.slice(2), 16);
-				else if (value.endsWith('h')) num = parseInt(value.slice(0, -1), 16);
-				else num = Number(value);
-
-				/* if (num < 13) num |= 0; // signed, NaN => 0
-				else num >>>= 0; // unsigned (sp, lr, pc), NaN => 0
-				if (i === 15) num &= ~3; // PC must be aligned to 4 bytes */
-				return num;
+				if (value.startsWith('-0x')) return -parseInt(value.slice(3), 16);
+				else if (value.startsWith('0x')) return parseInt(value.slice(2), 16);
+				else if (value.endsWith('h')) return parseInt(value.slice(0, -1), 16);
+				else return Number(value);
 			};
 
 			// cpsr
@@ -6354,8 +6348,9 @@
 				}
 
 				// A3.10 - status register access instructions
-				if ((inst & 0x0fb00000) === 0x01000000) {
-					// A4.1.38 - MRS
+				if ((inst & 0x0fbf0fff) === 0x010f0000) {
+					// A4.1.38 - MRS (require SBZ and SBO to be set properly, otherwise some STRH instructions won't be
+					// picked up)
 					const R = (inst >>> 22) & 1;
 					const Rd = (inst >>> 12) & 0xf;
 					if (R) {
