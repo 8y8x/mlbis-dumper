@@ -896,8 +896,8 @@
 				if (code1 === 0xdec00621 && code2 === 0x2106c0de) {
 					const sdkMajorVersion = sdkVersion >>> 24;
 					const sdkMinorVersion = (sdkVersion >>> 16) & 0xff;
-					const sdkPatch = sdkVersion & 0xffff;
-					sdkInfo.innerHTML = `NitroSDK ${sdkMajorVersion}.${sdkMinorVersion} (patch ${sdkPatch})`;
+					const sdkPatchVersion = sdkVersion & 0xffff;
+					sdkInfo.innerHTML = `NitroSDK ${sdkMajorVersion}.${sdkMinorVersion}.${sdkPatchVersion}`;
 				}
 
 				if (compressionHead) {
