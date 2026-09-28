@@ -4914,6 +4914,9 @@
 		arm.input = {};
 		arm.input.overlaysEnabled = new Map();
 
+		arm.input.processor = dropdown(['ARM9 (ARMv5TE)', 'ARM7 (ARMv4T)'], 0, () => changeProcessor());
+		section.appendChild(arm.input.processor);
+
 		const toggleOverlay = (ov, checked) => {
 			const oldEl = arm.input.overlaysEnabled.get(ov);
 			if (!!oldEl === checked) return;
@@ -4927,7 +4930,7 @@
 				const left = (ov.ramStart - 0x01ff8000) / (0x02800000 - 0x01ff8000);
 				const width = (ov.ramSize + ov.bssSize) / (0x02800000 - 0x01ff8000);
 				el.style.cssText = `position: absolute; top: 0; left: ${left * 100}%; height: 100%; width: ${width * 100}%; background: var(--surface1); border: 1px solid var(--overlay2);`;
-				overlayRegionPreview.appendChild(el);
+				if (ov.ramStart < 0x02800000) overlayRegionPreview.appendChild(el); // don't show WRAM
 
 				arm.input.overlaysEnabled.set(ov, el);
 			}
@@ -4964,21 +4967,8 @@
 			}
 		};
 
-		const overlayContainer = document.createElement('div');
-		for (const ov of ovt.overlays) {
-			const check = checkbox(`ov${ov.id}`, false, checked => toggleOverlay(ov, checked));
-			overlayContainer.appendChild(check);
-		}
-		section.appendChild(overlayContainer);
-
-		const overlayAutoloads = document.createElement('div');
-		addHTML(overlayAutoloads, 'Autoloads:<br>');
-		addHTML(overlayAutoloads, `<code>${str32(headers.arm9RamOffset)} - ${str32(headers.arm9RamOffset + fs.arm9.byteLength)} - ${str32(headers.arm9RamOffset + fs.arm9.byteLength + fs.arm9BssSize)}</code> | ARM9`);
-		for (const autoload of fs.autoloads) {
-			if (!autoload.arm9) continue; // emulator only handles ARM9
-			addHTML(overlayAutoloads, `<br><code>${str32(autoload.ramStart)} - ${str32(autoload.ramStart + autoload.ramSize)} - ${str32(autoload.ramStart + autoload.ramSize + autoload.bssSize)}</code> | ${autoload.name}`);
-		}
-		section.appendChild(overlayAutoloads);
+		const overlayList = document.createElement('div');
+		section.appendChild(overlayList);
 
 		const overlayRegionPreview = document.createElement('div');
 		overlayRegionPreview.style.cssText = 'background: var(--surface0); width: 100%; height: 20px; position: relative;';
@@ -4988,13 +4978,42 @@
 		overlayOverlapError.style.color = 'var(--red)';
 		section.appendChild(overlayOverlapError);
 
-		toggleOverlay(
-			{ name: 'ARM9', ramStart: headers.arm9RamOffset, ramSize: fs.arm9.byteLength, bssSize: fs.arm9BssSize, dat: fs.arm9 },
-			true,
-		);
-		for (const autoload of fs.autoloads) {
-			if (autoload.arm9) toggleOverlay(autoload, true);
-		}
+		const overlayAutoloads = document.createElement('div');
+		section.appendChild(overlayAutoloads);
+
+		const changeProcessor = () => {
+			for (const el of arm.input.overlaysEnabled.values()) el.remove();
+			arm.input.overlaysEnabled.clear();
+
+			overlayList.innerHTML = '';
+			overlayOverlapError.innerHTML = '';
+			overlayAutoloads.innerHTML = 'Autoloads:<br>';
+
+			if (arm.input.processor.value === 0) {
+				for (const ov of ovt.overlays) {
+					const check = checkbox(`ov${ov.id}`, false, checked => toggleOverlay(ov, checked));
+					overlayList.appendChild(check);
+				}
+			}
+
+			const isArm9 = arm.input.processor.value === 0;
+			const mainRamOffset = isArm9 ? headers.arm9RamOffset : headers.arm7RamOffset;
+			const mainRamSize = isArm9 ? fs.arm9.byteLength : fs.arm7.byteLength;
+			const mainBssSize = isArm9 ? fs.arm9BssSize : fs.arm7BssSize;
+			const mainName = isArm9 ? 'ARM9' : 'ARM7';
+			addHTML(overlayAutoloads, `<code>${str32(mainRamOffset)} - ${str32(mainRamOffset + mainRamSize)} - ${str32(mainRamOffset + mainRamSize + mainBssSize)}</code> | ${mainName}`);
+			toggleOverlay(
+					{ name: mainName, ramStart: mainRamOffset, ramSize: mainRamSize, bssSize: mainBssSize, dat: isArm9 ? fs.arm9 : fs.arm7 },
+					true,
+				);
+
+			for (const autoload of fs.autoloads) {
+				if (autoload.arm9 !== isArm9) continue;
+				addHTML(overlayAutoloads, `<br><code>${str32(autoload.ramStart)} - ${str32(autoload.ramStart + autoload.ramSize)} - ${str32(autoload.ramStart + autoload.ramSize + autoload.bssSize)}</code> | ${autoload.name}`);
+				toggleOverlay(autoload, true);
+			}
+		};
+		changeProcessor();
 
 		// register selection
 		const cpsrInput = document.createElement('div');
@@ -5829,6 +5848,12 @@
 						break;
 					}
 
+					if (target & 2) {
+						statusText = 'Program counter misaligned';
+						statusColor = 'var(--red)';
+						break;
+					}
+
 					arm.registers[14] = pc; // next instruction address
 					pc = target & ~1;
 					arm.registers[15] = pc + 4;
@@ -5839,6 +5864,12 @@
 					const target = arm.registers[Rm];
 					if (target & 1) {
 						statusText = 'Exchange to Thumb unsupported';
+						statusColor = 'var(--red)';
+						break;
+					}
+
+					if (target & 2) {
+						statusText = 'Program counter misaligned';
 						statusColor = 'var(--red)';
 						break;
 					}
@@ -6109,6 +6140,12 @@
 
 						if (handled) {
 							if (Rd === 15) {
+								if (arm.registers[Rd] & 3) {
+									statusText = 'Program counter misaligned';
+									statusColor = 'var(--red)';
+									break;
+								}
+
 								pc = arm.registers[Rd];
 								arm.registers[Rd] = (arm.registers[Rd] + 4) | 0;
 							}
@@ -6509,6 +6546,12 @@
 									break;
 								}
 
+								if (data & 2) {
+									statusText = 'Program counter misaligned';
+									statusColor = 'var(--red)';
+									break;
+								}
+
 								pc = (data & ~1);
 								arm.registers[15] = (pc + 4) | 0;
 							} else {
@@ -6651,6 +6694,12 @@
 								break;
 							}
 
+							if (value & 2) {
+								statusText = 'Program counter misaligned';
+								statusColor = 'var(--red)';
+								break;
+							}
+
 							pc = value;
 							arm.registers[15] = (pc + 4) | 0;
 						}
@@ -6695,6 +6744,12 @@
 							}
 
 							pc = memoryReadValue(address, DataView.prototype.getInt32, 4);
+							if (pc & 3) {
+								statusText = 'Program counter misaligned';
+								statusColor = 'var(--red)';
+								break;
+							}
+
 							arm.registers[15] = (pc + 4) | 0;
 							address += 4;
 						}

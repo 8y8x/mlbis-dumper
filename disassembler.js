@@ -71,7 +71,7 @@ window.initDisassembler = () => {
 		const registerList = bitfield => {
 			const parts = [];
 			for (let i = 0; i < 16;) {
-				if (i <= 9 && (bitfield & (0xf << i))) {
+				if (i <= 9 && ((bitfield >>> i) & 0xf) === 0xf) {
 					// at least 4 registers matched, try and match more
 					const start = i;
 					i += 4;
