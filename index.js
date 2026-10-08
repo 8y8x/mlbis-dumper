@@ -134,12 +134,12 @@
 			if (box.width <= 0) return;
 			clearInterval(interval);
 
-			selection.style.width = `calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '2em - 12px'})`;
+			selection.style.width = `calc(${options.getBoundingClientRect().width - 2}px - ${hideArrows ? '0em' : '28px - 12px'})`;
 		});
 
 		if (hideArrows) {
 			left.style.display = right.style.display = 'none';
-			options.style.padding = '0 calc(1.5em + 6px) 0 0.5em';
+			options.style.padding = '0 calc(21px + 6px) 0 7px';
 			vee.style.display = 'inline-block';
 		}
 
@@ -154,12 +154,12 @@
 			if (box.y > innerHeight / 2) {
 				// top side has more space
 				options.style.top = '';
-				options.style.bottom = 'calc(1em + 8px - 2px)';
+				options.style.bottom = 'calc(14px + 8px - 2px)';
 				height = box.y - 32;
 				options.style.maxHeight = `${height}px`;
 			} else {
 				// bottom side has more space
-				options.style.top = 'calc(1em + 8px - 2px)';
+				options.style.top = 'calc(14px + 8px - 2px)';
 				options.style.bottom = '';
 				height = innerHeight - box.y - 32;
 				options.style.maxHeight = `calc(${height}px - 12px)`;
@@ -1649,6 +1649,7 @@
 			fsext.fobjPalettes = fixedSegments(0x150c8, 0x15854, 4, fs.overlay(3));
 
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
+			fsext.fontPalette = sliceDataView(fs.arm9, 0x02050144 - 0x02004000, 0x02050144 + 0xc0 - 0x02004000);
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
 			fillBattle(ovt.overlays[14], 0x020a58e4, 39, 0x020a5754, 20);
@@ -3690,7 +3691,7 @@
 				const glyphTable = segments[i];
 				const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
 				const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
-				const numGlyphs = glyphTable.getUint8(3) * 8;
+				let numGlyphs = glyphTable.getUint8(3) * 8;
 
 				const actualWidths = [];
 				let o = 4;
@@ -3700,9 +3701,17 @@
 						actualWidths.push(composite & 0xf, composite >> 4);
 					}
 				} else {
-					for (let j = 0; j < numGlyphs; ++j) {
-						actualWidths.push(glyphTable.getUint8(o++));
+					numGlyphs >>= 1;
+					for (let j = 0; j < numGlyphs; j += 2) {
+						const composite1 = glyphTable.getUint8(o);
+						const composite2 = glyphTable.getUint8(o + numGlyphs/2);
+						++o;
+						const width1 = (composite1 & 0xf) | (composite2 & 0xf) << 4;
+						const width2 = (composite1 >> 4) | (composite2 >> 4) << 4;
+						actualWidths.push(width1, width2);
 					}
+
+					o += numGlyphs / 2;
 				}
 
 				const glyphs = fonts.glyphs2Bit(
@@ -4157,6 +4166,582 @@
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: New Fonts                                                                                            |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const newFonts = (window.newFonts = createSection('Fonts (New)', section => {
+		const fonts = {};
+
+		fonts.languageNamesWithFonts = (c => {
+			c[0] = 'JP/KO replacements';
+			c[1] = 'JP/KO small';
+			c[2] = 'JP/KO small replacements';
+			c[3] = 'JP/KO big';
+			c[4] = 'JP/KO big replacements';
+			c[5] = 'English (?)';
+			c[6] = 'English small';
+			c[7] = 'English (?)';
+			c[8] = 'English big';
+			c[9] = 'English (?)';
+			c[10] = 'French (?)';
+			c[11] = 'French small';
+			c[12] = 'French (?)';
+			c[13] = 'French big';
+			c[14] = 'French (?)';
+			c[15] = 'German (?)';
+			c[16] = 'German small';
+			c[17] = 'German (?)';
+			c[18] = 'German big';
+			c[19] = 'German (?)';
+			c[20] = 'Italian (?)';
+			c[21] = 'Italian small';
+			c[22] = 'Italian (?)';
+			c[23] = 'Italian big';
+			c[24] = 'Italian (?)';
+			c[25] = 'Spanish (?)';
+			c[26] = 'Spanish small';
+			c[27] = 'Spanish (?)';
+			c[28] = 'Spanish big';
+			c[29] = 'Spanish (?)';
+
+			c[66] = 'JP/KO';
+			c[67] = 'English';
+			c[68] = 'French';
+			c[69] = 'German';
+			c[70] = 'Italian';
+			c[71] = 'Spanish';
+			return c;
+		})([]);
+
+		fonts.languageNames = (c => {
+			c[0] = 'JP/KO';
+			c[1] = 'English';
+			c[2] = 'French';
+			c[3] = 'German';
+			c[4] = 'Italian';
+			c[5] = 'Spanish';
+			return c;
+		})([]);
+
+		const fontPalette = rgb15To32(bufToU16(fsext.fontPalette || new Uint16Array([
+			// same as the default light palette
+			0x6bdf, 0x190c, 0x6f9d, 0x1d0a, 0x3698, 0x533c, 0x6bdf, 0x7fff,
+			0x0300, 0x6ffc, 0x01ff, 0x639f, 0x7d66, 0x7bdc, 0x001f, 0x6b5f,
+			// same as the default dark palette
+			0x5ac0, 0x7fff, 0x458d, 0x1d0a, 0x1cc6, 0x30c7, 0x30e8, 0x3d4b,
+			0x03a0, 0x2585, 0x1e7f, 0x2d2d, 0x7ee4, 0x4546, 0x181f, 0x288d,
+		])));
+
+		const paletteOptions = [];
+		for (let i = 0; i * 16 < fontPalette.length; ++i) {
+			paletteOptions.push(`Palette ${i}`);
+		}
+		const fontPaletteSelect = dropdown(paletteOptions, 0, () => updatePalette());
+		section.appendChild(fontPaletteSelect);
+
+		const fontPaletteDisplay = document.createElement('canvas');
+		fontPaletteDisplay.width = 16;
+		fontPaletteDisplay.height = 1;
+		fontPaletteDisplay.style.cssText = `height: 22px; width: ${22*16}px; display: inline-block; vertical-align: center`;
+		section.appendChild(fontPaletteDisplay);
+
+		const fontFileNames = [
+			'Default font',
+			'/Font/StatFontSet.dat',
+			'/FEvent/FEvent.dat',
+			'/BAI/BMes_cf.dat',
+			'/BAI/BMes_ji.dat',
+			'/BAI/BMes_yo.dat',
+			'/MAI/MMes_yo.dat',
+			'/SAI/SMes_yo.dat',
+			'/BDataMiniGame/',
+			'/EDataSave/',
+			'Embedded',
+		];
+		let fontFileDropdown = dropdown(fontFileNames, 0, () => updateFontFileSelection());
+		section.appendChild(fontFileDropdown);
+
+		let fontSelections = [];
+		let fontSelectionDropdown = dropdown([''], 0, () => {});
+		section.appendChild(fontSelectionDropdown);
+
+		const useCharMap = checkbox('Use Character Map', false, () => updateFontPreview());
+		section.appendChild(useCharMap);
+
+		const showLetterWidths = checkbox('Show Letter Widths', true, () => updateFontPreview());
+		section.appendChild(showLetterWidths);
+
+		const fontPreview = document.createElement('div');
+		fontPreview.style.cssText = 'width: 800px; height: fit-content; grid-column: 2';
+		section.appendChild(fontPreview);
+
+		fonts.unpack = dat => {
+			const charMapSize = dat.getUint32(0, true);
+			const charMapOffset = dat.getUint32(4, true);
+
+			let o = 8;
+			const glyphTableOffsets = [];
+			do {
+				glyphTableOffsets.push(dat.getUint32(o, true));
+				o += 4;
+			} while (o < glyphTableOffsets[0]);
+
+			const glyphTables = [];
+			for (let i = 0; i < glyphTableOffsets.length; ++i) {
+				// segments go: [glyphTable1, ..., glyphTableN, charMap]
+				const tableDat = sliceDataView(dat, glyphTableOffsets[i], glyphTableOffsets[i + 1] ?? charMapOffset);
+				const glyphWidth = (tableDat.getUint8(0) >> 4) * 4;
+				const glyphHeight = (tableDat.getUint8(0) & 0xf) * 4;
+				const letterWidthSize = tableDat.getUint8(3) * 4;
+
+				const letterWidths = [];
+				o = 4;
+				if (glyphWidth <= 16) {
+					for (let j = 0; j < letterWidthSize; ++j) {
+						const composite = tableDat.getUint8(o++);
+						letterWidths.push(composite & 0xf, composite >> 4);
+					}
+				} else {
+					for (let j = 0; j < letterWidthSize / 2; ++j) {
+						const composite = tableDat.getUint8(o++);
+						letterWidths.push(composite & 0xf, composite >> 4);
+					}
+
+					for (let j = 0; j < letterWidthSize / 2; ++j) {
+						const composite = tableDat.getUint8(o++);
+						letterWidths[j*2] |= (composite & 0xf) << 4;
+						letterWidths[j*2 + 1] |= composite & 0xf0;
+					}
+				}
+
+				const glyphs = [];
+				if (glyphWidth || glyphHeight) {
+					for (let letterIndex = 0; o < tableDat.byteLength; ++letterIndex) {
+						o = 4 + letterWidthSize + letterIndex * glyphWidth * glyphHeight / 4;
+						const glyph = new Uint8Array(glyphWidth * glyphHeight);
+						for (let baseX = 0; baseX + 7 < glyphWidth; baseX += 8) {
+							for (let baseY = 0; baseY < glyphHeight; baseY += 4) {
+								const alpha = tableDat.getUint32(o, true);
+								const alt = tableDat.getUint32(o + 4, true);
+								o += 8;
+								for (let x = 0, bit = 0; x < 8; ++x) {
+									for (let y = 0; y < 4; ++y, ++bit) {
+										const clearBit = (alpha >>> bit) & 1;
+										const colorBit = (alt >>> bit) & 1;
+										glyph[(baseY + y) * glyphWidth + baseX + x] = clearBit << 1 | colorBit;
+									}
+								}
+							}
+						}
+
+						if (glyphWidth % 8) {
+							const baseX = glyphWidth - 4;
+							for (let baseY = 0; baseY < glyphHeight; baseY += 4) {
+								const alpha = tableDat.getUint16(o, true);
+								const alt = tableDat.getUint16(o + 2, true);
+								o += 4;
+								for (let x = 0, bit = 0; x < 4; ++x) {
+									for (let y = 0; y < 4; ++y, ++bit) {
+										const clearBit = (alpha >>> bit) & 1;
+										const colorBit = (alt >>> bit) & 1;
+										glyph[(baseY + y) * glyphWidth + baseX + x] = clearBit << 1 | colorBit;
+									}
+								}
+							}
+						}
+
+						glyphs.push({ glyph, letterWidth: letterWidths[letterIndex] + 1 });
+					}
+				}
+
+				glyphTables.push({
+					dat: tableDat,
+					glyphWidth,
+					glyphHeight,
+					glyphs,
+				});
+			}
+
+			const charMap = sliceDataView(dat, charMapOffset, charMapOffset + charMapSize);
+			return { charMap, glyphTables };
+		};
+
+		const updateFontFileSelection = () => {
+			const findMiniFonts = table => {
+				if (!table.byteLength) return [];
+				const columns = unpackSegmentedFile(table, 0, table);
+				const miniFonts = [];
+				for (let j = 0; j < 30; ++j) {
+					if (!columns[j].byteLength) continue;
+					miniFonts.push([`<code>[${j}]</code> ${fonts.languageNamesWithFonts[j]}`, columns[j]]);
+				}
+
+				return miniFonts;
+			};
+
+			fontSelections = [];
+			if (fontFileDropdown.value === 0) {
+				// Default
+				fontSelections = [['', [[undefined, fsext.font]]]];
+			} else if (fontFileDropdown.value === 1) {
+				// /Font/StatFontSet.dat
+				const f = fs.get('/Font/StatFontSet.dat');
+				const segments = unpackSegmentedFile(f, 0, f);
+				// [-1] is just file padding
+				for (let i = 0; i < segments.length - 1; ++i) {
+					if (segments[i].byteLength) fontSelections.push([String(i), [[undefined, segments[i]]]]);
+				}
+			} else if (fontFileDropdown.value === 2) {
+				// /FEvent/FEvent.dat
+				for (let i = 2, room = 0; i < fsext.fevent.length; i += 3, ++room) {
+					const miniFonts = findMiniFonts(fsext.fevent[i]);
+					if (miniFonts.length) fontSelections.push([`Room 0x${room.toString(16)}`, miniFonts]);
+				}
+			} else if (3 <= fontFileDropdown.value && fontFileDropdown.value <= 5) {
+				const paths = ['/BAI/BMes_cf.dat', '/BAI/BMes_ji.dat', '/BAI/BMes_yo.dat'];
+				const tables = fsext.battle.get(paths[fontFileDropdown.value - 3]);
+				for (let i = 0; i < tables.length; ++i) {
+					const miniFonts = findMiniFonts(tables[i]);
+					if (miniFonts.length) fontSelections.push([`Table 0x${i.toString(16)}`, miniFonts]);
+				}
+			} else if (6 <= fontFileDropdown.value && fontFileDropdown.value <= 7) {
+				const paths = ['/MAI/MMes_yo.dat', '/SAI/SMes_yo.dat'];
+				const f = fs.get(paths[fontFileDropdown.value - 6]);
+				const tables = unpackSegmentedFile(f, 0, f);
+				for (let i = 0; i < tables.length - 1; ++i) {
+					const miniFonts = findMiniFonts(tables[i]);
+					if (miniFonts.length) fontSelections.push([`Table 0x${i.toString(16)}`, miniFonts]);
+				}
+			} else if (fontFileDropdown.value === 8) {
+				const miniFonts = findMiniFonts(fs.get('/BDataMiniGame/mfset_MesDat_MiniGame.dat'));
+				if (miniFonts.length) fontSelections.push([undefined, miniFonts]);
+			} else if (fontFileDropdown.value === 9) {
+				const paths = [
+					'mfset_EMesJig.dat',
+					'mfset_EMesOutline.dat',
+					'mfset_EMesPlace.dat',
+					'mfset_EMesSys.dat',
+				];
+				for (const path of paths) {
+					const miniFonts = findMiniFonts(fs.get('/EDataSave/' + path));
+					fontSelections.push([path, miniFonts]); // do NOT check miniFonts.length
+				}
+			} else if (fontFileDropdown.value === 10) {
+				// scan for fonts in code
+				const check = (dat, o) => {
+					if (o + 0xc > dat.byteLength) return 0;
+					const charMapSize = dat.getUint32(o, true);
+					const charMapOffset = dat.getUint32(o + 4, true);
+					if (!charMapOffset || !charMapSize) return 0;
+					if (o + charMapOffset + charMapSize > dat.byteLength) return 0;
+					if ((charMapOffset & 3) || (charMapSize & 1)) return 0;
+
+					// check glyph table
+					const firstGlyphTableOffset = dat.getUint32(o + 8, true);
+					if ((o + firstGlyphTableOffset + 4 > dat.byteLength) || (firstGlyphTableOffset & 3)) return 0;
+					if (firstGlyphTableOffset < 0xc) return 0;
+
+					let glyphTableMaxEntries = 0;
+					for (let o2 = 8; o2 < firstGlyphTableOffset; o2 += 4) {
+						const glyphTableOffset = dat.getUint32(o + o2, true);
+						if ((o + glyphTableOffset + 4 > dat.byteLength) || (glyphTableOffset & 3)) return 0;
+
+						const glyphTableWidth = (dat.getUint8(o + glyphTableOffset) >> 4) * 4;
+						const glyphTableHeight = (dat.getUint8(o + glyphTableOffset) & 0xf) * 4;
+						if (glyphTableWidth < 8 || glyphTableHeight < 8) return 0;
+
+						const letterWidthSize = dat.getUint8(o + glyphTableOffset + 3) * 4;
+						const minGlyphs = 16 < glyphTableWidth ? (letterWidthSize >> 2) : (letterWidthSize >> 3);
+						if (o + glyphTableOffset + 4 + letterWidthSize + minGlyphs * glyphTableWidth * glyphTableHeight / 4 > dat.byteLength) return 0;
+
+						if (o2 === 8) {
+							glyphTableMaxEntries = (charMapOffset - firstGlyphTableOffset - 4 - letterWidthSize) / (glyphTableWidth * glyphTableHeight / 4);
+						}
+					}
+
+					// check char map
+					let anySeen = false;
+					for (let o2 = 0; o2 < charMapSize; o2 += 2) {
+						const tableIndex = dat.getUint8(o + charMapOffset + o2);
+						const glyphIndex = dat.getUint8(o + charMapOffset + o2 + 1);
+						if (tableIndex === 0xff && glyphIndex === 0xff) continue;
+
+						anySeen = true;
+						if (tableIndex >= 6) return 0; // definitely not
+						if (tableIndex === 0 && glyphIndex >= glyphTableMaxEntries) return 0;
+					}
+
+					if (!anySeen) return 0;
+
+					return charMapOffset + charMapSize;
+				};
+
+				const scan = (label, dat, ramStart) => {
+					for (let o = 0; o < dat.byteLength; o += 4) {
+						const size = check(dat, o);
+						if (!size) continue;
+						
+						const fontDat = sliceDataView(dat, o, o + size);
+						fontSelections.push([`${label} @ 0x${str32(ramStart + o)}, len 0x${size.toString(16)}`, [[undefined, fontDat]]]);
+					}
+				};
+
+				scan('ARM9', fs.arm9, headers.arm9RamOffset);
+				for (const ov of ovt.overlays) {
+					scan(`ov${String(ov.id).padStart(3, '0')}`, fs.overlay(ov.id, true), ov.ramStart);
+				}
+			}
+
+			if (fontSelections.length <= 1) {
+				fontSelectionDropdown.select(0, true);
+				fontSelectionDropdown.style.display = 'none';
+			} else {
+				const newDropdown = dropdown(fontSelections.map(x => x[0]), 0, () => updateFontPreview());
+				fontSelectionDropdown.replaceWith(newDropdown);
+				fontSelectionDropdown = newDropdown;
+			}
+
+			updateFontPreview();
+		};
+
+		const updatePalette = () => {
+			const palCtx = fontPaletteDisplay.getContext('2d');
+			const palette = sliceDataView(bufToDat(fontPalette), fontPaletteSelect.value * 64, fontPaletteSelect.value * 64 + 64);
+			palCtx.putImageData(new ImageData(bufToU8Clamped(palette), 16, 1), 0, 0);
+
+			updateFontPreview();
+		};
+
+		const updateFontPreview = () => {
+			fontPreview.innerHTML = '';
+			const dats = fontSelections[fontSelectionDropdown.value]?.[1];
+			if (!dats?.length) {
+				addHTML(fontPreview, '<div>No fonts found</div>');
+				return;
+			}
+
+			const palette = bufToU32(sliceDataView(bufToDat(fontPalette), fontPaletteSelect.value * 64, fontPaletteSelect.value * 64 + 64));
+
+			const table = document.createElement('table');
+			table.className = 'bordered';
+
+			for (const [label, dat] of dats) {
+				const tr = document.createElement('tr');
+				if (label) addHTML(tr, `<th>${label}</th>`);
+
+				const addGlyphTile = (sheet, sheetWidth, sheetHeight, glyph, glyphWidth, glyphHeight, outerBaseX, outerBaseY, letterWidth) => {
+					// each tile has 1px of padding plus a 1px line along the top and left
+					for (let y = 0; y < glyphHeight + 4; ++y) {
+						const edgeY = y === 0 || y === glyphHeight + 3;
+						for (let x = 0; x < glyphWidth + 4; ++x) {
+							const edge = edgeY || x === 0 || x === glyphWidth + 3;
+							sheet[(outerBaseY + y) * sheetWidth + outerBaseX + x] = palette[edge ? 5 : 6];
+						}
+					}
+
+					const baseX = outerBaseX + 2;
+					const baseY = outerBaseY + 2;
+					for (let y = 0; y < glyphHeight; ++y) {
+						for (let x = 0; x < glyphWidth; ++x) {
+							const pos = (baseY + y) * sheetWidth + baseX + x;
+							const cell = glyph[y * glyphWidth + x];
+							if (cell === 0b00); // clear=0, color=0 => do nothing
+							else if (cell === 0b01) sheet[pos] = 0xff0000ff; // clear=0, color=1 => corruption!!1
+							else if (cell === 0b10) sheet[pos] = palette[1]; // clear=1, color=0 => main color
+							else if (cell === 0b11) sheet[pos] = palette[1 + 1]; // clear=1, color=1 => alt color
+						}
+					}
+
+					if (showLetterWidths.checked) {
+						const y = outerBaseY + glyphHeight + 2;
+						for (let x = 0; x < letterWidth; ++x) {
+							sheet[y * sheetWidth + outerBaseX + 2 + x] = palette[0xa]; // orange (bowser's color)
+						}
+					}
+				};
+
+				const bindSheetHovering = (sheetCanvas, glyphs, tileWidth, tileHeight) => {
+					let hoveringGlyph = undefined;
+					let hoveringGlyphIdx = undefined;
+
+					const sheetCtx = sheetCanvas.getContext('2d');
+					sheetCtx.lineWidth = 1;
+
+					const edgeC = palette[5];
+					const edgeColor = `#${str8(edgeC & 0xff)}${str8((edgeC >> 8) & 0xff)}${str8((edgeC >> 16) & 0xff)}`;
+
+					const hover = document.createElement('div');
+					hover.style.cssText = 'border: 1px solid var(--line); background: var(--bg); color: var(--fg); line-height: 16px; padding: 4px; position: absolute; display: none; pointer-events: none; text-wrap: nowrap; user-select: none;';
+					sheetCanvas.parentNode.appendChild(hover);
+
+					const updateHoveringGlyph = (newGlyph, idx) => {
+						if (newGlyph && !hoveringGlyph) hover.style.display = '';
+						else if (!newGlyph && hoveringGlyph) hover.style.display = 'none';
+
+						if (hoveringGlyphIdx !== undefined && hoveringGlyphIdx < glyphs.length) {
+							// remove old outline
+							const tileX = (hoveringGlyphIdx & 0xf) * tileWidth;
+							const tileY = (hoveringGlyphIdx >> 4) * tileHeight;
+							sheetCtx.strokeStyle = edgeColor;
+							sheetCtx.strokeRect(tileX + 0.5, tileY + 0.5, tileWidth, tileHeight);
+						}
+
+						if (idx !== undefined && idx < glyphs.length) {
+							// add new outline
+							const tileX = (idx & 0xf) * tileWidth;
+							const tileY = (idx >> 4) * tileHeight;
+							sheetCtx.strokeStyle = '#000';
+							sheetCtx.strokeRect(tileX + 0.5, tileY + 0.5, tileWidth, tileHeight);
+						}
+
+						if (newGlyph) {
+							hover.textContent = `${useCharMap.checked ? 'char' : 'glyph'} 0x${idx.toString(16)}`;
+						}
+
+						hoveringGlyph = newGlyph;
+						hoveringGlyphIdx = idx;
+					};
+
+					sheetCanvas.addEventListener('mousemove', ev => {
+						console.log(ev);
+						const tileX = Math.min(Math.floor(ev.offsetX / (tileWidth * 2)), 15);
+						const tileY = Math.floor(ev.offsetY / (tileHeight * 2));
+						let index = tileY * 16 + tileX;
+						if (index >= glyphs.length) index = undefined; // !!!
+
+						const newGlyph = glyphs[index];
+						if (index !== hoveringGlyphIdx) {
+							updateHoveringGlyph(newGlyph, tileY * 16 + tileX);
+						}
+
+						if (newGlyph) {
+							hover.style.top = `${ev.offsetY}px`;
+							hover.style.left = `${ev.offsetX + 16}px`;
+						}
+					});
+
+					sheetCanvas.addEventListener('mouseleave', () => {
+						updateHoveringGlyph(undefined, undefined);
+					});
+
+					addEventListener('blur', () => {
+						updateHoveringGlyph(undefined, undefined);
+					});
+				};
+
+				const td = document.createElement('td');
+				const font = fonts.unpack(dat);
+				if (useCharMap.checked) {
+					let maxGlyphWidth = 0;
+					let maxGlyphHeight = 0;
+					for (const table of font.glyphTables) {
+						if (maxGlyphWidth < table.glyphWidth) maxGlyphWidth = table.glyphWidth;
+						if (maxGlyphHeight < table.glyphHeight) maxGlyphHeight = table.glyphHeight;
+					}
+
+					const sheetContainer = document.createElement('div');
+					sheetContainer.style.position = 'relative';
+
+					const sheetCanvas = document.createElement('canvas');
+					// the +1 is for the line along the bottom and the right
+					sheetCanvas.width = Math.min(font.charMap.byteLength / 2, 16) * (maxGlyphWidth + 3) + 1;
+					sheetCanvas.height = Math.ceil(font.charMap.byteLength / 2 / 16) * (maxGlyphHeight + 3) + 1;
+					sheetCanvas.style.cssText = `width: ${sheetCanvas.width * 2}px; height: ${sheetCanvas.height * 2}px`;
+					sheetContainer.appendChild(sheetCanvas);
+
+					const sheet = new Uint32Array(sheetCanvas.width * sheetCanvas.height);
+					const glyphs = [];
+					for (let i = 0; i * 2 < font.charMap.byteLength; ++i) {
+						const outerBaseX = (maxGlyphWidth + 3) * (i & 0xf);
+						const outerBaseY = (maxGlyphHeight + 3) * (i >> 4);
+
+						const tableIndex = font.charMap.getUint8(i * 2);
+						const glyphIndex = font.charMap.getUint8(i * 2 + 1);
+						if (tableIndex === 0xff && glyphIndex === 0xff) {
+							// fill this area with a blank
+							for (let y = 0; y < maxGlyphHeight + 4; ++y) {
+								const edgeY = y === 0 || y === maxGlyphHeight + 3;
+								for (let x = 0; x < maxGlyphWidth + 4; ++x) {
+									const edge = edgeY || x === 0 || x === maxGlyphWidth + 3;
+									sheet[(outerBaseY + y) * sheetCanvas.width + outerBaseX + x] = palette[edge ? 5 : 4];
+								}
+							}
+
+							glyphs.push(undefined);
+							continue;
+						}
+
+						const table = font.glyphTables[tableIndex];
+						const glyphEntry = table?.glyphs[glyphIndex];
+						if (!glyphEntry) {
+							// fill this area with RED
+							for (let y = 0; y < maxGlyphHeight + 4; ++y) {
+								const edgeY = y === 0 || y === maxGlyphHeight + 3;
+								for (let x = 0; x < maxGlyphWidth + 4; ++x) {
+									const edge = edgeY || x === 0 || x === maxGlyphWidth + 3;
+									const color = edge ? palette[5] : 0xff0000ff;
+									sheet[(outerBaseY + y) * sheetCanvas.width + outerBaseX + x] = color;
+								}
+							}
+
+							glyphs.push(undefined);
+							continue;
+						}
+
+						const { glyph, letterWidth } = glyphEntry;
+						glyphs.push(glyph);
+						addGlyphTile(sheet, sheetCanvas.width, sheetCanvas.height, glyph, table.glyphWidth, table.glyphHeight, outerBaseX, outerBaseY, letterWidth);
+					}
+
+					const sheetCtx = sheetCanvas.getContext('2d');
+					sheetCtx.putImageData(new ImageData(bufToU8Clamped(sheet), sheetCanvas.width, sheetCanvas.height), 0, 0);
+					td.appendChild(sheetContainer);
+					bindSheetHovering(sheetCanvas, glyphs, maxGlyphWidth + 3, maxGlyphHeight + 3);
+				} else {
+					for (let i = 0; i < font.glyphTables.length; ++i) {
+						const table = font.glyphTables[i];
+						addHTML(td, `<div><code>[${i}]</code> ${table.glyphWidth}x${table.glyphHeight} size, ${table.glyphs.length} glyphs</div>`);
+
+						const sheetContainer = document.createElement('div');
+						sheetContainer.style.position = 'relative';
+
+						const sheetCanvas = document.createElement('canvas');
+						// the +1 is for the line along the bottom and the right
+						sheetCanvas.width = Math.min(table.glyphs.length, 16) * (table.glyphWidth + 3) + 1;
+						sheetCanvas.height = Math.ceil(table.glyphs.length / 16) * (table.glyphHeight + 3) + 1;
+						sheetCanvas.style.cssText = `width: ${sheetCanvas.width * 2}px; height: ${sheetCanvas.height * 2}px`;
+						sheetContainer.appendChild(sheetCanvas);
+
+						const sheet = new Uint32Array(sheetCanvas.width * sheetCanvas.height);
+						for (let j = 0; j < table.glyphs.length; ++j) {
+							const { glyph, letterWidth } = table.glyphs[j];
+
+							const outerBaseX = (table.glyphWidth + 3) * (j & 0xf);
+							const outerBaseY = (table.glyphHeight + 3) * (j >> 4);
+							addGlyphTile(sheet, sheetCanvas.width, sheetCanvas.height, glyph, table.glyphWidth, table.glyphHeight, outerBaseX, outerBaseY, letterWidth);
+						}
+
+						const sheetCtx = sheetCanvas.getContext('2d');
+						sheetCtx.putImageData(new ImageData(bufToU8Clamped(sheet), sheetCanvas.width, sheetCanvas.height), 0, 0);
+						td.appendChild(sheetContainer);
+						bindSheetHovering(sheetCanvas, table.glyphs, table.glyphWidth + 3, table.glyphHeight + 3);
+					}
+				}
+
+				tr.appendChild(td);
+				table.appendChild(tr);
+			}
+
+			fontPreview.appendChild(table);
+		};
+
+		updateFontFileSelection();
+		updatePalette();
+
+		return fonts;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
 	// | Section: Messages                                                                                             |
 	// +---------------------------------------------------------------------------------------------------------------+
 
@@ -4164,11 +4749,11 @@
 		const messages = {};
 
 		const columnNamesWithFonts = (c => {
-			c[0] = 'CJK replacements';
+			c[0] = 'CJK ext.';
 			c[1] = 'CJK small';
-			c[2] = 'CJK small replacements';
+			c[2] = 'CJK small ext.';
 			c[3] = 'CJK big';
-			c[4] = 'CJK big replacements';
+			c[4] = 'CJK big ext.';
 			c[5] = 'English (?)';
 			c[6] = 'English small';
 			c[7] = 'English (?)';
@@ -4388,7 +4973,7 @@
 
 					const font = fonts.standard(columns[columnId]);
 					fontColumnsParsed.set(columnId, font);
-					const { bitmap, bitmapWidth, bitmapHeight } = fonts.preview(font.byGlyph, 32, false);
+					const { bitmap, bitmapWidth, bitmapHeight } = fonts.preview(font.byGlyph, 32, true);
 
 					const canvas = document.createElement('canvas');
 					canvas.width = bitmapWidth;
