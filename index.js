@@ -4223,6 +4223,39 @@
 			return c;
 		})([]);
 
+		// this lets us make it *very clear* which letters correspond to which char codes
+		const mapping = arr => {
+			const out = [];
+			let idx = 0;
+			for (let i = 0; i < arr.length; ++i) {
+				if (typeof arr[i] === 'number') idx = arr[i];
+				else out[idx] = arr[i];
+			}
+
+			return out;
+		};
+
+		// unmappable: 0x00 | 0x05-0x0f | 0x10-0x1f | 0x22 | 0x40 | 0x60
+		fonts.latinCharCodes = mapping([
+			0x01, '↑', 0x02, '→', 0x03, '↓', 0x04, '←',
+			0x20, ' ', 0x21, '!', 0x23, '#', 0x24, '$', 0x25, '%', 0x26, '&', 0x27, '\'',
+			0x28, '(', 0x29, ')', 0x2a, '*', 0x2b, '+', 0x2c, ',', 0x2d, '-', 0x2e, '.', 0x2f, '/',
+			0x30, '0', 0x31, '1', 0x32, '2', 0x33, '3', 0x34, '4', 0x35, '5', 0x36, '6', 0x37, '7',
+			0x38, '8', 0x39, '9', 0x3a, ':', 0x3b, ';', 0x3d, '=', 0x3f, '?',
+			0x41, 'A', 0x42, 'B', 0x43, 'C', 0x44, 'D', 0x45, 'E', 0x46, 'F', 0x47, 'G',
+			0x48, 'H', 0x49, 'I', 0x4a, 'J', 0x4b, 'K', 0x4c, 'L', 0x4d, 'M', 0x4e, 'N', 0x4f, 'O',
+			0x50, 'P', 0x51, 'Q', 0x52, 'R', 0x53, 'S', 0x54, 'T', 0x55, 'U', 0x56, 'V', 0x57, 'W',
+			0x58, 'X', 0x59, 'Y', 0x5a, 'Z', 0x5b, '[', 0x5c, '\\', 0x5d, ']', 0x5f, '_',
+		]);
+
+		fonts.japaneseCharCodes = mapping([]);
+
+		fonts.japaneseExtendedCharCodes = mapping([]);
+
+		fonts.koreanCharCodes = mapping([]);
+
+		fonts.koreanExtendedCharCodes = mapping([]);
+
 		const fontPalette = rgb15To32(bufToU16(fsext.fontPalette || new Uint16Array([
 			// same as the default light palette
 			0x6bdf, 0x190c, 0x6f9d, 0x1d0a, 0x3698, 0x533c, 0x6bdf, 0x7fff,
@@ -4265,15 +4298,30 @@
 		let fontSelectionDropdown = dropdown([''], 0, () => {});
 		section.appendChild(fontSelectionDropdown);
 
-		const useCharMap = checkbox('Use Character Map', false, () => updateFontPreview());
-		section.appendChild(useCharMap);
+		const showCharMap = checkbox('Show Character Map', false, () => updateFontPreview());
+		section.appendChild(showCharMap);
 
 		const showLetterWidths = checkbox('Show Letter Widths', true, () => updateFontPreview());
 		section.appendChild(showLetterWidths);
 
+		const previewContainer = document.createElement('div');
+		previewContainer.style.cssText = 'display: grid; grid-template-columns: 200px auto; margin-top: 5px';
+		section.appendChild(previewContainer);
+
+		const charPreview = document.createElement('div');
+		charPreview.style.cssText = 'width: 200px; height: fit-content; grid-column: 1; position: sticky; top: 0';
+		previewContainer.appendChild(charPreview);
+
+		const charPreviewCanvas = document.createElement('canvas');
+		charPreviewCanvas.width = charPreviewCanvas.height = 200; // temp
+		charPreview.appendChild(charPreviewCanvas);
+
+		const charPreviewList = document.createElement('div');
+		charPreview.appendChild(charPreviewList);
+
 		const fontPreview = document.createElement('div');
 		fontPreview.style.cssText = 'width: 800px; height: fit-content; grid-column: 2';
-		section.appendChild(fontPreview);
+		previewContainer.appendChild(fontPreview);
 
 		fonts.unpack = dat => {
 			const charMapSize = dat.getUint32(0, true);
@@ -4318,7 +4366,7 @@
 				if (glyphWidth || glyphHeight) {
 					for (let letterIndex = 0; o < tableDat.byteLength; ++letterIndex) {
 						o = 4 + letterWidthSize + letterIndex * glyphWidth * glyphHeight / 4;
-						const glyph = new Uint8Array(glyphWidth * glyphHeight);
+						const bitmap = new Uint8Array(glyphWidth * glyphHeight);
 						for (let baseX = 0; baseX + 7 < glyphWidth; baseX += 8) {
 							for (let baseY = 0; baseY < glyphHeight; baseY += 4) {
 								const alpha = tableDat.getUint32(o, true);
@@ -4328,7 +4376,7 @@
 									for (let y = 0; y < 4; ++y, ++bit) {
 										const clearBit = (alpha >>> bit) & 1;
 										const colorBit = (alt >>> bit) & 1;
-										glyph[(baseY + y) * glyphWidth + baseX + x] = clearBit << 1 | colorBit;
+										bitmap[(baseY + y) * glyphWidth + baseX + x] = clearBit << 1 | colorBit;
 									}
 								}
 							}
@@ -4344,13 +4392,13 @@
 									for (let y = 0; y < 4; ++y, ++bit) {
 										const clearBit = (alpha >>> bit) & 1;
 										const colorBit = (alt >>> bit) & 1;
-										glyph[(baseY + y) * glyphWidth + baseX + x] = clearBit << 1 | colorBit;
+										bitmap[(baseY + y) * glyphWidth + baseX + x] = clearBit << 1 | colorBit;
 									}
 								}
 							}
 						}
 
-						glyphs.push({ glyph, letterWidth: letterWidths[letterIndex] + 1 });
+						glyphs.push({ bitmap, letterWidth: letterWidths[letterIndex] + 1 });
 					}
 				}
 
@@ -4364,6 +4412,19 @@
 
 			const charMap = sliceDataView(dat, charMapOffset, charMapOffset + charMapSize);
 			return { charMap, glyphTables };
+		};
+
+		fonts.drawGlyph = (bitmap, bitmapWidth, bitmapHeight, bitmapX, bitmapY, glyphBitmap, glyphWidth, glyphHeight, mainColor, altColor) => {
+			for (let y = 0; y < glyphHeight; ++y) {
+				for (let x = 0; x < glyphWidth; ++x) {
+					const pos = (bitmapY + y) * bitmapWidth + bitmapX + x;
+					const pixel = glyphBitmap[y * glyphWidth + x];
+					if (pixel === 0b00); // clear=0, color=0 => do nothing
+					else if (pixel === 0b01) bitmap[pos] = 0xff0000ff; // clear=0, color=1 => corruption!!1
+					else if (pixel === 0b10) bitmap[pos] = mainColor; // clear=1, color=0 => main color
+					else if (pixel === 0b11) bitmap[pos] = altColor; // clear=1, color=1 => alt color
+				}
+			}
 		};
 
 		const updateFontFileSelection = () => {
@@ -4525,6 +4586,183 @@
 			const table = document.createElement('table');
 			table.className = 'bordered';
 
+			let selectedEntry = undefined;
+			let onDeselect = undefined;
+			let reoutlineSelected = undefined;
+			const sheet = (entries, maxGlyphWidth, maxGlyphHeight) => {
+				const bitmapWidth = Math.min(entries.length, 16) * (maxGlyphWidth + 3) + 1;
+				const bitmapHeight = Math.ceil(entries.length / 16) * (maxGlyphHeight + 3) + 1;
+				const bitmap = new Uint32Array(bitmapWidth * bitmapHeight);
+
+				const sheetCanvas = document.createElement('canvas');
+				sheetCanvas.width = bitmapWidth;
+				sheetCanvas.height = bitmapHeight;
+				sheetCanvas.style.cssText = `width: ${bitmapWidth * 2}px; height: ${bitmapHeight * 2}px`;
+
+				for (let i = 0; i < entries.length; ++i) {
+					const { glyphTable, glyphEntry } = entries[i];
+					const outerBaseX = (maxGlyphWidth + 3) * (i & 0xf);
+					const outerBaseY = (maxGlyphHeight + 3) * (i >> 4);
+					const outerEndX = outerBaseX + maxGlyphWidth + 3;
+					const outerEndY = outerBaseY + maxGlyphHeight + 3;
+
+					// top line
+					bitmap.fill(
+						palette[5],
+						outerBaseY * bitmapWidth + outerBaseX,
+						outerBaseY * bitmapWidth + outerEndX + 1,
+					);
+					// bottom line
+					bitmap.fill(
+						palette[5],
+						(outerBaseY + maxGlyphHeight + 3) * bitmapWidth + outerBaseX,
+						(outerBaseY + maxGlyphHeight + 3) * bitmapWidth + outerEndX + 1,
+					);
+					for (let y = outerBaseY + 1; y < outerEndY; ++y) {
+						bitmap[y * bitmapWidth + outerBaseX] = palette[5]; // left line
+						bitmap[y * bitmapWidth + outerEndX] = palette[5]; // right line
+					}
+
+					const fillBox = color => {
+						for (let y = outerBaseY + 1; y < outerEndY; ++y) {
+							for (let x = outerBaseX + 1; x < outerEndX; ++x) {
+								bitmap[y * bitmapWidth + x] = color;
+							}
+						}
+					};
+
+					if (glyphEntry === undefined) {
+						fillBox(palette[4]); // no glyph, so show an empty, darkened glyph box
+						continue;
+					}
+
+					if (glyphEntry === false) {
+						fillBox(0xff0000ff); // INVALID glyph, so show a red box
+						continue;
+					}
+
+					// valid glyph!
+					fillBox(palette[6]); // valid glyph, so use the default textbox color
+
+					// (bitmap, bitmapWidth, bitmapHeight, bitmapX, bitmapY, glyph, glyphWidth, glyphHeight, letterWidth, mainColor, altColor)
+					fonts.drawGlyph(bitmap, bitmapWidth, bitmapHeight, outerBaseX + 2, outerBaseY + 2, glyphEntry.bitmap, glyphTable.glyphWidth, glyphTable.glyphHeight, palette[1], palette[2]);
+
+					if (showLetterWidths.checked) {
+						for (let x = 0; x < glyphEntry.letterWidth; ++x) {
+							bitmap[(outerEndY - 1) * bitmapWidth + outerBaseX + 2 + x] = palette[0xa]; // orange
+						}
+					}
+				}
+
+				const sheetCtx = sheetCanvas.getContext('2d');
+				sheetCtx.putImageData(new ImageData(bufToU8Clamped(bitmap), bitmapWidth, bitmapHeight), 0, 0);
+
+				const outline = (index, color) => {
+					const outerBaseX = (index & 0xf) * (maxGlyphWidth + 3);
+					const outerBaseY = (index >> 4) * (maxGlyphHeight + 3);
+
+					sheetCtx.strokeStyle = '#' + str8(color & 0xff) + str8(color >> 8 & 0xff) + str8(color >> 16 & 0xff);
+					sheetCtx.strokeRect(outerBaseX + 0.5, outerBaseY + 0.5, maxGlyphWidth + 3, maxGlyphHeight + 3);
+				};
+
+				const select = index => {
+					const entry = entries[index];
+					const { glyphTable, glyphEntry, tableIndex, glyphIndex, charCodes } = entry;
+					const { glyphWidth, glyphHeight } = glyphTable;
+
+					selectedEntry = entry;
+					onDeselect?.();
+					onDeselect = () => outline(index, palette[5]);
+					reoutlineSelected = () => outline(index, 0xff000000); // black outline
+					reoutlineSelected();
+
+					const previewBitmap = new Uint32Array(glyphWidth * glyphHeight);
+					previewBitmap.fill(palette[6], 0, previewBitmap.length);
+					fonts.drawGlyph(previewBitmap, glyphWidth, glyphHeight, 0, 0, glyphEntry.bitmap, glyphWidth, glyphHeight, palette[1], palette[2]);
+
+					charPreviewCanvas.width = glyphWidth;
+					charPreviewCanvas.height = glyphHeight;
+					// scale the canvas by an integer amount up to a *width* of 200px (dw about the height)
+					const scaling = Math.floor(200 / glyphWidth);
+					charPreviewCanvas.style.cssText = `width: ${glyphWidth * scaling}px; height: ${glyphHeight * scaling}px; margin: 0 ${(200 - glyphWidth * scaling) / 2}px`;
+
+					const charPreviewCtx = charPreviewCanvas.getContext('2d');
+					charPreviewCtx.putImageData(new ImageData(bufToU8Clamped(previewBitmap), glyphWidth, glyphHeight), 0, 0);
+
+					charPreviewList.innerHTML = '';
+					const exportButton = button('Export PNG', () => {
+						const pngBitmap = new Uint32Array(glyphWidth * glyphHeight);
+						// (bitmap, bitmapWidth, bitmapHeight, bitmapX, bitmapY, glyphBitmap, glyphWidth, glyphHeight, mainColor, altColor) 
+						fonts.drawGlyph(pngBitmap, glyphWidth, glyphHeight, 0, 0, glyphEntry.bitmap, glyphWidth, glyphHeight, palette[1], palette[2]);
+						const image = png(pngBitmap, glyphWidth, glyphHeight);
+						download(`glyph-0x${str8(glyphIndex)}.png`, image, 'image/png');
+					});
+					charPreviewList.appendChild(exportButton);
+
+					const letterLists = [fonts.latinCharCodes, fonts.japaneseCharCodes, fonts.japaneseExtendedCharCodes, fonts.koreanCharCodes, fonts.koreanExtendedCharCodes].map(map => {
+						const list = charCodes.map(code => {
+							if (map[code]) {
+								const unicode = map[code].codePointAt(0); // NOT charCodeAt, bc we don't want surrogates
+								return `${sanitize(map[code])} <span style="color:var(--fg-dim)">(U+${str16(unicode)})</span>`;
+							}
+							return '<span style="color:var(--red)">?</span>';
+						});
+						if (list.length <= 1) return list[0];
+						return '<ul>' + list.map(x => '<li>' + x + '</li>') + '</ul>';
+					});
+
+					addHTML(charPreviewList, [
+						`<div>Letter width: ${glyphEntry.letterWidth}</div>`,
+						`<div>Char code: ${charCodes.map(x => '0x' + str8(x)).join(', ')}</div>`,
+						`<div>Table 0x${tableIndex.toString(16)}, glyph 0x${glyphIndex.toString(16)}</div>`,
+						`<div>Latin: ${letterLists[0]}</div>`,
+						`<div>JP: ${letterLists[1]}</div>`,
+						`<div>JP Ext.: ${letterLists[2]}</div>`,
+						`<div>KO: ${letterLists[3]}</div>`,
+						`<div>KO Ext.: ${letterLists[4]}</div>`,
+					].join(''));
+				};
+
+				if (!selectedEntry) {
+					for (let i = 0; i < entries.length; ++i) {
+						if (!entries[i].glyphEntry) continue;
+						select(i);
+						break;
+					}
+				}
+
+				let hoveringIndex = undefined;
+				const hover = index => {
+					if (index === hoveringIndex) return;
+					// un-outline the old entry
+					if (entries[hoveringIndex] !== selectedEntry) outline(hoveringIndex, palette[5]);
+					// outline the new entry
+					if (entries[index]) outline(index, 0xff000000);
+					// ONLY set if there's actually an entry here (no out-of-bounds index) or if we're just de-hovering
+					if (entries[index] || index === undefined) hoveringIndex = index;
+
+					reoutlineSelected?.();
+				};
+
+				sheetCanvas.addEventListener('mousemove', ev => {
+					const tileX = Math.min(Math.floor(ev.offsetX / 2 / (maxGlyphWidth + 3)), 15);
+					const tileY = Math.floor(ev.offsetY / 2 / (maxGlyphHeight + 3));
+					hover(tileY * 16 + tileX);
+				});
+
+				sheetCanvas.addEventListener('mouseleave', () => hover(undefined));
+				addEventListener('blur', () => hover(undefined));
+
+				sheetCanvas.addEventListener('mousedown', ev => {
+					const tileX = Math.min(Math.floor(ev.offsetX / 2 / (maxGlyphWidth + 3)), 15);
+					const tileY = Math.floor(ev.offsetY / 2 / (maxGlyphHeight + 3));
+					const index = tileY * 16 + tileX;
+					if (entries[index]?.glyphEntry) select(index);
+				});
+
+				return sheetCanvas;
+			};
+
 			for (const [label, dat] of dats) {
 				const tr = document.createElement('tr');
 				if (label) addHTML(tr, `<th>${label}</th>`);
@@ -4560,78 +4798,21 @@
 					}
 				};
 
-				const bindSheetHovering = (sheetCanvas, glyphs, tileWidth, tileHeight) => {
-					let hoveringGlyph = undefined;
-					let hoveringGlyphIdx = undefined;
-
-					const sheetCtx = sheetCanvas.getContext('2d');
-					sheetCtx.lineWidth = 1;
-
-					const edgeC = palette[5];
-					const edgeColor = `#${str8(edgeC & 0xff)}${str8((edgeC >> 8) & 0xff)}${str8((edgeC >> 16) & 0xff)}`;
-
-					const hover = document.createElement('div');
-					hover.style.cssText = 'border: 1px solid var(--line); background: var(--bg); color: var(--fg); line-height: 16px; padding: 4px; position: absolute; display: none; pointer-events: none; text-wrap: nowrap; user-select: none;';
-					sheetCanvas.parentNode.appendChild(hover);
-
-					const updateHoveringGlyph = (newGlyph, idx) => {
-						if (newGlyph && !hoveringGlyph) hover.style.display = '';
-						else if (!newGlyph && hoveringGlyph) hover.style.display = 'none';
-
-						if (hoveringGlyphIdx !== undefined && hoveringGlyphIdx < glyphs.length) {
-							// remove old outline
-							const tileX = (hoveringGlyphIdx & 0xf) * tileWidth;
-							const tileY = (hoveringGlyphIdx >> 4) * tileHeight;
-							sheetCtx.strokeStyle = edgeColor;
-							sheetCtx.strokeRect(tileX + 0.5, tileY + 0.5, tileWidth, tileHeight);
-						}
-
-						if (idx !== undefined && idx < glyphs.length) {
-							// add new outline
-							const tileX = (idx & 0xf) * tileWidth;
-							const tileY = (idx >> 4) * tileHeight;
-							sheetCtx.strokeStyle = '#000';
-							sheetCtx.strokeRect(tileX + 0.5, tileY + 0.5, tileWidth, tileHeight);
-						}
-
-						if (newGlyph) {
-							hover.textContent = `${useCharMap.checked ? 'char' : 'glyph'} 0x${idx.toString(16)}`;
-						}
-
-						hoveringGlyph = newGlyph;
-						hoveringGlyphIdx = idx;
-					};
-
-					sheetCanvas.addEventListener('mousemove', ev => {
-						console.log(ev);
-						const tileX = Math.min(Math.floor(ev.offsetX / (tileWidth * 2)), 15);
-						const tileY = Math.floor(ev.offsetY / (tileHeight * 2));
-						let index = tileY * 16 + tileX;
-						if (index >= glyphs.length) index = undefined; // !!!
-
-						const newGlyph = glyphs[index];
-						if (index !== hoveringGlyphIdx) {
-							updateHoveringGlyph(newGlyph, tileY * 16 + tileX);
-						}
-
-						if (newGlyph) {
-							hover.style.top = `${ev.offsetY}px`;
-							hover.style.left = `${ev.offsetX + 16}px`;
-						}
-					});
-
-					sheetCanvas.addEventListener('mouseleave', () => {
-						updateHoveringGlyph(undefined, undefined);
-					});
-
-					addEventListener('blur', () => {
-						updateHoveringGlyph(undefined, undefined);
-					});
-				};
-
 				const td = document.createElement('td');
 				const font = fonts.unpack(dat);
-				if (useCharMap.checked) {
+
+				const glyphToCharCodes = new Map();
+				for (let o = 0; o < font.charMap.byteLength; o += 2) {
+					const tableIndex = font.charMap.getUint8(o);
+					const glyphIndex = font.charMap.getUint8(o + 1);
+					if (tableIndex === 0xff && glyphIndex === 0xff) continue;
+
+					const list = glyphToCharCodes.get(tableIndex << 8 | glyphIndex);
+					if (list) list.push(o / 2);
+					else glyphToCharCodes.set(tableIndex << 8 | glyphIndex, [o / 2]);
+				}
+
+				if (showCharMap.checked) {
 					let maxGlyphWidth = 0;
 					let maxGlyphHeight = 0;
 					for (const table of font.glyphTables) {
@@ -4639,92 +4820,51 @@
 						if (maxGlyphHeight < table.glyphHeight) maxGlyphHeight = table.glyphHeight;
 					}
 
-					const sheetContainer = document.createElement('div');
-					sheetContainer.style.position = 'relative';
-
-					const sheetCanvas = document.createElement('canvas');
-					// the +1 is for the line along the bottom and the right
-					sheetCanvas.width = Math.min(font.charMap.byteLength / 2, 16) * (maxGlyphWidth + 3) + 1;
-					sheetCanvas.height = Math.ceil(font.charMap.byteLength / 2 / 16) * (maxGlyphHeight + 3) + 1;
-					sheetCanvas.style.cssText = `width: ${sheetCanvas.width * 2}px; height: ${sheetCanvas.height * 2}px`;
-					sheetContainer.appendChild(sheetCanvas);
-
-					const sheet = new Uint32Array(sheetCanvas.width * sheetCanvas.height);
-					const glyphs = [];
-					for (let i = 0; i * 2 < font.charMap.byteLength; ++i) {
-						const outerBaseX = (maxGlyphWidth + 3) * (i & 0xf);
-						const outerBaseY = (maxGlyphHeight + 3) * (i >> 4);
-
-						const tableIndex = font.charMap.getUint8(i * 2);
-						const glyphIndex = font.charMap.getUint8(i * 2 + 1);
+					const entries = [];
+					for (let o = 0; o < font.charMap.byteLength; o += 2) {
+						const tableIndex = font.charMap.getUint8(o);
+						const glyphIndex = font.charMap.getUint8(o + 1);
 						if (tableIndex === 0xff && glyphIndex === 0xff) {
-							// fill this area with a blank
-							for (let y = 0; y < maxGlyphHeight + 4; ++y) {
-								const edgeY = y === 0 || y === maxGlyphHeight + 3;
-								for (let x = 0; x < maxGlyphWidth + 4; ++x) {
-									const edge = edgeY || x === 0 || x === maxGlyphWidth + 3;
-									sheet[(outerBaseY + y) * sheetCanvas.width + outerBaseX + x] = palette[edge ? 5 : 4];
-								}
-							}
-
-							glyphs.push(undefined);
+							entries.push({
+								glyphTable: undefined, glyphEntry: undefined, tableIndex, glyphIndex,
+								charCodes: glyphToCharCodes.get(tableIndex << 8 | glyphIndex),
+							});
 							continue;
 						}
 
-						const table = font.glyphTables[tableIndex];
-						const glyphEntry = table?.glyphs[glyphIndex];
+						const glyphTable = font.glyphTables[tableIndex];
+						const glyphEntry = glyphTable?.glyphs[glyphIndex];
 						if (!glyphEntry) {
-							// fill this area with RED
-							for (let y = 0; y < maxGlyphHeight + 4; ++y) {
-								const edgeY = y === 0 || y === maxGlyphHeight + 3;
-								for (let x = 0; x < maxGlyphWidth + 4; ++x) {
-									const edge = edgeY || x === 0 || x === maxGlyphWidth + 3;
-									const color = edge ? palette[5] : 0xff0000ff;
-									sheet[(outerBaseY + y) * sheetCanvas.width + outerBaseX + x] = color;
-								}
-							}
-
-							glyphs.push(undefined);
+							entries.push({
+								glyphTable: false, glyphEntry: false, tableIndex, glyphIndex,
+								charCodes: glyphToCharCodes.get(tableIndex << 8 | glyphIndex),
+							});
 							continue;
 						}
 
-						const { glyph, letterWidth } = glyphEntry;
-						glyphs.push(glyph);
-						addGlyphTile(sheet, sheetCanvas.width, sheetCanvas.height, glyph, table.glyphWidth, table.glyphHeight, outerBaseX, outerBaseY, letterWidth);
+						entries.push({
+							glyphTable, glyphEntry, tableIndex, glyphIndex,
+							charCodes: glyphToCharCodes.get(tableIndex << 8 | glyphIndex),
+						});
 					}
 
-					const sheetCtx = sheetCanvas.getContext('2d');
-					sheetCtx.putImageData(new ImageData(bufToU8Clamped(sheet), sheetCanvas.width, sheetCanvas.height), 0, 0);
-					td.appendChild(sheetContainer);
-					bindSheetHovering(sheetCanvas, glyphs, maxGlyphWidth + 3, maxGlyphHeight + 3);
+					const sheetCanvas = sheet(entries, maxGlyphWidth, maxGlyphHeight);
+					td.appendChild(sheetCanvas);
 				} else {
 					for (let i = 0; i < font.glyphTables.length; ++i) {
 						const table = font.glyphTables[i];
 						addHTML(td, `<div><code>[${i}]</code> ${table.glyphWidth}x${table.glyphHeight} size, ${table.glyphs.length} glyphs</div>`);
 
-						const sheetContainer = document.createElement('div');
-						sheetContainer.style.position = 'relative';
-
-						const sheetCanvas = document.createElement('canvas');
-						// the +1 is for the line along the bottom and the right
-						sheetCanvas.width = Math.min(table.glyphs.length, 16) * (table.glyphWidth + 3) + 1;
-						sheetCanvas.height = Math.ceil(table.glyphs.length / 16) * (table.glyphHeight + 3) + 1;
-						sheetCanvas.style.cssText = `width: ${sheetCanvas.width * 2}px; height: ${sheetCanvas.height * 2}px`;
-						sheetContainer.appendChild(sheetCanvas);
-
-						const sheet = new Uint32Array(sheetCanvas.width * sheetCanvas.height);
+						const entries = [];
 						for (let j = 0; j < table.glyphs.length; ++j) {
-							const { glyph, letterWidth } = table.glyphs[j];
-
-							const outerBaseX = (table.glyphWidth + 3) * (j & 0xf);
-							const outerBaseY = (table.glyphHeight + 3) * (j >> 4);
-							addGlyphTile(sheet, sheetCanvas.width, sheetCanvas.height, glyph, table.glyphWidth, table.glyphHeight, outerBaseX, outerBaseY, letterWidth);
+							entries.push({
+								glyphTable: table, glyphEntry: table.glyphs[j], tableIndex: i, glyphIndex: j,
+								charCodes: glyphToCharCodes.get(i << 8 | j),
+							});
 						}
 
-						const sheetCtx = sheetCanvas.getContext('2d');
-						sheetCtx.putImageData(new ImageData(bufToU8Clamped(sheet), sheetCanvas.width, sheetCanvas.height), 0, 0);
-						td.appendChild(sheetContainer);
-						bindSheetHovering(sheetCanvas, table.glyphs, table.glyphWidth + 3, table.glyphHeight + 3);
+						const sheetCanvas = sheet(entries, table.glyphWidth, table.glyphHeight);
+						td.appendChild(sheetCanvas);
 					}
 				}
 
