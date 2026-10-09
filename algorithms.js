@@ -545,16 +545,24 @@ window.initAlgorithms = () => {
 	const png = (window.png = (u32, width, height) => {
 		// count all used colors, and generate the uncompressed IDAT data (perhaps with a palette or not)
 		let palette;
+		let transparency = false;
 		let uncompressedIdatBuf;
 		const seenColors = new Set(u32);
 		if (seenColors.size <= 256) {
 			// palette (assume 8-bit depth, anything below that is complicated and unnecessary)
+			let transparencyIndex = 0; // the first colors in the palette are always the transparent ones
 			palette = [];
 			const colorToIndex = new Map();
 			for (const color of seenColors) {
-				colorToIndex.set(color, colorToIndex.size);
-				palette.push(color);
+				const top = palette.push(color) - 1;
+				if ((color >>> 24) !== 0xff) {
+					[palette[transparencyIndex], palette[top]] = [palette[top], palette[transparencyIndex]];
+					++transparencyIndex;
+					transparency = true;
+				}
 			}
+
+			for (let i = 0; i < palette.length; ++i) colorToIndex.set(palette[i], i);
 
 			uncompressedIdatBuf = new Uint8Array((width + 1) * height);
 			let inoff = 0;
@@ -565,15 +573,32 @@ window.initAlgorithms = () => {
 			}
 		} else {
 			// rgb triplets
+			// find out if we need transparency
+			for (const color of seenColors) {
+				if ((color >>> 24) !== 0xff) {
+					transparency = true;
+					break;
+				}
+			}
+
 			uncompressedIdatBuf = new Uint8Array((width + 1) * height * 3);
 			let inoff = 0;
 			let outoff = 0;
 			for (let y = 0; y < height; ++y) {
 				uncompressedIdatBuf[outoff++] = 0; // no filter
-				for (let x = 0; x < width; ++x) {
-					uncompressedIdatBuf[outoff++] = u32[inoff];
-					uncompressedIdatBuf[outoff++] = u32[inoff] >>> 8;
-					uncompressedIdatBuf[outoff++] = u32[inoff++] >>> 16;
+				if (transparency) {
+					for (let x = 0; x < width; ++x) {
+						uncompressedIdatBuf[outoff++] = u32[inoff];
+						uncompressedIdatBuf[outoff++] = u32[inoff] >>> 8;
+						uncompressedIdatBuf[outoff++] = u32[inoff] >>> 16;
+						uncompressedIdatBuf[outoff++] = u32[inoff++] >>> 24;
+					}
+				} else {
+					for (let x = 0; x < width; ++x) {
+						uncompressedIdatBuf[outoff++] = u32[inoff];
+						uncompressedIdatBuf[outoff++] = u32[inoff] >>> 8;
+						uncompressedIdatBuf[outoff++] = u32[inoff++] >>> 16;
+					}
 				}
 			}
 		}
@@ -594,7 +619,7 @@ window.initAlgorithms = () => {
 		(outdat.setUint32(outoff, width), (outoff += 4)); // image width
 		(outdat.setUint32(outoff, height), (outoff += 4)); // image height
 		outbuf[outoff++] = 8; // image bit depth
-		outbuf[outoff++] = palette ? 3 : 2; // image color type (3 = palette, 2 = rgb triplets)
+		outbuf[outoff++] = palette ? 3 : (transparency ? 6 : 2); // image color type (3 = palette, 2 = rgb triplets)
 		outbuf[outoff++] = 0; // image compression method (0 = Deflate)
 		outbuf[outoff++] = 0; // image filter method (0 = adaptive)
 		outbuf[outoff++] = 0; // image interlace method (0 = no interlace)
@@ -615,6 +640,27 @@ window.initAlgorithms = () => {
 
 			// chunk crc32
 			(outdat.setUint32(outoff, crc32(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4));
+
+			// the first colors in the palette are the transparent ones
+			if (transparency) {
+				let numTransparentColors = 0;
+				for (let i = 0; i < palette.length; ++i) {
+					if ((palette[i] >>> 24) === 0xff) break;
+					++numTransparentColors;
+				}
+
+				// tRNS chunk
+				(outdat.setUint32(outoff, numTransparentColors), (outoff += 4)); // chunk length
+				(outbuf.set([0x74, 0x52, 0x4e, 0x53], outoff), (outoff += 4)); // chunk type (tRNS)
+
+				chunkStart = outoff;
+				for (let i = 0; i < numTransparentColors; ++i) {
+					outbuf[outoff++] = palette[i] >>> 24;
+				}
+
+				// chunk crc32
+				(outdat.setUint32(outoff, crc32(sliceDataView(outdat, chunkStart - 4, outoff))), (outoff += 4));
+			}
 		}
 
 		// IDAT chunk
