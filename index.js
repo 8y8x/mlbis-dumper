@@ -1650,6 +1650,8 @@
 
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
 			fsext.fontPalette = sliceDataView(fs.arm9, 0x02050144 - 0x02004000, 0x02050144 + 0xc0 - 0x02004000);
+			fsext.textboxTileset = sliceDataView(fs.arm9, 0x020506bc - 0x02004000, 0x020506bc + 100*32 - 0x02004000);
+			fsext.textboxStyles = sliceDataView(fs.arm9, 0x0205011c - 0x02004000, 0x0205011c + 4*4 - 0x02004000);
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
 			fillBattle(ovt.overlays[14], 0x020a58e4, 39, 0x020a5754, 20);
@@ -1668,6 +1670,9 @@
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 
 			fsext.font = sliceDataView(fs.arm9, 0x43d90, 0x462d8);
+			fsext.fontPalette = sliceDataView(fs.arm9, 0x0204ff68 - 0x02004000, 0x0204ff68 + 0xc0 - 0x02004000);
+			fsext.textboxTileset = sliceDataView(fs.arm9, 0x020504e0 - 0x02004000, 0x020504e0 + 100*32 - 0x02004000);
+			fsext.textboxStyles = sliceDataView(fs.arm9, 0x0204ff40 - 0x02004000, 0x0204ff40 + 4*4 - 0x02004000);
 		} else if (headers.gamecode === 'CLJJ') {
 			// JP
 			fillBattle(ovt.overlays[11], 0x020bb460, 37, 0x020bb368, 20); // no BDfxAll or BOfxAll
@@ -1686,6 +1691,9 @@
 			fsext.fieldRoomIndices = fixedIndices(0x1a85c, 0x1dd90, fs.overlay(3));
 
 			fsext.font = sliceDataView(fs.arm9, 0x44fa8, 0x48084);
+			fsext.fontPalette = sliceDataView(fs.arm9, 0x02051d90 - 0x02004000, 0x02051d90 + 0xc0 - 0x02004000);
+			fsext.textboxTileset = sliceDataView(fs.arm9, 0x02052308 - 0x02004000, 0x02052308 + 100*32 - 0x02004000);
+			fsext.textboxStyles = sliceDataView(fs.arm9, 0x02051d68 - 0x02004000, 0x02051d68 + 4*4 - 0x02004000);
 		} else if (headers.gamecode === 'CLJP') {
 			// EU
 			fillBattle(ovt.overlays[14], 0x0209caa4, 39, 0x0209c914, 20);
@@ -1704,6 +1712,9 @@
 			fsext.fieldRoomIndices = fixedIndices(0x19fd0, 0x1d504, fs.overlay(3));
 
 			fsext.font = sliceDataView(fs.arm9, 0x43d3c, 0x464cc);
+			fsext.fontPalette = sliceDataView(fs.arm9, 0x02050144 - 0x02004000, 0x02050144 + 0xc0 - 0x02004000);
+			fsext.textboxTileset = sliceDataView(fs.arm9, 0x020506bc - 0x02004000, 0x020506bc + 100*32 - 0x02004000);
+			fsext.textboxStyles = sliceDataView(fs.arm9, 0x0205011c - 0x02004000, 0x0205011c + 4*4 - 0x02004000);
 		} else if (headers.gamecode === 'Y6PP') {
 			// EU Demo
 			fillBattle(ovt.overlays[11], 0x020a8b2c, 37, 0x020a8a34, 20);
@@ -1722,6 +1733,9 @@
 			fsext.fieldRoomIndices = fixedIndices(0xe498, 0xe72c, fs.overlay(3));
 
 			fsext.font = sliceDataView(fs.arm9, 0x406d0, 0x42e60);
+			fsext.fontPalette = sliceDataView(fs.arm9, 0x0204cac0 - 0x02004000, 0x0204cac0 + 0xc0 - 0x02004000);
+			fsext.textboxTileset = sliceDataView(fs.arm9, 0x0204d038 - 0x02004000, 0x0204d038 + 100*32 - 0x02004000);
+			fsext.textboxStyles = sliceDataView(fs.arm9, 0x0204ca98 - 0x02004000, 0x0204ca98 + 4*4 - 0x02004000);
 		} else if (headers.gamecode === 'Y6PE') {
 			// NA Demo
 			fillBattle(ovt.overlays[11], 0x020a88cc, 37, 0x020a87d4, 20);
@@ -1740,6 +1754,9 @@
 			fsext.fieldRoomIndices = fixedIndices(0xe3dc, 0xe670, fs.overlay(3));
 
 			fsext.font = sliceDataView(fs.arm9, 0x4071c, 0x42cc8);
+			fsext.fontPalette = sliceDataView(fs.arm9, 0x0204c920 - 0x02004000, 0x0204c920 + 0xc0 - 0x02004000);
+			fsext.textboxTileset = sliceDataView(fs.arm9, 0x0204ce98 - 0x02004000, 0x0204ce98 + 100*32 - 0x02004000);
+			fsext.textboxStyles = sliceDataView(fs.arm9, 0x0204c8f8 - 0x02004000, 0x0204c8f8 + 4*4 - 0x02004000);
 		} else {
 			addHTML(section, `<b style="color: var(--red);">Unknown gamecode ${headers.gamecode}</b>`);
 		}
@@ -4235,9 +4252,10 @@
 			return out;
 		};
 
-		// unmappable: 0x00 | 0x05-0x0f | 0x10-0x1f | 0x22 | 0x40 | 0x60
-		fonts.latinCharCodes = mapping([
+		// unmappable: 0x00 | 0x05-0x08 | 0x0c-0x1f | 0x22 | 0x40 | 0x60 | 0x80-0x81
+		fonts.latinCharMap = mapping([
 			0x01, '↑', 0x02, '→', 0x03, '↓', 0x04, '←',
+			0x9, '♥', 0xa, '♪', 0xb, '★',
 			0x20, ' ', 0x21, '!', 0x23, '#', 0x24, '$', 0x25, '%', 0x26, '&', 0x27, '\'',
 			0x28, '(', 0x29, ')', 0x2a, '*', 0x2b, '+', 0x2c, ',', 0x2d, '-', 0x2e, '.', 0x2f, '/',
 			0x30, '0', 0x31, '1', 0x32, '2', 0x33, '3', 0x34, '4', 0x35, '5', 0x36, '6', 0x37, '7',
@@ -4246,17 +4264,71 @@
 			0x48, 'H', 0x49, 'I', 0x4a, 'J', 0x4b, 'K', 0x4c, 'L', 0x4d, 'M', 0x4e, 'N', 0x4f, 'O',
 			0x50, 'P', 0x51, 'Q', 0x52, 'R', 0x53, 'S', 0x54, 'T', 0x55, 'U', 0x56, 'V', 0x57, 'W',
 			0x58, 'X', 0x59, 'Y', 0x5a, 'Z', 0x5b, '[', 0x5c, '\\', 0x5d, ']', 0x5f, '_',
+			0x61, 'a', 0x62, 'b', 0x63, 'c', 0x64, 'd', 0x65, 'e', 0x66, 'f', 0x67, 'g',
+			0x68, 'h', 0x69, 'i', 0x6a, 'j', 0x6b, 'k', 0x6c, 'l', 0x6d, 'm', 0x6e, 'n', 0x6f, 'o',
+			0x70, 'p', 0x71, 'q', 0x72, 'r', 0x73, 's', 0x74, 't', 0x75, 'u', 0x76, 'v', 0x77, 'w',
+			0x78, 'x', 0x79, 'y', 0x7a, 'z', 0x7b, '{', 0x7d, '}', 0x7e, '~',
+			0x82, '‚', 0x84, '„', 0x85, '…', 0x86, '●',
+			0x88, '▲', 0x8a, '■', 0x8c, 'Œ',
+			0x91, '‘', 0x92, '’', 0x93, '“', 0x94, '”',
+			0x9c, 'œ',
+			0xa1, '¡', 0xa5, '¥',
+			0xaa, 'ª', 0xab, '«',
+			0xb0, '°',
+			0xba, 'º', 0xbb, '»', 0xbf, '¿',
+			0xc0, 'À', 0xc1, 'Á', 0xc2, 'Â', 0xc4, 'Ä', 0xc5, 'Å', 0xc7, 'Ç',
+			0xc8, 'È', 0xc9, 'É', 0xca, 'Ê', 0xcb, 'Ë', 0xcc, 'Ì', 0xcd, 'Í', 0xce, 'Î', 0xcf, 'Ï',
+			0xd1, 'Ñ', 0xd2, 'Ò', 0xd3, 'Ó', 0xd4, 'Ô', 0xd6, 'Ö',
+			0xd9, 'Ù', 0xda, 'Ú', 0xdb, 'Û', 0xdc, 'Ü', 0xdf, 'ß',
+			0xe0, 'à', 0xe1, 'á', 0xe2, 'â', 0xe4, 'ä', 0xe5, 'å', 0xe6, 'æ', 0xe7, 'ç',
+			0xe8, 'è', 0xe9, 'é', 0xea, 'ê', 0xeb, 'ë', 0xec, 'ì', 0xed, 'í', 0xee, 'î', 0xef, 'ï',
+			0xf1, 'ñ', 0xf2, 'ò', 0xf3, 'ó', 0xf4, 'ô', 0xf6, 'ö', 0xf9, 'ù', 0xfa, 'ú', 0xfb, 'û', 0xfc, 'ü',
 		]);
 
-		fonts.japaneseCharCodes = mapping([]);
+		// unmappable: 0x0c | 0x2a
+		// 0x3d is "=" in Latin but it has special meaning in Japanese and the glyph is different, sooo
+		fonts.japaneseCharMap = mapping([
+			0x01, 'ガ', 0x02, 'ギ', 0x03, 'グ', 0x04, 'ゲ', 0x05, 'ゴ', 0x06, 'ザ', 0x07, 'ジ',
+			0x08, 'ズ', 0x09, 'ゼ', 0x0a, 'ゾ', 0x0b, 'ダ', 0x0d, 'ヅ', 0x0e, 'デ', 0x0f, 'ド',
+			0x10, 'バ', 0x11, 'ビ', 0x12, 'ブ', 0x13, 'ベ', 0x14, 'ボ', 0x15, 'が', 0x16, 'ぎ', 0x17, 'ぐ',
+			0x18, 'げ', 0x19, 'ご', 0x1a, 'ざ', 0x1b, 'じ', 0x1c, 'ず', 0x1d, 'ぜ', 0x1e, 'ぞ', 0x1f, 'ゃ',
+			0x21, '!', 0x22, 'ゅ', 0x23, 'ょ', 0x24, 'っ', 0x25, '%', 0x26, '&', 0x27, '\'',
+			0x28, '(', 0x29, ')', 0x2b, '+', 0x2c, ',', 0x2d, '-', 0x2e, '.', 0x2f, '/',
+			0x30, '0', 0x31, '1', 0x32, '2', 0x33, '3', 0x34, '4', 0x35, '5', 0x36, '6', 0x37, '7',
+			0x38, '8', 0x39, '9', 0x3a, ':', 0x3b, ';', 0x3c, '。', 0x3d, '゠', 0x3e, '、', 0x3f, '?',
+			0x40, 'ー', 0x41, 'A', 0x42, 'B', 0x43, 'C', 0x44, 'D', 0x45, 'E', 0x46, 'F', 0x47, 'G',
+			0x48, 'H', 0x49, 'I', 0x4a, 'J', 0x4b, 'K', 0x4c, 'L', 0x4d, 'M', 0x4e, 'N', 0x4f, 'O',
+			0x50, 'P', 0x51, 'Q', 0x52, 'R', 0x53, 'S', 0x54, 'T', 0x55, 'U', 0x56, 'V', 0x57, 'W',
+			0x58, 'X', 0x59, 'Y', 0x5a, 'Z', 0x5b, '[', 0x5c, '¥', 0x5d, ']', 0x5e, 'わ', 0x5f, 'を',
+			0x60, 'ん', 0x61, 'a', 0x62, 'b', 0x63, 'c', 0x64, 'd', 0x65, 'e', 0x66, 'f', 0x67, 'g',
+			0x68, 'h', 0x69, 'i', 0x6a, 'j', 0x6b, 'k', 0x6c, 'l', 0x6d, 'm', 0x6e, 'n', 0x6f, 'o',
+			0x70, 'p', 0x71, 'q', 0x72, 'r', 0x73, 's', 0x74, 't', 0x75, 'u', 0x76, 'v', 0x77, 'w',
+			0x78, 'x', 0x79, 'y', 0x7a, 'z', 0x7b, 'ば', 0x7c, 'び', 0x7d, 'ぶ', 0x7e, '〜', 0x7f, 'ベ',
+			0x80, 'ぼ', 0x81, 'ぱ', 0x82, 'ぴ', 0x83, 'ぷ', 0x84, 'ぺ', 0x85, '…', 0x86, 'ぽ', 0x87, 'だ',
+			0x88, 'ぢ', 0x89, 'づ', 0x8a, 'で', 0x8b, 'ど', 0x8c, 'ぁ', 0x8d, 'ぃ', 0x8e, 'ぅ', 0x8f, 'ぇ',
+			0x90, 'ぉ', 0x91, 'あ', 0x92, 'い', 0x93, 'う', 0x94, 'え', 0x95, 'お', 0x96, 'か', 0x97, 'き',
+			0x98, 'く', 0x99, 'け', 0x9a, 'こ', 0x9b, 'さ', 0x9c, 'し', 0x9d, 'す', 0x9e, 'せ', 0x9f, 'そ',
+			0xa0, '「', 0xa1, '」', 0xa2, 'ァ', 0xa3, 'ィ', 0xa4, 'ゥ', 0xa5, 'ェ', 0xa6, 'ォ', 0xa7, 'ャ',
+			0xa8, 'ュ', 0xa9, 'ョ', 0xaa, 'ッ', 0xab, 'ア', 0xac, 'イ', 0xad, 'ウ', 0xae, 'エ', 0xaf, 'オ',
+			0xb0, 'カ', 0xb1, 'キ', 0xb2, 'ク', 0xb3, 'ケ', 0xb4, 'コ', 0xb5, 'サ', 0xb6, 'シ', 0xb7, 'ス',
+			0xb8, 'セ', 0xb9, 'ソ', 0xba, 'タ', 0xbb, 'チ', 0xbc, 'ツ', 0xbd, 'テ', 0xbe, 'ト', 0xbf, 'ナ',
+			0xc0, 'ニ', 0xc1, 'ヌ', 0xc2, 'ネ', 0xc3, 'ノ', 0xc4, 'ハ', 0xc5, 'ヒ', 0xc6, 'フ', 0xc7, 'ヘ',
+			0xc8, 'ホ', 0xc9, 'マ', 0xca, 'ミ', 0xcb, 'ム', 0xcc, 'メ', 0xcd, 'モ', 0xce, 'ヤ', 0xcf, 'ユ',
+			0xd0, 'ヨ', 0xd1, 'ラ', 0xd2, 'リ', 0xd3, 'ル', 0xd4, 'レ', 0xd5, 'ロ', 0xd6, 'ワ', 0xd7, 'ン',
+			0xd8, 'パ', 0xd9, 'ピ', 0xda, 'プ', 0xdb, 'ペ', 0xdc, 'ポ', 0xdd, 'た', 0xde, 'ち', 0xdf, 'つ',
+			0xe0, 'て', 0xe1, 'と', 0xe2, 'な', 0xe3, 'に', 0xe4, 'ぬ', 0xe5, 'ね', 0xe6, 'の', 0xe7, 'は',
+			0xe8, 'ひ', 0xe9, 'ふ', 0xea, 'へ', 0xeb, 'ほ', 0xec, 'ま', 0xed, 'み', 0xee, 'む', 0xef, 'め',
+			0xf0, 'も', 0xf1, 'や', 0xf2, 'ゆ', 0xf3, 'よ', 0xf4, 'ら', 0xf5, 'り', 0xf6, 'る', 0xf7, 'れ',
+			0xf8, 'ろ',
+		]);
 
-		fonts.japaneseExtendedCharCodes = mapping([]);
+		fonts.japaneseExtendedCharMap = mapping([]);
 
-		fonts.koreanCharCodes = mapping([]);
+		fonts.koreanCharMap = mapping([]);
 
-		fonts.koreanExtendedCharCodes = mapping([]);
+		fonts.koreanExtendedCharMap = mapping([]);
 
-		const fontPalette = rgb15To32(bufToU16(fsext.fontPalette || new Uint16Array([
+		const fontPalette = fonts.palette = rgb15To32(bufToU16(fsext.fontPalette || new Uint16Array([
 			// same as the default light palette
 			0x6bdf, 0x190c, 0x6f9d, 0x1d0a, 0x3698, 0x533c, 0x6bdf, 0x7fff,
 			0x0300, 0x6ffc, 0x01ff, 0x639f, 0x7d66, 0x7bdc, 0x001f, 0x6b5f,
@@ -4699,7 +4771,7 @@
 					});
 					charPreviewList.appendChild(exportButton);
 
-					const letterLists = [fonts.latinCharCodes, fonts.japaneseCharCodes, fonts.japaneseExtendedCharCodes, fonts.koreanCharCodes, fonts.koreanExtendedCharCodes].map(map => {
+					const letterLists = [fonts.latinCharMap, fonts.japaneseCharMap, fonts.japaneseExtendedCharMap, fonts.koreanCharMap, fonts.koreanExtendedCharMap].map(map => {
 						const list = charCodes.map(code => {
 							if (map[code]) {
 								const unicode = map[code].codePointAt(0); // NOT charCodeAt, bc we don't want surrogates
@@ -4879,6 +4951,645 @@
 		updatePalette();
 
 		return fonts;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Textboxes                                                                                            |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const textboxes = (window.textboxes = createSection('Textboxes', section => {
+		const textboxes = {};
+
+		const styleRow = document.createElement('div');
+		section.appendChild(styleRow);
+
+		const styleSelect = dropdown(['[0] None', '[1] Bubble', '[2] Shout', '[3] Bulletin'], 1, () => updateStyle());
+		styleRow.appendChild(styleSelect);
+
+		let layoutSelect = dropdown([''], 0, () => {});
+		styleRow.appendChild(layoutSelect);
+
+		let widthSelectBase = undefined;
+		let widthSelect = dropdown([''], 0, () => {});
+		styleRow.appendChild(widthSelect);
+
+		let heightSelectBase = undefined;
+		let heightSelect = dropdown([''], 0, () => {});
+		styleRow.appendChild(heightSelect);
+
+		let updateTextbox;
+		const styleSeparateParts = checkbox('Separate Parts', false, () => updateTextbox());
+		styleRow.appendChild(styleSeparateParts);
+
+		let exportPng = () => {};
+		const exportButton = button('Export PNG', () => exportPng());
+		styleRow.appendChild(exportButton);
+
+		const styleMetaPreview = document.createElement('div');
+		section.appendChild(styleMetaPreview);
+
+		const textboxCanvas = document.createElement('canvas');
+		section.appendChild(textboxCanvas);
+
+		const updateStyle = () => {
+			styleMetaPreview.innerHTML = '';
+			const styleOffset = fsext.textboxStyles.getUint32(styleSelect.value * 4, true) - headers.arm9RamOffset;
+
+			const layoutOptions = [];
+			for (let i = 0, o = styleOffset; o < fs.arm9.byteLength; ++i, o += 8) {
+				const layoutOffset = fs.arm9.getUint32(o, true) - headers.arm9RamOffset;
+				const maxHeight = fs.arm9.getUint8(o + 4);
+
+				layoutOptions.push(`Layout ${i}, max height 0x${maxHeight.toString(16)}`);
+
+				if (maxHeight === 0xff) break;
+			}
+
+			const newLayoutDropdown = dropdown(layoutOptions, 0, () => updateLayout());
+			layoutSelect.replaceWith(newLayoutDropdown);
+			layoutSelect = newLayoutDropdown;
+
+			const updateLayout = () => {
+				const layoutOffset = fs.arm9.getUint32(styleOffset + layoutSelect.value * 8, true) - headers.arm9RamOffset;
+				const maxHeight = fs.arm9.getUint32(styleOffset + layoutSelect.value * 8 + 4, true);
+				const borderSideWidth = fs.arm9.getUint16(layoutOffset, true);
+				const borderTopWidth = fs.arm9.getUint16(layoutOffset + 2, true);
+				const borderBottomWidth = fs.arm9.getUint16(layoutOffset + 4, true);
+				const fill = fs.arm9.getUint32(layoutOffset + 8, true);
+
+				styleMetaPreview.innerHTML = `borderSideWidth = ${borderSideWidth}, borderTopWidth = ${borderTopWidth}, borderBottomWidth = ${borderBottomWidth}, fill = 0x${str32(fill)}`;
+
+				const topLeftOffset = fs.arm9.getUint32(layoutOffset + 0xc, true) - headers.arm9RamOffset;
+				const topRightOffset = fs.arm9.getUint32(layoutOffset + 0x10, true) - headers.arm9RamOffset;
+				const bottomLeftOffset = fs.arm9.getUint32(layoutOffset + 0x14, true) - headers.arm9RamOffset;
+				const bottomRightOffset = fs.arm9.getUint32(layoutOffset + 0x18, true) - headers.arm9RamOffset;
+				const tbSidesOffset = fs.arm9.getUint32(layoutOffset + 0x1c, true) - headers.arm9RamOffset;
+				const lrSidesOffset = fs.arm9.getUint32(layoutOffset + 0x20, true) - headers.arm9RamOffset;
+
+				const newWidthBase = borderSideWidth * 2;
+				const widthOptions = [];
+				for (let x = newWidthBase; x <= 32; ++x) widthOptions.push(`w = ${x} tiles`);
+
+				const oldWidth = widthSelectBase === undefined ? 10 : (widthSelect.value + widthSelectBase);
+				const initialWidthOption = Math.min(Math.max(oldWidth - newWidthBase, 0), widthOptions.length - 1);
+				const newWidthDropdown = dropdown(widthOptions, initialWidthOption, () => updateTextbox());
+				widthSelect.replaceWith(newWidthDropdown);
+				widthSelect = newWidthDropdown;
+				widthSelectBase = newWidthBase;
+
+				const newHeightBase = borderTopWidth + borderBottomWidth;
+				const heightOptions = [];
+				for (let y = borderTopWidth + borderBottomWidth; y <= Math.min(maxHeight, 24); ++y) {
+					heightOptions.push(`h = ${y} tiles`);
+				}
+
+				const oldHeight = heightSelectBase === undefined ? 10 : (heightSelect.value + heightSelectBase);
+				const initialHeightOption = Math.min(Math.max(oldHeight - newHeightBase, 0), heightOptions.length - 1);
+				const newHeightDropdown = dropdown(heightOptions, initialHeightOption, () => updateTextbox());
+				heightSelect.replaceWith(newHeightDropdown);
+				heightSelect = newHeightDropdown;
+				heightSelectBase = newHeightBase;
+
+				updateTextbox = () => {
+					const padding = styleSeparateParts.checked ? 1 : 0;
+					let tileWidth = widthSelect.value + widthSelectBase + padding * 2;
+					let tileHeight = heightSelect.value + heightSelectBase + padding * 2;
+
+					const bitmapWidth = tileWidth * 8;
+					const bitmapHeight = tileHeight * 8;
+					const bitmap = new Uint32Array(bitmapWidth * bitmapHeight);
+
+					const palette = newFonts.palette;
+					const tileset = bufToU8(fsext.textboxTileset);
+					const putTextboxTile = (i, tileX, tileY) => {
+						let o = i * 32;
+						for (let y = 0; y < 8; ++y) {
+							for (let x = 0; x < 8; x += 2) {
+								const composite = tileset[o++];
+								const pos = (tileY * 8 + y) * bitmapWidth + (tileX * 8 + x);
+								if (composite & 0xf) bitmap[pos] = palette[composite & 0xf];
+								if (composite >> 4) bitmap[pos ^ 1] = palette[composite >> 4];
+							}
+						}
+					};
+
+					const tileRightStart = tileWidth - borderSideWidth;
+					const tileBottomStart = tileHeight - borderBottomWidth;
+
+					// 1. draw top left and top right
+					let oLeft = topLeftOffset;
+					let oRight = topRightOffset;
+					for (let y = 0; y < borderTopWidth; ++y) {
+						for (let x = 0; x < borderSideWidth; ++x) {
+							putTextboxTile(fs.arm9.getUint16(oLeft, true) >> 3, x, y);
+							putTextboxTile(fs.arm9.getUint16(oRight, true) >> 3, tileRightStart + x, y);
+							oLeft += 2;
+							oRight += 2;
+						}
+					}
+
+					// 2. draw bottom left and bottom right
+					oLeft = bottomLeftOffset;
+					oRight = bottomRightOffset;
+					for (let y = 0; y < borderBottomWidth; ++y) {
+						for (let x = 0; x < borderSideWidth; ++x) {
+							putTextboxTile(fs.arm9.getUint16(oLeft, true) >> 3, x, tileBottomStart + y);
+							putTextboxTile(fs.arm9.getUint16(oRight, true) >> 3, tileRightStart + x, tileBottomStart + y);
+							oLeft += 2;
+							oRight += 2;
+						}
+					}
+
+					// 3. draw top and bottom sides
+					for (let x = borderSideWidth + padding; x < tileWidth - borderSideWidth - padding; ++x) {
+						let o = tbSidesOffset;
+						o += 2; // ???
+						for (let y = 0; y < borderTopWidth; ++y) {
+							putTextboxTile(fs.arm9.getUint16(o, true) >> 3, x, y);
+							o += 2;
+						}
+
+						for (let y = 0; y < borderBottomWidth; ++y) {
+							putTextboxTile(fs.arm9.getUint16(o, true) >> 3, x, tileBottomStart + y);
+							o += 2;
+						}
+					}
+
+					// 4. draw left and right sides
+					for (let y = borderTopWidth + padding; y < tileHeight - borderBottomWidth - padding; ++y) {
+						let o = lrSidesOffset;
+						o += 2; // ???
+						for (let x = 0; x < borderSideWidth; ++x) {
+							putTextboxTile(fs.arm9.getUint16(o, true) >> 3, x, y);
+							o += 2;
+						}
+
+						for (let x = 0; x < borderSideWidth; ++x) {
+							putTextboxTile(fs.arm9.getUint16(o, true) >> 3, tileRightStart + x, y);
+							o += 2;
+						}
+					}
+
+					// 5. fill center
+					for (let tileY = borderTopWidth + padding; tileY < tileHeight - borderBottomWidth - padding; ++tileY) {
+						for (let tileX = borderSideWidth + padding; tileX < tileWidth - borderSideWidth - padding; ++tileX) {
+							for (let y = 0; y < 8; ++y) {
+								for (let x = 0; x < 8; ++x) {
+									const pos = (tileY * 8 + y) * bitmapWidth + (tileX * 8 + x);
+									const index = (fill >>> (x * 4)) & 0xf;
+									bitmap[pos] = palette[index];
+								}
+							}
+						}
+					}
+
+					textboxCanvas.width = bitmapWidth;
+					textboxCanvas.height = bitmapHeight;
+					textboxCanvas.style.cssText = `width: ${bitmapWidth * 2}px; height: ${bitmapHeight * 2}px`;
+					const ctx = textboxCanvas.getContext('2d');
+					ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), bitmapWidth, bitmapHeight), 0, 0);
+				};
+				updateTextbox();
+			};
+			updateLayout();
+		};
+		updateStyle();
+
+		textboxes.stringify = (buffer, characterMap, altCharacterMap) => {
+			const u8 = bufToU8(buffer);
+			const lines = [];
+			const currentLine = [];
+			let currentLineIsControl = undefined;
+
+			const push = (label, isControl) => {
+				if (!isControl === currentLineIsControl && currentLine.length) {
+					// note: does not happen if currentLineIsControl is undefined
+					lines.push(currentLine.join(''));
+					currentLine.length = 0;
+				}
+
+				currentLineIsControl = isControl;
+				if (isControl) label = `<span style="color:var(--blue)">&lt;${label}&gt;</span>`;
+				currentLine.push(label);
+			};
+
+			let o = 0;
+			for (; o < u8.length;) {
+				const char = u8[o++];
+				if (char === 0) break;
+
+				if (char === 0x20) {
+					// space character
+					push(' ', false);
+					continue;
+				}
+
+				if (char === 0xff) {
+					const control = u8[o++];
+					// ff00 => line break
+					// ff01 => reset text
+					// ff03 => instantly finish speaking (wtih higher pitch sound)
+					// ff0a => close textbox(??)
+					// ff0b => new textbox page(??)
+					// ff0c => ???
+					// ff0f => register display
+					// ff10 => register display but different
+					// ff11 => button prompt
+					if (control === 0) {
+						// line break
+						lines.push(currentLine.join(''));
+						currentLine.length = 0;
+					} else if (1 <= control && control <= 0x1f) {
+						// hookable operators
+						if (control === 1) push(`clear(${u8[o++]})`, true);
+						else if (control === 3) push('fast', true);
+						else if (control === 4) push('choice', true);
+						else if (control === 0xa) push('close', true);
+						else if (control === 0xb) {
+							const alignId = u8[o++];
+							const alignment = ['top', 'middle', 'bottom'][alignId] ?? alignId;
+							push(`valign(${alignment})`, true);
+						} else if (control === 0xc) push(`wait(${u8[o++]})`, true);
+						else if (control === 0xf) {
+							const reg = u8[o++] | 0xc000;
+							const digits = u8[o++];
+							push(`register(reg_${str16(reg)}, ${digits} digits)`, true);
+						} else if (control === 0x10) {
+							const reg = u8[o++] | 0xc000;
+							const digits = u8[o++];
+							push(`registerPadded(reg_${str16(reg)}, ${digits} digits)`, true);
+						} else if (control === 0x11) push(`prompt(${u8[o++]})`, true);
+						else if (control === 0x14) push('group', true);
+						else if (control === 0x15) push('ungroup', true);
+						else {
+							push(str8(control), true);
+						}
+					} else if (0x20 <= control && control <= 0x2f) {
+						// set palette offset
+						let color = control & 0xf;
+						if (color === 0) color = 'reset';
+						else if (color === 7) color = 'green';
+						else if (color === 9) color = 'orange';
+						else if (color === 11) color = 'blue';
+						else if (color === 13) color = 'red';
+						// other colors are invalid but do work
+
+						push(`color(${color})`, true);
+					} else if (0x30 <= control && control <= 0x3f) {
+						// set text alignment and size
+						if (control === 0x30) push('stretchReset', true);
+						else if (control === 0x31) push('stretchH', true);
+						else if (control === 0x32) push('stretchV', true);
+						else if (control === 0x33) push('stretchHV', true);
+						else if (control === 0x34) push('halign(left)', true);
+						else if (control === 0x35) push('halign(middle)', true);
+						else if (control === 0x36) push('halign(right)', true);
+						else if (control === 0x37) push('monospace(0)', true);
+						else if (control === 0x38) push('monospace(1)', true);
+					} else if (0x40 <= control && control <= 0x4f) {
+						// set font
+						push(`font(${control & 0xf})`, true);
+					} else if (0x50 <= control && control <= 0x5f) {
+						// set space width
+						push(`spaceWidth(${control & 0xf})`, true);
+					} else if (0x60 <= control && control <= 0x7f) {
+						// increment printer X
+						push(`x += ${control & 0x1f}`, true);
+					} else if (0x80 <= control && control <= 0x9f) {
+						// decrement printer X
+						push(`x -= ${control & 0x1f}`, true);
+					} else if (0xa0 <= control && control <= 0xbf) {
+						// increment printer Y
+						push(`y += ${control & 0x1f}`, true);
+					} else if (0xc0 <= control && control <= 0xdf) {
+						// decrement printer Y
+						push(`y -= ${control & 0x1f}`, true);
+					} else if (0xe0 <= control && control <= 0xef) {
+						// set text kerning
+						if (0xe0 <= control && control <= 0xe7) {
+							push(`setDefaultKerning(${control & 7})`, true);
+						} else if (0xe8 <= control && control <= 0xee) {
+							push(`kerning(${control & 7})`, true);
+						} else {
+							// control == 0xef
+							push('resetKerning', true);
+						}
+					}
+				} else if (altCharacterMap && 0xfa <= char) {
+					const mod = u8[o++];
+					const rCharCode = ((0xff - char) << 8) | mod;
+					const mapped = altCharacterMap[rCharCode];
+					if (mapped !== undefined) push(mapped, false);
+					else push(`<span style="color:var(--red)">\\x${str8(char)}\\x${str8(mod)}</span>`, false);
+				} else {
+					const mapped = characterMap[char];
+					if (mapped !== undefined) push(mapped, false);
+					else push(`<span style="color:var(--red)">\\x${str8(char)}</span>`, false);
+				}
+			}
+
+			if (currentLine.length) lines.push(currentLine.join(''));
+			return lines;
+		};
+
+		// [filePath, multipleTables, includesSize, includesFonts]
+		const fileOptions = [
+			['/FEvent/FEvent.dat', true, true, true],
+			['/BAI/BMes_cf.dat', true, true, true],
+			['/BAI/BMes_ji.dat', true, true, true],
+			['/BAI/BMes_yo.dat', true, true, true],
+			['/MAI/MMes_yo.dat', true, true, true],
+			['/SAI/SMes_yo.dat', true, true, true],
+			['/BData/mfset_AItmC.dat', false, false, false], // PIT only?
+			['/BData/mfset_AItmE.dat', false, false, false],
+			['/BData/mfset_AItmE2.dat', false, false, false],
+			['/BData/mfset_AItmN.dat', false, false, false],
+			['/BData/mfset_BadgeE.dat', false, false, false],
+			['/BData/mfset_BadgeEffectE.dat', false, false, false],
+			['/BData/mfset_BadgeN.dat', false, false, false],
+			['/BData/mfset_BonusE.dat', false, false, false],
+			['/BData/mfset_Help.dat', false, false, false],
+			['/BData/mfset_MiniGame.dat', false, false, false],
+			['/BData/mfset_MonN.dat', false, false, false],
+			['/BData/mfset_RankUpE.dat', false, false, false],
+			['/BData/mfset_UItmE.dat', false, false, false],
+			['/BData/mfset_UItmE2.dat', false, false, false],
+			['/BData/mfset_UItmN.dat', false, false, false],
+			['/BData/mfset_WearE.dat', false, false, false],
+			['/BData/mfset_WearN.dat', false, false, false],
+			['/BDataMiniGame/mfset_MesDat_MiniGame.dat', false, true, true],
+			['/EDataSave/mfset_EMesJig.dat', false, true, true],
+			['/EDataSave/mfset_EMesOutline.dat', false, true, true],
+			['/EDataSave/mfset_EMesPlace.dat', false, true, true],
+			['/EDataSave/mfset_EMesSys.dat', false, true, true],
+			['/MData/mfset_InitLoadMes.dat', false, true, false],
+			['/MData/mfset_MenuMes.dat', false, false, false],
+			['/MData/mfset_ParamExpMes.dat', false, true, false],
+			['/MData/mfset_ShopMes.dat', false, true, false],
+		];
+
+		const optionsRow = document.createElement('div');
+		section.appendChild(optionsRow);
+
+		let defaultStyle = 0;
+		if (headers.gamecode === 'CLJJ') defaultStyle = 1;
+		else if (headers.gamecode === 'CLJK') defaultStyle = 2;
+		const displayStyle = dropdown(['Latin', 'Japanese', 'Korean', 'Graphical'], defaultStyle, () => updateTable());
+		optionsRow.appendChild(displayStyle);
+
+		const fileSelect = dropdown(fileOptions.map(x => x[0]), 0, () => updateFile());
+		optionsRow.appendChild(fileSelect);
+
+		let tableOptions = [];
+		let tableSelect = dropdown([''], 0, () => {});
+		optionsRow.appendChild(tableSelect);
+
+		const tablePreview = document.createElement('table');
+		tablePreview.className = 'bordered';
+		section.appendChild(tablePreview);
+
+		const updateTable = () => {
+			const [_path, _multipleTables, includesSize, includesFonts] = fileOptions[fileSelect.value];
+			const table = tableOptions[tableSelect.value]?.[1];
+			tablePreview.innerHTML = '';
+			if (!table) {
+				// possible if this file doesn't have any tables available (but probably impossible in a real MLBIS rom)
+				return;
+			}
+
+			const columns = unpackSegmentedFile(table, 0, table);
+			const filteredColumns = [];
+			let maxRows = 0;
+			for (let i = includesFonts ? 66 : 0; i < columns.length; ++i) {
+				const unpacked = unpackSegmented32(columns[i]);
+				if (!unpacked.length) continue;
+				if (maxRows < unpacked.length) maxRows = unpacked.length;
+				filteredColumns.push([i, unpacked]);
+			}
+
+			if (maxRows === 0 || !filteredColumns.length) {
+				tablePreview.innerHTML = '<tr><th>(empty)</th></tr>';
+				return;
+			}
+
+			const headerRow = document.createElement('tr');
+			addHTML(headerRow, '<th></th>');
+			for (const [idx] of filteredColumns) {
+				if (includesFonts) addHTML(headerRow, `<th>[${idx}] ${newFonts.languageNamesWithFonts[idx]}</th>`);
+				else addHTML(headerRow, `<th>[${idx}] ${newFonts.languageNames[idx]}</th>`);
+			}
+
+			tablePreview.appendChild(headerRow);
+
+			for (let row = 0; row < maxRows; ++row) {
+				const tr = document.createElement('tr');
+				addHTML(tr, `<th>[${row}]</th>`);
+
+				for (let i = 0; i < filteredColumns.length; ++i) {
+					const td = document.createElement('td');
+
+					let dat = filteredColumns[i][1][row];
+					if (!dat?.byteLength) {
+						tr.appendChild(td);
+						continue;
+					}
+
+					let textboxWidth, textboxHeight;
+					if (includesSize) {
+						textboxWidth = dat.getUint8(0);
+						textboxHeight = dat.getUint8(1);
+						dat = sliceDataView(dat, 2, dat.byteLength);
+					}
+
+					if (displayStyle.value <= 2) {
+						// textual
+						let characterMap, altCharacterMap;
+						if (displayStyle.value === 0) {
+							// latin (no alt character map)
+							characterMap = newFonts.latinCharMap;
+						} else if (displayStyle.value === 1) {
+							// japanese
+							characterMap = newFonts.japaneseCharMap;
+							altCharacterMap = newFonts.japaneseExtendedCharMap;
+						} else {
+							// korean
+							characterMap = newFonts.koreanCharMap;
+							altCharacterMap = newFonts.koreanExtendedCharMap;
+						}
+
+						const lines = textboxes.stringify(dat, characterMap, altCharacterMap);
+						let prefix = '';
+						if (includesSize) {
+							prefix = `<span style="color:var(--green)">&lt;${textboxWidth}x${textboxHeight}&gt;</span><br>`;
+						}
+
+						td.innerHTML = prefix + lines.join('<br>');
+					}
+
+					tr.appendChild(td);
+				}
+
+				tablePreview.appendChild(tr);
+			}
+		};
+
+		const updateFile = () => {
+			const [path, multipleTables, _includesSize, _includesFonts] = fileOptions[fileSelect.value];
+
+			tableOptions = [];
+			if (multipleTables) {
+				let segments;
+				if (path === '/FEvent/FEvent.dat') segments = fsext.fevent;
+				else if (path.startsWith('/BAI/')) segments = fsext.battle.get(path);
+				else segments = unpackSegmentedFile(fs.get(path), 0, fs.get(path));
+
+				if (path === '/FEvent/FEvent.dat') {
+					for (let i = 2, roomId = 0; i < segments.length; i += 3, ++roomId) {
+						if (!segments[i].byteLength) continue;
+						tableOptions.push([`Room 0x${roomId.toString(16)}`, segments[i]]);
+					}
+				} else {
+					for (let i = 0; i < segments.length; ++i) {
+						if (!segments[i].byteLength) continue;
+						tableOptions.push([`Table 0x${i.toString(16)}`, segments[i]]);
+					}
+				}
+			} else {
+				tableOptions.push(['', fs.get(path)]);
+			}
+
+			if (tableOptions.length) {
+				const newTableSelect = dropdown(tableOptions.map(x => x[0]), 0, () => updateTable());
+				tableSelect.replaceWith(newTableSelect);
+				tableSelect = newTableSelect;
+				updateTable();
+			} else {
+				tableSelect.style.display = 'none';
+				tableSelect.select(0, true);
+				updateTable();
+			}
+		};
+		updateFile();
+
+
+		const test = document.createElement('canvas');
+		test.width = 256;
+		test.height = 256;
+		test.style.cssText = 'width: 1024px; height: 1024px;';
+		section.appendChild(test);
+
+		const testBitmap = new Uint32Array(256 * 256);
+		const textboxU8 = bufToU8(fsext.textboxTileset);
+		for (let i = 0, o = 0; o < fsext.textboxTileset.byteLength; ++i) {
+			const tileX = (i & 0x1f) * 8;
+			const tileY = (i >> 5) * 8;
+			const palOffset = ((tileX ^ tileY) & 8) ? 16 : 0;
+			for (let y = 0; y < 8; ++y) {
+				for (let x = 0; x < 8; x += 2) {
+					const composite = textboxU8[o++];
+					testBitmap[(tileY + y) * 256 + tileX + x] = newFonts.palette[palOffset + (composite & 0xf)];
+					testBitmap[(tileY + y) * 256 + tileX + (x ^ 1)] = newFonts.palette[palOffset + (composite >> 4)];
+				}
+			}
+		}
+
+		const testCtx = test.getContext('2d');
+		testCtx.putImageData(new ImageData(bufToU8Clamped(testBitmap), 256, 256), 0, 0);
+
+		textboxes.drawBubble = (bitmap, tilesWidth, tilesHeight) => {
+			const bitmapWidth = tilesWidth * 8;
+			const bitmapHeight = tilesHeight * 8;
+			const tileset = bufToU8(fsext.textboxTileset);
+			const palette = newFonts.palette;
+			const putTextboxTile = (i, tileX, tileY) => {
+				let o = i * 32;
+				for (let y = 0; y < 8; ++y) {
+					for (let x = 0; x < 8; x += 2) {
+						const composite = tileset[o++];
+						if (composite & 0xf)
+							bitmap[(tileY * 8 + y) * bitmapWidth + (tileX * 8 + x)] = palette[composite & 0xf];
+						if (composite >> 4)
+							bitmap[(tileY * 8 + y) * bitmapWidth + (tileX * 8 + (x ^ 1))] = palette[composite >> 4];
+					}
+				}
+			};
+
+			putTextboxTile(6, 0, 1); // top left
+			putTextboxTile(7, 0, 0); // ^
+			putTextboxTile(8, 1, 0); // ^
+			putTextboxTile(9, tilesWidth - 2, 0); // top right
+			putTextboxTile(10, tilesWidth - 1, 0); // ^
+			putTextboxTile(11, tilesWidth - 1, 1); // ^
+			putTextboxTile(12, 0, tilesHeight - 2); // bottom left
+			putTextboxTile(13, 0, tilesHeight - 1); // ^
+			putTextboxTile(14, 1, tilesHeight - 1); // ^
+			putTextboxTile(15, tilesWidth - 2, tilesHeight - 1); // bottom right
+			putTextboxTile(16, tilesWidth - 1, tilesHeight - 1); // ^
+			putTextboxTile(17, tilesWidth - 1, tilesHeight - 2); // ^
+
+			for (let x = 2; x < tilesWidth - 2; ++x) putTextboxTile(2, x, 0); // top line
+			for (let x = 2; x < tilesWidth - 2; ++x) putTextboxTile(3, x, tilesHeight - 1); // bottom line
+			for (let y = 2; y < tilesHeight - 2; ++y) putTextboxTile(4, 0, y); // left line
+			for (let y = 2; y < tilesHeight - 2; ++y) putTextboxTile(5, tilesWidth - 1, y); // right line
+
+			for (let y = 1; y < tilesHeight - 1; ++y) {
+				for (let x = 1; x < tilesWidth - 1; ++x) {
+					putTextboxTile(1, x, y);
+				}
+			}
+		};
+
+		textboxes.drawBubble = (bitmap, tilesWidth, tilesHeight) => {
+			const bitmapWidth = tilesWidth * 8;
+			const bitmapHeight = tilesHeight * 8;
+			const tileset = bufToU8(fsext.textboxTileset);
+			const palette = newFonts.palette;
+			const putTextboxTile = (i, tileX, tileY, palRow) => {
+				let o = i * 32;
+				for (let y = 0; y < 8; ++y) {
+					for (let x = 0; x < 8; x += 2) {
+						const composite = tileset[o++];
+						if (composite & 0xf)
+							bitmap[(tileY * 8 + y) * bitmapWidth + (tileX * 8 + x)] = palette[(palRow << 4) | (composite & 0xf)];
+						if (composite >> 4)
+							bitmap[(tileY * 8 + y) * bitmapWidth + (tileX * 8 + (x ^ 1))] = palette[(palRow << 4) | (composite >> 4)];
+					}
+				}
+			};
+
+			putTextboxTile(6, 0+1, 1, 0); // top left
+			putTextboxTile(7, 0, 0, 1); // ^
+			putTextboxTile(8, 1, 0, 1); // ^
+			putTextboxTile(9, tilesWidth - 2, 0, 1); // top right
+			putTextboxTile(10, tilesWidth - 1, 0, 1); // ^
+			putTextboxTile(11, tilesWidth - 1-1, 1, 0); // ^
+			putTextboxTile(12, 0+1, tilesHeight - 2, 0); // bottom left
+			putTextboxTile(13, 0, tilesHeight - 1, 1); // ^
+			putTextboxTile(14, 1, tilesHeight - 1, 1); // ^
+			putTextboxTile(15, tilesWidth - 2, tilesHeight - 1, 1); // bottom right
+			putTextboxTile(16, tilesWidth - 1, tilesHeight - 1, 1); // ^
+			putTextboxTile(17, tilesWidth - 1-1, tilesHeight - 2, 0); // ^
+
+			for (let x = 2; x < tilesWidth - 2; ++x) putTextboxTile(2, x, 0, 1); // top line
+			for (let x = 2; x < tilesWidth - 2; ++x) putTextboxTile(3, x, tilesHeight - 1, 1); // bottom line
+			/* for (let y = 2; y < tilesHeight - 2; ++y) putTextboxTile(4, 0, y); // left line
+			for (let y = 2; y < tilesHeight - 2; ++y) putTextboxTile(5, tilesWidth - 1, y); // right line */
+
+			for (let y = 1; y < tilesHeight - 1; ++y) {
+				for (let x = 2; x < tilesWidth - 2; ++x) {
+					putTextboxTile(y === 1 ? 1 : 27+32, x, y, 0);
+				}
+			}
+
+			putTextboxTile(19+64, 1, 2, 0);
+			putTextboxTile(20+64, tilesWidth-2, 2, 0);
+		};
+
+		const testBubbleBitmap = new Uint32Array((14*8) * (4*8));
+		const testBubble = textboxes.drawBubble(testBubbleBitmap, 14, 4);
+		testCtx.putImageData(new ImageData(bufToU8Clamped(testBubbleBitmap), 14*8, 4*8), 0, 40);
+
+		return textboxes;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
