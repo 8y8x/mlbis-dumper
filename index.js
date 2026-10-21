@@ -50,6 +50,8 @@
 
 	document.querySelector('#file-input').remove();
 	document.querySelector('#title').remove();
+	document.querySelector('#title-top').remove();
+	document.querySelector('#title-bottom').remove();
 
 	const settings = JSON.parse(localStorage.getItem('settings') || '{}');
 
@@ -581,7 +583,7 @@
 		headers.title = latin1(0, 12, file);
 		headers.gamecode = latin1(0xc, 4, file);
 		addHTML(ul, `<li>Title: ${headers.title} (${headers.gamecode})</li>`);
-		document.title = `(${headers.gamecode}) MLBIS Dumper`;
+		document.title = `(${headers.gamecode}) mlbis-dumper`;
 
 		headers.makercode = latin1(0x10, 2, file);
 		headers.unitcode = file.getUint8(0x12);
@@ -3671,554 +3673,6 @@
 	const fonts = (window.fonts = createSection('Fonts', section => {
 		const fonts = {};
 
-		fonts.glyphs1Bit = (dat, dataWidth, dataHeight, glyphWidth, glyphHeight) => {
-			const u8 = bufToU8(dat);
-			const glyphs = [];
-
-			const glyphY = glyphHeight - dataHeight - 3;
-
-			const byteSkip = Math.ceil((dataWidth * dataHeight) / 8);
-			for (let o = 0; o < u8.length; o += byteSkip) {
-				const bitmap = new Uint8Array(glyphWidth * glyphHeight);
-				for (let y = 0, bitOffset = 0; y < dataHeight; ++y) {
-					for (let x = 0; x < dataWidth; ++x, ++bitOffset) {
-						const bit = u8[o + (bitOffset >> 3)] & (0x80 >> (bitOffset & 7));
-						if (bit) {
-							bitmap[(y + glyphY) * glyphWidth + x] = 2;
-							bitmap[(y + glyphY - 1) * glyphWidth + x] ||= 1; // up shadow
-							if (x > 0) bitmap[(y + glyphY + 1) * glyphWidth + (x - 1)] ||= 1; // left shadow
-							bitmap[(y + glyphY + 1) * glyphWidth + x] ||= 1; // down shadow
-							bitmap[(y + glyphY) * glyphWidth + (x + 1)] ||= 1; // right shadow
-						}
-					}
-				}
-				glyphs.push(bitmap);
-			}
-
-			return glyphs;
-		};
-
-		fonts.glyphs2Bit = (dat, width, height) => {
-			const u8 = bufToU8(dat);
-			const glyphs = [];
-
-			for (let o = 0; o < u8.length; ) {
-				const bitmap = new Uint8Array(width * height);
-				const startO = o;
-				for (let baseX = 0; baseX < width; baseX += 8) {
-					const columnWidth = Math.min(8, width - baseX);
-					for (let baseY = 0; baseY < height; baseY += 4) {
-						const alphaO = o;
-						const shadeO = o + (columnWidth >> 1);
-						o += columnWidth;
-						for (let x = 0, bitOffset = 0; x < columnWidth; ++x) {
-							for (let y = 0; y < 4; ++y, ++bitOffset) {
-								const alpha = u8[alphaO + (bitOffset >> 3)] & (1 << (bitOffset & 7));
-								const shade = u8[shadeO + (bitOffset >> 3)] & (1 << (bitOffset & 7));
-								bitmap[(baseY + y) * width + baseX + x] = alpha ? (shade ? 1 : 2) : 0;
-							}
-						}
-					}
-				}
-				bitmap.SLICE = sliceDataView(dat, startO, o);
-				glyphs.push(bitmap);
-			}
-
-			return glyphs;
-		};
-
-		fonts.standard = dat => {
-			const chars = new Map();
-			const charMapSize = dat.getUint32(0, true);
-			const segments = unpackSegmentedUnsorted(dat, 4);
-			const charMap = segments.shift();
-
-			const byGlyph = new Map();
-			for (let i = 0; i < segments.length; ++i) {
-				const glyphTable = segments[i];
-				const glyphWidth = (glyphTable.getUint8(0) >> 4) * 4;
-				const glyphHeight = (glyphTable.getUint8(0) & 0xf) * 4;
-				let numGlyphs = glyphTable.getUint8(3) * 8;
-
-				const actualWidths = [];
-				let o = 4;
-				if (glyphWidth <= 16) {
-					for (let j = 0; j < numGlyphs; j += 2) {
-						const composite = glyphTable.getUint8(o++);
-						actualWidths.push(composite & 0xf, composite >> 4);
-					}
-				} else {
-					numGlyphs >>= 1;
-					for (let j = 0; j < numGlyphs; j += 2) {
-						const composite1 = glyphTable.getUint8(o);
-						const composite2 = glyphTable.getUint8(o + numGlyphs/2);
-						++o;
-						const width1 = (composite1 & 0xf) | (composite2 & 0xf) << 4;
-						const width2 = (composite1 >> 4) | (composite2 >> 4) << 4;
-						actualWidths.push(width1, width2);
-					}
-
-					o += numGlyphs / 2;
-				}
-
-				const glyphs = fonts.glyphs2Bit(
-					sliceDataView(glyphTable, o, glyphTable.byteLength),
-					glyphWidth,
-					glyphHeight,
-				);
-				for (let j = 0; j < glyphs.length; ++j) {
-					byGlyph.set((i << 8) | j, {
-						actualWidth: actualWidths[j] + 1,
-						bitmap: glyphs[j],
-						height: glyphHeight,
-						width: glyphWidth,
-					});
-				}
-			}
-
-			const byCode = new Map();
-			for (let i = 0, o = 0; o < charMapSize; ++i, o += 2) {
-				const glyphId = charMap.getInt16(o, false); // big endian!!
-				if (glyphId === -1) continue;
-				byCode.set(i, byGlyph.get(glyphId));
-			}
-
-			return { byCode, byGlyph };
-		};
-
-		fonts.fixed = (dat, dataWidth, dataHeight, glyphWidth, glyphHeight, is2Bit) => {
-			const byGlyph = new Map();
-			const glyphs = is2Bit
-				? fonts.glyphs2Bit(dat, dataWidth, dataHeight)
-				: fonts.glyphs1Bit(dat, dataWidth, dataHeight, glyphWidth, glyphHeight);
-			for (let i = 0; i < glyphs.length; ++i) {
-				byGlyph.set(i, { actualWidth: glyphWidth, bitmap: glyphs[i], height: glyphHeight, width: glyphWidth });
-			}
-
-			return { byCode: byGlyph, byGlyph };
-		};
-
-		fonts.preview = (table, glyphsPerRow, showActualWidth) => {
-			let maxGlyphWidth = 0;
-			let maxGlyphHeight = 0;
-			let maxKey = 0;
-			for (const [key, char] of table) {
-				if (key > maxKey) maxKey = key;
-				if (char.width > maxGlyphWidth) maxGlyphWidth = char.width;
-				if (char.height > maxGlyphHeight) maxGlyphHeight = char.height;
-			}
-
-			const paddedGlyphWidth = maxGlyphWidth + 2;
-			const paddedGlyphHeight = maxGlyphHeight + 2;
-
-			const bitmapWidth = paddedGlyphWidth * glyphsPerRow || 1;
-			const bitmapHeight = paddedGlyphHeight * Math.ceil((maxKey + 1) / glyphsPerRow) || 1;
-			const bitmap = new Uint32Array(bitmapWidth * bitmapHeight);
-			for (let i = 0; i <= maxKey; ++i) {
-				const cellX = i % glyphsPerRow;
-				const baseX = cellX * paddedGlyphWidth;
-				const cellY = Math.floor(i / glyphsPerRow);
-				const baseY = cellY * paddedGlyphHeight;
-				const oddTile = (cellX & 1) ^ (cellY & 1);
-
-				const glyph = table.get(i);
-				if (!glyph) continue;
-
-				for (let y = 0; y < paddedGlyphHeight; ++y) {
-					bitmap.fill(
-						oddTile ? 0xffd6f7ff : 0xffa5cee6,
-						(baseY + y) * bitmapWidth + baseX,
-						(baseY + y) * bitmapWidth + baseX + paddedGlyphWidth,
-					);
-				}
-
-				const { actualWidth, width, height, bitmap: glyphBitmap } = glyph;
-
-				for (let y = 0; y < height; ++y) {
-					for (let x = 0; x < width; ++x) {
-						const color = glyphBitmap[y * width + x];
-						// +1 on each component for padding
-						if (color)
-							bitmap[(baseY + y + 1) * bitmapWidth + baseX + x + 1] =
-								color === 1 ? 0xffdee6ef : 0xff314263;
-					}
-				}
-
-				if (showActualWidth) {
-					for (let x = 0; x < actualWidth; ++x) {
-						bitmap[(baseY + paddedGlyphHeight - 1) * bitmapWidth + baseX + x + 1] = 0xff0099ff;
-					}
-				}
-			}
-
-			return { bitmap, bitmapWidth, bitmapHeight };
-		};
-
-		const errorGlyph = {
-			bitmap: new Uint32Array(16 * 11),
-			width: 16,
-			height: 11,
-			actualWidth: 16,
-		};
-		errorGlyph.bitmap.set([3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], 0);
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16); // padding
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 2); // padding
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 3);
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 4);
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 5);
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 6);
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 7);
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 8); // padding
-		errorGlyph.bitmap.set([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3], 16 * 9); // padding
-		errorGlyph.bitmap.set([3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], 16 * 10);
-
-		const variableGlyph = {
-			bitmap: new Uint32Array(16 * 16),
-			width: 16,
-			height: 16,
-			actualWidth: 16,
-		};
-		variableGlyph.bitmap.set([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4], 0);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 1); // padding
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 2);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 3);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 4);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 5);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 6);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 7); // padding
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 8); // padding
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 9);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 10);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 11);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 12);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 13);
-		variableGlyph.bitmap.set([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4], 16 * 14); // padding
-		variableGlyph.bitmap.set([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4], 16 * 15);
-
-		const customGlyphChars = [];
-		customGlyphChars.push([0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0]); // 0
-		customGlyphChars.push([0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1]); // 1
-		customGlyphChars.push([0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1]); // 2
-		customGlyphChars.push([1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0]); // 3
-		customGlyphChars.push([1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1]); // 4
-		customGlyphChars.push([1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0]); // 5
-		customGlyphChars.push([0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0]); // 6
-		customGlyphChars.push([1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0]); // 7
-		customGlyphChars.push([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]); // 8
-		customGlyphChars.push([0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 0]); // 9
-		customGlyphChars.push([0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1]); // A
-		customGlyphChars.push([1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0]); // B
-		customGlyphChars.push([0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1]); // C
-		customGlyphChars.push([1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0]); // D
-		customGlyphChars.push([1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1]); // E
-		customGlyphChars.push([1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0]); // F
-		customGlyphChars.push([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // (empty)
-
-		const drawCustomChar = (destGlyphBitmap, i, baseX, baseY, color) => {
-			const charBitmap = customGlyphChars[i];
-			for (let y = 0; y < 5; ++y) {
-				for (let x = 0; x < 3; ++x) {
-					destGlyphBitmap[(baseY + y) * 16 + baseX + x] = charBitmap[y * 3 + x] ? color : 0;
-				}
-			}
-		};
-
-		fonts.textbox = (message, font, altFonts, width, height, bitmap, chineseFonts, defaultChineseFont, textSpacing) => {
-			let bitmapWidth = 256 + 8;
-			while (bitmapWidth < width) bitmapWidth *= 2;
-			bitmap ??= new Uint32Array(bitmapWidth * 192); // just for working
-			bitmap.fill(0xffd6f7ff, 0, bitmap.length);
-			let contentWidth = width || 1;
-			let baseX = 0;
-			let baseY = 0;
-			let lineHeight = 16; // ???
-
-			const resize = () => {
-				if (bitmapWidth * (baseY + lineHeight + 8) <= bitmap.length) return;
-
-				const newBitmap = new Uint32Array(bitmap.length * 2);
-				newBitmap.set(bitmap, 0);
-				newBitmap.fill(0xffd6f7ff, bitmap.length, newBitmap.length);
-				bitmap = newBitmap;
-			};
-			resize();
-
-			let currentFont = font;
-			let currentReplacementFont = altFonts[0];
-			let chineseFont = defaultChineseFont;
-			let darkColor = 0xff314263;
-			let shadowColor = 0xffdee6ef;
-			let noLetterSpacing = false;
-			let textWritten = false;
-
-			const u8 = bufToU8(message);
-			for (let o = 0; o < u8.length; ) {
-				let glyph;
-				const char = u8[o++];
-				if (char === 0xff) {
-					// formatting
-					const control = u8[o++];
-					if (control === 0x00) {
-						// line break
-						baseX = 0;
-						baseY += lineHeight + 4;
-						lineHeight = 16;
-						resize();
-					} else if (control === 0x01) {
-						// reset text
-						++o; // ?
-						if (textWritten) {
-							baseX = 0;
-							baseY += lineHeight + 4;
-							lineHeight = 16;
-							resize();
-							for (let x = 0; x < bitmapWidth; ++x) {
-								bitmap[baseY * bitmapWidth + x] = 0xff0099ff;
-							}
-							++baseY;
-							resize();
-							textWritten = false;
-						}
-					} else if (control === 0x0a)
-						++o; // close textbox
-					else if (control === 0x0b) {
-						// new textbox page (may scroll down) TODO doesn't BIS have scrolling textboxes???
-						++o; // ?
-						if (textWritten) {
-							baseX = 0;
-							baseY += lineHeight + 4;
-							lineHeight = 16;
-							resize();
-							for (let x = 0; x < bitmapWidth; ++x) {
-								const y = [0, 1, 2, 1][x & 3];
-								bitmap[(baseY + y) * bitmapWidth + x] = 0xff0099ff;
-							}
-							baseY += 3;
-							resize();
-							textWritten = false;
-						}
-					} else if (control === 0x0c)
-						++o; // wait TODO display some placeholder here
-					else if (control === 0x0f) {
-						// variable display, generate a glyph
-						const fine = u8[o++];
-						const broad = u8[o++];
-						drawCustomChar(variableGlyph.bitmap, fine >> 4, 4, 2, 4);
-						drawCustomChar(variableGlyph.bitmap, fine & 0xf, 9, 2, 4);
-						drawCustomChar(variableGlyph.bitmap, broad >> 4, 4, 9, 4);
-						drawCustomChar(variableGlyph.bitmap, broad & 0xf, 9, 9, 4);
-						glyph = variableGlyph;
-					} else if (control === 0x11)
-						++o; // button prompt TODO show this
-					else if (control === 0x20)
-						[darkColor, shadowColor] = [0xff314263, 0xffdee6ef]; // default
-					else if (control === 0x21)
-						[darkColor, shadowColor] = [0xffdee6ef, 0xff3a4252]; // (239,230,222) (82,66,58)
-					else if (control === 0x22)
-						[darkColor, shadowColor] = [0xff3a4252, 0xff6ba5c5]; // (82,66,58) (197,165,107)
-					else if (control === 0x23)
-						[darkColor, shadowColor] = [0xff6ba5c5, 0xffa5cee6]; // (197,165,107) (230,206,165)
-					else if (control === 0x24)
-						[darkColor, shadowColor] = [0xffa5cee6, 0xffd6f7ff]; // (230,206,165) (255,247,214)
-					else if (control === 0x25)
-						[darkColor, shadowColor] = [0xffd6f7ff, 0xffffffff]; // (255,247,214) (255,255,255)
-					else if (control === 0x26)
-						[darkColor, shadowColor] = [0xffffffff, 0xff00c500]; // (255,255,255) (0,197,0)
-					else if (control === 0x27)
-						[darkColor, shadowColor] = [0xff00c500, 0xffdeffe6]; // (0,197,0) (230,255,222)
-					else if (control === 0x28)
-						[darkColor, shadowColor] = [0xffdeff17, 0xff007bff]; // (230,255,222) (255,123,0)
-					else if (control === 0x29)
-						[darkColor, shadowColor] = [0xff007bff, 0xffc5e6ff]; // (255,123,0) (255,230,197)
-					else if (control === 0x2a)
-						[darkColor, shadowColor] = [0xffc5e6ff, 0xffff5a31]; // (255,230,197) (49,90,255)
-					else if (control === 0x2b)
-						[darkColor, shadowColor] = [0xffff5a31, 0xfff7f7e6]; // (49,90,255) (230,247,247)
-					else if (control === 0x2c)
-						[darkColor, shadowColor] = [0xfff7f7e6, 0xff0000ff]; // (230,247,247) (255,0,0)
-					else if (control === 0x2d)
-						[darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
-					else if (control === 0x2e)
-						[darkColor, shadowColor] = [0xff0000ff, 0xffd6d6ff]; // (255,0,0) (255,214,214)
-					else if (control === 0x2f)
-						[darkColor, shadowColor] = [0x00000000, 0xff314263]; // transparent (99,66,49)
-					else if (control === 0x40) {
-						// normal font
-						[currentFont, currentReplacementFont, chineseFont] = [font, altFonts[0], defaultChineseFont];
-					} else if (control === 0x41) {
-						// small font
-						[currentFont, currentReplacementFont, chineseFont] = [altFonts[1], altFonts[2], chineseFonts?.[1]];
-					} else if (control === 0x42) {
-						// big font
-						[currentFont, currentReplacementFont, chineseFont] = [altFonts[3], altFonts[4], chineseFonts?.[2]];
-					} else if (0x60 <= control && control <= 0xe0) {
-						// TEST DEBUG
-						drawCustomChar(variableGlyph.bitmap, control >> 4, 4, 2, 4);
-						drawCustomChar(variableGlyph.bitmap, control & 0xf, 9, 2, 4);
-						drawCustomChar(variableGlyph.bitmap, 16, 4, 9, 4);
-						drawCustomChar(variableGlyph.bitmap, 16, 9, 9, 4);
-						glyph = variableGlyph;
-					} else if (control === 0xe8) noLetterSpacing = true;
-					else if (control === 0xef) noLetterSpacing = false;
-
-					if (!glyph) continue; // some control characters are drawn
-				}
-
-				if (char === 0x00) continue; // ?
-				if (char === 0x20) {
-					baseX += 8;
-					continue;
-				}
-
-				textWritten = true;
-
-				let code = char;
-				if (!glyph) {
-					if (char >= 0xf9 && currentReplacementFont) {
-						// take from replacement characters
-						code = u8[o++];
-						if (char === 0xfe) code |= 0;
-						else if (char === 0xfd) code |= 0x100;
-						else if (char === 0xfc) code |= 0x200;
-						else if (char === 0xfb) code |= 0x300;
-						else if (char === 0xfa) code |= 0x400;
-						else if (char === 0xf9) code |= 0x500;
-						glyph = currentReplacementFont.byCode.get(code);
-					} else if (char <= 0x08 && chineseFont) {
-						// chinese square font access
-						code = u8[o++];
-						if (char === 0x01) code -= 1;
-						else if (char === 0x02) code += 0xf8;
-						else if (char === 0x03) code += 0x1f1;
-						else if (char === 0x04) code += 0x2ea;
-						else if (char === 0x05) code += 0x3e3;
-						else if (char === 0x06) code += 0x4dc;
-						else if (char === 0x07) code += 0x5d5;
-						else if (char === 0x08) code += 0x6ce;
-						glyph = chineseFont.byCode.get(code);
-					} else {
-						glyph = currentFont?.byCode.get(code);
-					}
-				}
-
-				if (!glyph) {
-					// invalid glyph; generate a symbol
-					drawCustomChar(errorGlyph.bitmap, (code >> 8) & 0xf, 2, 3, 3);
-					drawCustomChar(errorGlyph.bitmap, (code >> 4) & 0xf, 6, 3, 3);
-					drawCustomChar(errorGlyph.bitmap, code & 0xf, 10, 3, 3);
-					glyph = errorGlyph;
-				}
-
-				if (baseX + glyph.actualWidth > contentWidth) {
-					// resize
-					contentWidth = Math.min(baseX + glyph.width, width || 256);
-					// if exceeding a fixed width, newline first (don't change contentWidth though)
-					if (baseX + glyph.width > contentWidth) {
-						baseX = 0;
-						baseY += lineHeight + 4;
-						lineHeight = 16;
-						resize();
-					}
-				}
-
-				if (glyph.height > lineHeight) {
-					lineHeight = glyph.height;
-					resize();
-				}
-
-				for (let y = 0; y < glyph.height; ++y) {
-					for (let x = 0; x < glyph.width; ++x) {
-						const pos = (baseY + 4 + y) * bitmapWidth + (baseX + 4 + x);
-						const pixel = glyph.bitmap[y * glyph.width + x];
-						if (pixel === 1) bitmap[pos] = shadowColor;
-						else if (pixel === 2) bitmap[pos] = darkColor;
-						else if (pixel === 3)
-							bitmap[pos] = 0xff0000ff; // debug red
-						else if (pixel === 4) bitmap[pos] = 0xffff9900; // debug blue
-					}
-				}
-				baseX += glyph.actualWidth + (noLetterSpacing ? 0 : textSpacing);
-			}
-
-			const bitmapHeight = baseY + lineHeight + 4;
-			return { bitmap, bitmapWidth, bitmapHeight, actualWidth: contentWidth + 8 };
-		};
-
-		const optionFonts = (fonts.optionFonts = []);
-		const optionNames = (fonts.optionNames = []);
-		if (fsext.font) {
-			optionFonts.push(fonts.standard(fsext.font));
-			optionNames.push('ARM9 Font');
-		}
-
-		const statSegments = unpackSegmentedFile(fs.get('/Font/StatFontSet.dat'), 0, fs.get('/Font/StatFontSet.dat'));
-		for (let i = 0; i < statSegments.length; ++i) {
-			const u8 = bufToU8(statSegments[i]);
-			for (let o = 0; o < u8.length; ++o) {
-				if (u8[o]) {
-					// only add segments that aren't zero'd out
-					optionNames.push(`StatFontSet [${i}]`);
-					optionFonts.push(fonts.standard(statSegments[i]));
-					break;
-				}
-			}
-		}
-
-		if (fs.has('/Font/11x11.bin')) {
-			// chinese fan translation only
-			optionNames.push('11x11', '12x12', '20x20');
-			optionFonts.push(
-				fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, 12, 16, false),
-				fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, 12, 12, true),
-				fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, 20, 20, true),
-			);
-		}
-
-		const select = dropdown(optionNames, 0, () => update());
-		section.appendChild(select);
-
-		const showGlyphWidth = checkbox('Show Glyph Width', true, () => update());
-		section.appendChild(showGlyphWidth);
-
-		const alignCharCode = checkbox('Align To Character Codes', false, () => update());
-		section.appendChild(alignCharCode);
-
-		const list = document.createElement('div');
-		list.style.cssText = 'display: grid; grid-columns: 512px 200px';
-		section.appendChild(list);
-
-		const update = () => {
-			const font = optionFonts[select.value];
-			const { bitmap, bitmapWidth, bitmapHeight } = fonts.preview(
-				alignCharCode.checked ? font.byCode : font.byGlyph,
-				32,
-				showGlyphWidth.checked,
-			);
-
-			list.innerHTML = '';
-
-			const canvas = document.createElement('canvas');
-			canvas.width = bitmapWidth;
-			canvas.height = bitmapHeight;
-			canvas.style.cssText = `display: block; width: ${bitmapWidth * 2}px; height: ${bitmapHeight * 2}px;`;
-
-			const ctx = canvas.getContext('2d');
-			ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), bitmapWidth, bitmapHeight), 0, 0);
-
-			list.appendChild(canvas);
-		};
-		update();
-
-		return fonts;
-	}));
-
-	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: New Fonts                                                                                            |
-	// +---------------------------------------------------------------------------------------------------------------+
-
-	const newFonts = (window.newFonts = createSection('Fonts (New)', section => {
-		const fonts = {};
-
 		fonts.languageNamesWithFonts = (c => {
 			c[0] = 'JP/KO replacements';
 			c[1] = 'JP/KO small';
@@ -5217,10 +4671,6 @@
 		const styleSeparateParts = checkbox('Separate Parts', false, () => updateTextbox());
 		styleRow.appendChild(styleSeparateParts);
 
-		let exportPng = () => {};
-		const exportButton = button('Export PNG', () => exportPng());
-		styleRow.appendChild(exportButton);
-
 		const styleMetaPreview = document.createElement('div');
 		section.appendChild(styleMetaPreview);
 
@@ -5412,7 +4862,7 @@
 					const bitmap = new Uint32Array(bitmapWidth * bitmapHeight);
 
 					const paletteO = paletteSelect.value * 64;
-					const palette = bufToU32(sliceDataView(bufToDat(newFonts.palette), paletteO, paletteO + 64));
+					const palette = bufToU32(sliceDataView(bufToDat(fonts.palette), paletteO, paletteO + 64));
 					textboxes.drawBackground(bitmap, tileWidth, tileHeight, styleSelect.value, palette, styleSeparateParts.checked);
 
 					textboxCanvas.width = bitmapWidth;
@@ -5723,7 +5173,7 @@
 					const glyphEntry = glyphTable.glyphs[glyphIndex];
 					const { glyphWidth, glyphHeight } = glyphTable;
 					if (bitmap) {
-						newFonts.drawGlyph(bitmap, textboxWidth * 8, textboxWidth * 8, printer.x, printer.y, glyphEntry.bitmap, glyphWidth, glyphHeight, palette[(printer.paletteIndex + 1) & 0xf], palette[(printer.paletteIndex + 2) & 0xf]);
+						fonts.drawGlyph(bitmap, textboxWidth * 8, textboxWidth * 8, printer.x, printer.y, glyphEntry.bitmap, glyphWidth, glyphHeight, palette[(printer.paletteIndex + 1) & 0xf], palette[(printer.paletteIndex + 2) & 0xf]);
 					}
 
 					if (printer.monospace) printer.x += glyphWidth + printer.kerningX;
@@ -5883,9 +5333,9 @@
 		tablePreview.className = 'bordered';
 		section.appendChild(tablePreview);
 
-		const unpackedMediumFont = newFonts.unpack(fsext.font);
-		const unpackedSmallFont = newFonts.unpack(fsext.smallFont);
-		const unpackedSmallFontExt = fsext.smallFontExt && newFonts.unpack(fsext.smallFontExt);
+		const unpackedMediumFont = fonts.unpack(fsext.font);
+		const unpackedSmallFont = fonts.unpack(fsext.smallFont);
+		const unpackedSmallFontExt = fsext.smallFontExt && fonts.unpack(fsext.smallFontExt);
 
 		updateTable = () => {
 			doubleScale.style.display = renderTextboxes.checked ? 'inline-block' : 'none';
@@ -5909,12 +5359,12 @@
 				filteredColumns.push([i, unpacked]);
 			}
 
-			const baseFont = newFonts.unpack(fsext.font);
+			const baseFont = fonts.unpack(fsext.font);
 			const fontColumns = new Map();
 			if (includesFonts) {
 				for (let i = 0; i < 35; ++i) {
 					if (!columns[i].byteLength) continue;
-					fontColumns.set(i, newFonts.unpack(columns[i]));
+					fontColumns.set(i, fonts.unpack(columns[i]));
 				}
 			}
 
@@ -5926,8 +5376,8 @@
 			const headerRow = document.createElement('tr');
 			addHTML(headerRow, '<th></th>');
 			for (const [idx] of filteredColumns) {
-				if (includesFonts) addHTML(headerRow, `<th>[${idx}] ${newFonts.languageNamesWithFonts[idx]}</th>`);
-				else addHTML(headerRow, `<th>[${idx}] ${newFonts.languageNames[idx]}</th>`);
+				if (includesFonts) addHTML(headerRow, `<th>[${idx}] ${fonts.languageNamesWithFonts[idx]}</th>`);
+				else addHTML(headerRow, `<th>[${idx}] ${fonts.languageNames[idx]}</th>`);
 			}
 
 			tablePreview.appendChild(headerRow);
@@ -5973,7 +5423,7 @@
 						}
 
 						const paletteO = paletteSelect.value * 64;
-						const palette = bufToU32(sliceDataView(bufToDat(newFonts.palette), paletteO, paletteO + 64));
+						const palette = bufToU32(sliceDataView(bufToDat(fonts.palette), paletteO, paletteO + 64));
 						const out = textboxes.render(dat, styleSelect.value, palette, fontList, contentWidth, contentHeight, language !== 0);
 
 						const scale = doubleScale.checked ? 2 : 1;
@@ -5994,15 +5444,15 @@
 						if (language === 0) {
 							// JP/KO (prefer Japanese, because NA/EU demo versions have some JP text leftover)
 							if (headers.gamecode === 'CLJK') {
-								characterMap = newFonts.koreanCharMap;
-								altCharacterMap = newFonts.koreanExtendedCharMap;
+								characterMap = fonts.koreanCharMap;
+								altCharacterMap = fonts.koreanExtendedCharMap;
 							} else {
-								characterMap = newFonts.japaneseCharMap;
-								altCharacterMap = newFonts.japaneseExtendedCharMap;
+								characterMap = fonts.japaneseCharMap;
+								altCharacterMap = fonts.japaneseExtendedCharMap;
 							}
 						} else {
 							// english, french, spanish, german, italian
-							characterMap = newFonts.latinCharMap;
+							characterMap = fonts.latinCharMap;
 							// no replacement font
 						}
 
@@ -6061,370 +5511,6 @@
 		updateFile();
 
 		return textboxes;
-	}));
-
-	// +---------------------------------------------------------------------------------------------------------------+
-	// | Section: Messages                                                                                             |
-	// +---------------------------------------------------------------------------------------------------------------+
-
-	const messages = (window.messages = createSection('Messages', section => {
-		const messages = {};
-
-		const columnNamesWithFonts = (c => {
-			c[0] = 'CJK ext.';
-			c[1] = 'CJK small';
-			c[2] = 'CJK small ext.';
-			c[3] = 'CJK big';
-			c[4] = 'CJK big ext.';
-			c[5] = 'English (?)';
-			c[6] = 'English small';
-			c[7] = 'English (?)';
-			c[8] = 'English big';
-			c[9] = 'English (?)';
-			c[10] = 'French (?)';
-			c[11] = 'French small';
-			c[12] = 'French (?)';
-			c[13] = 'French big';
-			c[14] = 'French (?)';
-			c[15] = 'German (?)';
-			c[16] = 'German small';
-			c[17] = 'German (?)';
-			c[18] = 'German big';
-			c[19] = 'German (?)';
-			c[20] = 'Italian (?)';
-			c[21] = 'Italian small';
-			c[22] = 'Italian (?)';
-			c[23] = 'Italian big';
-			c[24] = 'Italian (?)';
-			c[25] = 'Spanish (?)';
-			c[26] = 'Spanish small';
-			c[27] = 'Spanish (?)';
-			c[28] = 'Spanish big';
-			c[29] = 'Spanish (?)';
-
-			c[66] = 'CJK';
-			c[67] = 'English';
-			c[68] = 'French';
-			c[69] = 'German';
-			c[70] = 'Italian';
-			c[71] = 'Spanish';
-			return c;
-		})([]);
-
-		const columnNamesWithoutFonts = (c => {
-			c[0] = 'CJK';
-			c[1] = 'English';
-			c[2] = 'French';
-			c[3] = 'German';
-			c[4] = 'Italian';
-			c[5] = 'Spanish';
-			return c;
-		})([]);
-
-		const options = [
-			['/FEvent/FEvent.dat', 'fevent'],
-			['/BAI/BMes_cf.dat', 'tables+textboxes+fonts'],
-			['/BAI/BMes_ji.dat', 'tables+textboxes+fonts'],
-			['/BAI/BMes_yo.dat', 'tables+textboxes+fonts'],
-			['/MAI/MMes_yo.dat', 'tables+textboxes+fonts'],
-			['/SAI/SMes_yo.dat', 'tables+textboxes+fonts'],
-			['/BData/mfset_AItmC.dat', 'plain'], // PIT only?
-			['/BData/mfset_AItmE.dat', 'plain'],
-			['/BData/mfset_AItmE2.dat', 'plain'],
-			['/BData/mfset_AItmN.dat', 'plain'],
-			['/BData/mfset_BadgeE.dat', 'plain'],
-			['/BData/mfset_BadgeEffectE.dat', 'plain'],
-			['/BData/mfset_BadgeN.dat', 'plain'],
-			['/BData/mfset_BonusE.dat', 'plain'],
-			['/BData/mfset_Help.dat', 'plain'],
-			['/BData/mfset_MiniGame.dat', 'plain'],
-			['/BData/mfset_MonN.dat', 'plain'],
-			['/BData/mfset_RankUpE.dat', 'plain'],
-			['/BData/mfset_UItmE.dat', 'plain'],
-			['/BData/mfset_UItmE2.dat', 'plain'],
-			['/BData/mfset_UItmN.dat', 'plain'],
-			['/BData/mfset_WearE.dat', 'plain'],
-			['/BData/mfset_WearN.dat', 'plain'],
-			['/BDataMiniGame/mfset_MesDat_MiniGame.dat', 'textboxes+fonts'],
-			['/EDataSave/mfset_EMesJig.dat', 'textboxes+fonts'],
-			['/EDataSave/mfset_EMesOutline.dat', 'textboxes+fonts'],
-			['/EDataSave/mfset_EMesPlace.dat', 'textboxes+fonts'],
-			['/EDataSave/mfset_EMesSys.dat', 'textboxes+fonts'],
-			['/MData/mfset_InitLoadMes.dat', 'textboxes'],
-			['/MData/mfset_MenuMes.dat', 'plain'],
-			['/MData/mfset_ParamExpMes.dat', 'textboxes'],
-			['/MData/mfset_ShopMes.dat', 'textboxes'],
-		];
-
-		const optionsContainer = document.createElement('div');
-		optionsContainer.style.cssText =
-			'position: sticky; top: 0; z-index: 5; background: var(--bg); margin-bottom: 1px;';
-		section.appendChild(optionsContainer);
-
-		const fileSelect = dropdown(
-			options.map(([name]) => name),
-			0,
-			() => updateFile(),
-		);
-		optionsContainer.appendChild(fileSelect);
-
-		let tableSelect = dropdown([''], 0, () => updateTable());
-		tableSelect.style.display = 'none';
-		optionsContainer.appendChild(tableSelect);
-
-		addHTML(optionsContainer, '<br>');
-
-		const isChinese = fs.has('/Font/11x11.bin');
-		const gameFont = dropdown(
-			['Japanese', 'Latin', 'Korean', 'Hex View', ...fonts.optionNames.map(x => `Font: ${x}`)],
-			4,
-			() => updateTable(),
-		);
-		optionsContainer.appendChild(gameFont);
-
-		const textSpacing = dropdown(
-			['Spacing: 1 (Latin)', 'Spacing: 2 (CJK)'],
-			headers.gamecode === 'CLJJ' || headers.gamecode === 'CLJK' ? 1 : 0,
-			() => updateTable(),
-		);
-		optionsContainer.appendChild(textSpacing);
-
-		const chineseFont = dropdown(['No Chinese Font', '11x11', '12x12', '20x20'], 1, () =>
-			updateTable(),
-		);
-		if (isChinese) optionsContainer.appendChild(chineseFont);
-
-		const textboxScale = dropdown(['Scale: 1x', 'Scale: 1.5x', 'Scale: 2x'], 2, () => updateTable());
-		optionsContainer.appendChild(textboxScale);
-
-		const fontTable = document.createElement('table');
-		fontTable.className = 'bordered';
-		section.appendChild(fontTable);
-
-		const textTableContainer = document.createElement('div');
-		textTableContainer.style.cssText = 'overflow-x: auto;';
-		section.appendChild(textTableContainer);
-
-		const textTable = document.createElement('table');
-		textTable.className = 'bordered';
-		textTableContainer.appendChild(textTable);
-
-		let updateTable;
-		const updateFile = () => {
-			const [path, type] = options[fileSelect.value];
-			const container = fs.get(path);
-
-			let showTableOptions = false;
-			const tableOptions = [];
-			const tables = [];
-			if (type === 'fevent') {
-				showTableOptions = true;
-				for (let i = 0; i * 3 + 2 < fsext.fevent.length; ++i) {
-					if (fsext.fevent[i * 3 + 2].byteLength) tableOptions.push(`Room 0x${i.toString(16)}`);
-					else tableOptions.push(`<span style="opacity: 0.5;">Room 0x${i.toString(16)}</span>`);
-
-					const innerFile = fsext.fevent[i * 3 + 2];
-					tables.push(unpackSegmentedFile(innerFile, 0, innerFile));
-				}
-			} else if (type === 'tables+textboxes+fonts') {
-				showTableOptions = true;
-				const segments = unpackSegmentedFile(container, 0, container);
-				for (let i = 0; i < segments.length; ++i) {
-					// check if nonzero
-					let nonzero = false;
-					const u8 = bufToU8(segments[i]);
-					for (let o = 0; o < u8.length; ++o) {
-						if (u8[o]) {
-							nonzero = true;
-							break;
-						}
-					}
-					if (!nonzero) continue;
-
-					tableOptions.push(`Table 0x${i.toString(16)}`);
-					tables.push(unpackSegmentedFile(segments[i], 0, segments[i]));
-				}
-			} else if (type === 'plain' || type === 'textboxes' || type === 'textboxes+fonts') {
-				tables.push(unpackSegmentedFile(container, 0, container)); // treat the entire file as one table
-			}
-
-			tableSelect.replaceWith(
-				(tableSelect = dropdown(showTableOptions ? tableOptions : [''], 0, () => updateTable())),
-			);
-			tableSelect.style.display = tableOptions.length ? 'inline-block' : 'none';
-
-			updateTable = () => {
-				fontTable.innerHTML = '';
-				textTable.innerHTML = '';
-
-				const isSimple = type === 'plain' || type === 'textboxes';
-
-				const columns = (messages.columns = tables[tableSelect.value]);
-				const fontColumns = [];
-				const textColumns = [];
-				for (let i = 0; i < columns.length; ++i) {
-					let isNonzero = false;
-					const u8 = bufToU8(columns[i]);
-					for (let o = 0; o < u8.length; ++o) {
-						if (u8[o]) {
-							isNonzero = true;
-							break;
-						}
-					}
-					if (!isNonzero) continue;
-
-					if (isSimple) {
-						// always text
-						textColumns.push(i);
-					} else {
-						// 1-5 = CJK fonts, 6-10 = English fonts, ..., 25-30 = Spanish fonts
-						if (i <= 30) fontColumns.push(i);
-						else textColumns.push(i);
-					}
-				}
-
-				const canvasScale = [1, 1.5, 2][textboxScale.value];
-				const fontColumnsParsed = new Map();
-				for (const columnId of fontColumns) {
-					const tr = document.createElement('tr');
-					tr.innerHTML = `<th style="text-wrap: nowrap;"><code>[${columnId}]</code>
-						${columnNamesWithFonts[columnId]}</th>`;
-
-					const td = document.createElement('td');
-					tr.appendChild(td);
-
-					const font = fonts.standard(columns[columnId]);
-					fontColumnsParsed.set(columnId, font);
-					const { bitmap, bitmapWidth, bitmapHeight } = fonts.preview(font.byGlyph, 32, true);
-
-					const canvas = document.createElement('canvas');
-					canvas.width = bitmapWidth;
-					canvas.height = bitmapHeight;
-					canvas.style.cssText = `width: ${bitmapWidth * canvasScale}px; height: ${bitmapHeight * canvasScale}px;`;
-					td.appendChild(canvas);
-
-					const ctx = canvas.getContext('2d');
-					ctx.putImageData(new ImageData(bufToU8Clamped(bitmap), bitmapWidth, bitmapHeight), 0, 0);
-
-					fontTable.appendChild(tr);
-				}
-
-				let chineseFonts, defaultChineseFont;
-				if (isChinese) {
-					chineseFonts = [
-						fonts.fixed(fs.get('/Font/11x11.bin'), 11, 11, 12, 16, false),
-						fonts.fixed(fs.get('/Font/12x12.bin'), 12, 12, 12, 12, true),
-						fonts.fixed(fs.get('/Font/20x20.bin'), 20, 20, 20, 20, true),
-					];
-					defaultChineseFont = chineseFonts[chineseFont.value - 1];
-				}
-
-				const headerTr = document.createElement('tr');
-				headerTr.innerHTML = '<th></th>';
-				for (const columnId of textColumns) {
-					const title = isSimple ? columnNamesWithoutFonts[columnId] : columnNamesWithFonts[columnId];
-					addHTML(headerTr, `<th><code>[${columnId}]</code> ${title}</th>`);
-				}
-				textTable.appendChild(headerTr);
-
-				const textColumnsSegments = textColumns.map(columnId => [columnId, unpackSegmented32(columns[columnId])]);
-				const tableHeight = Math.max(...textColumnsSegments.map(x => x[1].length));
-				let recycledBitmap = undefined;
-				for (let i = 0; i < tableHeight; ++i) {
-					const tr = document.createElement('tr');
-					tr.innerHTML = `<th>${i}</th>`;
-
-					for (const [columnId, segments] of textColumnsSegments) {
-						let text = segments[i];
-						const td = document.createElement('td');
-						tr.appendChild(td);
-						if (!text) continue;
-
-						if (0 <= gameFont.value && gameFont.value <= 2) {
-							if (
-								type === 'textboxes' ||
-								type === 'textboxes+fonts' ||
-								type === 'tables+textboxes+fonts' ||
-								type === 'fevent'
-							) {
-								text = sliceDataView(text, 2, text.byteLength);
-							}
-
-							const alphabet = ['japanese', 'latin', 'korean'][gameFont.value];
-							td.innerHTML = bisUnicode(text, alphabet).replaceAll('\n', '<br>');
-						} else if (gameFont.value === 3) {
-							// Hex View
-							td.innerHTML = `<code>${bytes(0, text.byteLength, text)}</code>`;
-						} else {
-							// Use custom font
-							const font = fonts.optionFonts[gameFont.value - 4];
-
-							let width = 0,
-								height = 0;
-							if (
-								type === 'textboxes' ||
-								type === 'textboxes+fonts' ||
-								type === 'tables+textboxes+fonts' ||
-								type === 'fevent'
-							) {
-								width = text.getUint8(0) * 8;
-								height = ((text.getUint8(1) - 1) / 2) * 8;
-								text = sliceDataView(text, 2, text.byteLength);
-							}
-
-							let altFonts = [];
-							if (!isSimple) {
-								// TOOD: verify
-								if (columnId === 67) altFonts = [1, 2, 3, 4, 5];
-								else if (columnId === 68) altFonts = [6, 7, 8, 9, 10];
-								else if (columnId === 69) altFonts = [11, 12, 13, 14, 15];
-								else if (columnId === 70) altFonts = [16, 17, 18, 19, 20];
-								else if (columnId === 71) altFonts = [21, 22, 23, 24, 25];
-								else if (columnId === 72) altFonts = [26, 27, 28, 29, 30];
-								altFonts = altFonts.map(columnId => fontColumnsParsed.get(columnId));
-							}
-
-							const { bitmap, bitmapWidth, bitmapHeight, actualWidth } = fonts.textbox(
-								text,
-								font,
-								altFonts,
-								width,
-								height,
-								recycledBitmap,
-								chineseFonts,
-								defaultChineseFont,
-								[1, 2][textSpacing.value],
-							);
-
-							const canvas = document.createElement('canvas');
-							canvas.width = actualWidth;
-							canvas.height = bitmapHeight;
-							canvas.style.cssText = `width: ${actualWidth * canvasScale}px; height: ${bitmapHeight * canvasScale}px;`;
-
-							const ctx = canvas.getContext('2d');
-							ctx.putImageData(
-								new ImageData(
-									bufToU8Clamped(bitmap.slice(0, bitmapWidth * bitmapHeight)),
-									bitmapWidth,
-									bitmapHeight,
-								),
-								0,
-								0,
-							);
-							td.appendChild(canvas);
-
-							recycledBitmap = bitmap;
-						}
-					}
-
-					textTable.appendChild(tr);
-				}
-			};
-			updateTable();
-		};
-		updateFile();
-
-		return messages;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+
@@ -9614,7 +8700,7 @@
 		\n%csliceDataView(dat, start, end) \nbufToU8(buf) \nbufToU8Clamped(buf) \nbufToU16(buf) \nbufToS16(buf) \
 		\nbufToU32(buf) \nbufToDat(buf) \nstr8(x) \nstr16(x) \nstr32(x) %c \
 		\n\nSections: \
-		\n%cheaders fs ovt fsext fpaf field fmapdataTiles battle battleGiant menu font messages monsters bai fxalls fxsprites disassembler rtti vtables sound objpalanim %c \
+		\n%cheaders fs ovt fsext fpaf field fmapdataTiles battle battleGiant menu font textboxes monsters bai fxalls fxsprites disassembler rtti vtables sound objpalanim %c \
 		\n\nFile: %cfile%c`,
 		'color: #98f;',
 		'color: unset;',

@@ -4,7 +4,7 @@
 	<head>
 		<meta charset="UTF-8">
 		<link href="assets/favicon.png" rel="icon" type="image/png">
-		<title>MLBIS Dumper</title>
+		<title>mlbis-dumper</title>
 		<style>
 			/* Red Hat Mono and Red Hat Text are instead licensed under the OFL (see assets/OFL.txt). */
 			@font-face {
@@ -57,7 +57,7 @@
 			* { box-sizing: border-box; margin: 0; }
 
 			body {
-				background: var(--bg); color: var(--fg); font-family: 'Red Hat Text', sans-serif; overflow-x: hidden;
+				background: var(--bg); color: var(--fg); font: 16px 'Red Hat Text', sans-serif; overflow-x: hidden;
 			}
 
 			#title {
@@ -65,8 +65,12 @@
 				transform: translate(-50%, -50%);
 			}
 
+			#title-bottom {
+				bottom: 20px; color: var(--fg-dim); font-size: 12px; left: 10vw; position: absolute; text-align: center; width: 80vw;
+			}
+
 			#title-noscript {
-				border: 1px solid var(--red); bottom: 20px; color: var(--red); left: 20px; padding: 10px; position: absolute; text-align: center; width: calc(100vw - 40px);
+				border: 1px solid var(--red); color: var(--red); left: 20px; padding: 10px; position: absolute; text-align: center; top: 20px; width: calc(100vw - 40px);
 			}
 
 			canvas { display: block; image-rendering: pixelated; }
@@ -147,23 +151,26 @@
 	</head>
 	<body>
 		<div id="title">
-			<div>Use any Mario and Luigi: Bowser's Inside Story ROM<br>(JP/NA/EU/KO or NA/EU Kiosk Demos)</div>
+			<div>Use <span title="JP/NA/EU/KO releases, or the NA/EU kiosk demos" style="text-decoration: underline dotted">any</span> Mario and Luigi: Bowser's Inside Story ROM</div>
 			<label for="file-input">
 				<button onmousedown="document.getElementById('file-input').click()" style="padding: 20px; line-height: calc(14px - 40px);">Choose File</button>
 			</label>
 			<input id="file-input" style="display: none;" type="file" accept=".nds,.srl" />
 			<div>
-				Source Code: <a href="https://github.com/8y8x/mlbis-dumper" style="color: #76f;">GitHub</a>,
-				Hosts: <a href="https://8y8x.github.io/mlbis-dumper/" style="color: #76f;">GitHub</a>,
-				<a href="https://inf.gg/mlbis/dumper" style="color: #76f;">inf.gg</a>
+				<a href="https://github.com/8y8x/mlbis-dumper" style="color: #8b6cff">Source Code</a> •
+				<a href="https://inf.gg/mlbis/" style="color: #8b6cff">inf.gg/mlbis</a>
 			</div>
-			<div id="loaded">0 modules loaded</div>
+		</div>
+
+		<div id="title-top">
+			<noscript>
+				<div id="title-noscript">Please enable JavaScript to use mlbis-dumper, it runs offline in your browser (no uploads, tracking, analytics, etc.). You may download the source code and open index.html to use it offline, no setup needed.</div>
+			</noscript>
 		</div>
 
 		<div id="title-bottom">
-			<noscript>
-				<div id="title-noscript">Please enable JavaScript to use mlbis-dumper, it runs offline in your browser (no uploads, tracking, analytics, etc.). If you'd like, you can easily run your own local copy of the source code without any setup.</div>
-			</noscript>
+			<div id="loaded">0 modules loaded</div>
+			<div id="credits">Developed by yx (floatberry), last updated on October 20, 2026<br>Special thanks to DimiDimit, PaperSplash, ThePurpleAnon, GBATEK, the Yoshi Magic team, and the M&L Modding community</div>
 		</div>
 
 		<template id="dropdown">
