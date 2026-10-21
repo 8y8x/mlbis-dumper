@@ -29,10 +29,10 @@ These sections are useful for everyone:
 - **Battle Maps:** near-complete battle map backgrounds support, including tile
   and palette animations, debug linker info on some maps, and an Export PNG
   button
-- **Fonts:** displays the game's recognized fonts (ARM9 font is used everywhere,
-  StatFontSet does not seem to be used), unfortunately no way to export them yet
-- **Messages:** nearly all text in the game as raw unformatted text or as
-  formatted textboxes (display is slightly inaccurate though)
+- **Fonts:** displays all fonts used in the game, whether in StatFontSet, inside
+  of message files, or embedded in code
+- **Textboxes:** nearly all text in the game drawn (almost) exactly how the game
+  does, or a unicode version that shows all control codes used
 - **Battle Scripts:** decompiles attack, monster, and scene scripts into a
   readable, colorful pseudocode format; works well for simpler enemies but not
   for the complicated ones yet
@@ -114,7 +114,9 @@ Tunnel.
 ## Thank Yous
 - [GBATEK](https://problemkaputt.de/gbatek.htm)
 - [Yoshi Magic](https://www.tapatalk.com/groups/lighthouse_of_yoshi/)
-- ThePurpleAnon
 - DimiDimit
+- PaperSplash
+- Spencer
+- ThePurpleAnon
 
 No AI used 💜
