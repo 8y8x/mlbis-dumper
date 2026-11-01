@@ -51,7 +51,7 @@ window.initBai = () => {
 		const scriptSelectNames = options.map(entry => {
 			const segments = fsext.battle.get(entry[0]);
 			if (!segments?.length) return ['(?)'];
-			return segments.map((x, i) => `<code>${str16(entry[1])}</code> ${i}. (0x${i.toString(16)}) (len 0x${x.byteLength.toString(16)})`);
+			return segments.map((x, i) => `<code>${str16(entry[1] + i)}</code> ${i}. (len 0x${x.byteLength.toString(16)})`);
 		});
 
 		let updateScript;

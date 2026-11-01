@@ -5862,13 +5862,14 @@
 								for (let i = 0; i < 32; ++i) {
 									const pos = basePos + (i >> 2) * width * 8 + ((i & 3) << 1);
 									const composite = texU8[o++];
-									bitmapU32[pos] = palU32[(composite & 0xf) + paletteOffset] ?? 0;
-									bitmapU32[pos ^ 1] = palU32[(composite >> 4) + paletteOffset] ?? 0;
+									if (composite & 0xf) bitmapU32[pos] = palU32[(composite & 0xf) + paletteOffset] ?? 0;
+									if (composite >> 4) bitmapU32[pos ^ 1] = palU32[(composite >> 4) + paletteOffset] ?? 0;
 								}
 							} else if (bitDepth === 8) {
 								for (let i = 0; i < 64; ++i) {
 									const pos = basePos + (i >> 3) * width * 8 + (i & 7);
-									bitmapU32[pos] = palU32[texU8[o++] + paletteOffset] ?? 0;
+									if (texU8[o]) bitmapU32[pos] = palU32[texU8[o] + paletteOffset] ?? 0;
+									++o;
 								}
 							}
 						}

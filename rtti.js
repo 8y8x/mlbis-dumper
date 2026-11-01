@@ -273,7 +273,7 @@ window.initRtti = () => {
 					const baseTypeInfoName = offsetToDemangled.get(baseTypeInfoNamePtr);
 
 					let typeInfo;
-					if (baseTypeInfoName === '__cxxabiv1::__class_type_info') {
+					if (baseTypeInfoName === '__cxxabiv1::__class_type_info' || baseTypeInfoName === 'abi::__class_type_info') {
 						// no base class
 						typeInfo = {
 							offset: typeInfoOffset,
@@ -282,7 +282,7 @@ window.initRtti = () => {
 							baseTypeInfoOffsets: [],
 							dat: sliceDataView(dat, typeInfoOffset, typeInfoOffset + 8),
 						};
-					} else if (baseTypeInfoName === '__cxxabiv1::__si_class_type_info') {
+					} else if (baseTypeInfoName === '__cxxabiv1::__si_class_type_info' || baseTypeInfoName === 'abi::__si_class_type_info') {
 						// single, public, non-virtual base class
 						typeInfo = {
 							offset: typeInfoOffset,
@@ -298,7 +298,7 @@ window.initRtti = () => {
 							],
 							dat: sliceDataView(dat, typeInfoOffset, typeInfoOffset + 12),
 						};
-					} else if (baseTypeInfoName === '__cxxabiv1::__vmi_class_type_info') {
+					} else if (baseTypeInfoName === '__cxxabiv1::__vmi_class_type_info' || baseTypeInfoName === 'abi::__vmi_class_type_info') {
 						const classFlags = dat.getUint32(typeInfoOffset + 8, true);
 						const baseCount = dat.getUint32(typeInfoOffset + 12, true);
 						const baseTypeInfoOffsets = [];
