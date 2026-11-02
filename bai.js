@@ -971,7 +971,7 @@ window.initBai = () => {
 								newNode.innerHead = innerHead;
 								newNode.innerTail = innerTail;
 
-								node = newNode;
+								searchStack.push(innerHead, newNode);
 							})();
 						}
 					}
@@ -981,8 +981,145 @@ window.initBai = () => {
 			}
 		};
 
-		// Detects if..else and switch.
+		// Detects repeat, for, and while loops.
 		// Handles these node types: fn, cmd, block
+		bai.decompiler.loops = decomp => {
+			const searchStack = [{ node: decomp.head, left: decomp.head.left, right: decomp.tail.right }];
+			while (searchStack.length) {
+				let { node, left, right } = searchStack.pop();
+				console.log('.loops searchStack.pop() =>', node, left, right);
+				const startNode = node;
+
+				// preprocess
+				const locationToNode = new Map();
+				while (node) {
+					locationToNode.set(node.left, node);
+					node = node.next;
+				}
+
+				node = startNode;
+				while (node) {
+					if (node.type === 'fn' || node.type === 'block') {
+						searchStack.push(
+							{ node: node.innerHead, left: node.left, right: node.right },
+							{ node: node.next, left, right },
+						);
+						node = undefined;
+					} else if (node.type === 'cmd') {
+						// repeat match:
+						//    CM_0005(iterations)
+						// @a CM_0007(0x12, 0, 0, @b)
+						//    ...
+						//    CM_0003(2, @a)
+						// @b ...
+						if (node.opcode === 0x5) (() => {
+							const initNode = node;
+							const compareNode = node.next;
+							if (compareNode.type !== 'cmd' || compareNode.opcode !== 7) return;
+							if (compareNode.registers) return;
+							if (compareNode.args[0] !== 0x12 || compareNode.args[1] !== 0 || compareNode.args[2] !== 0)
+								return;
+							if (compareNode.args[3] < 0) return;
+
+							const firstInnerNode = compareNode.next;
+							const exitNode = locationToNode.get(compareNode.right + compareNode.args[3]);
+							if (!exitNode) return;
+
+							const continueNode = exitNode.prev;
+							if (continueNode.type !== 'cmd' || continueNode.opcode !== 3) return;
+							if (continueNode.args[0] !== 2) return;
+							if (continueNode.right + continueNode.args[1] !== compareNode.left) return;
+
+							// matched!
+							const lastInnerNode = continueNode.prev;
+
+							const newNode = llNode('repeat', initNode.left, continueNode.right, {
+								initCmd: initNode,
+								innerHead: undefined,
+								innerTail: undefined,
+							});
+
+							const innerHead = llNode('head', compareNode.right, compareNode.right, { parent: newNode });
+							const innerTail = llNode('tail', exitNode.left, exitNode.left, { parent: newNode });
+							if (firstInnerNode === continueNode) {
+								// empty repeat body
+								llLink(undefined, innerHead, innerTail);
+							} else {
+								llLink(undefined, innerHead, firstInnerNode);
+								llLink(lastInnerNode, innerTail, undefined);
+							}
+
+							newNode.innerHead = innerHead;
+							newNode.innerTail = innerTail;
+
+							llLink(initNode.prev, newNode, exitNode);
+
+							searchStack.push(
+								{ node: innerHead, left: newNode.left, right: newNode.right },
+								{ node: exitNode, left, right },
+							);
+							node = undefined;
+						})();
+
+						// while match:
+						// @a CM_0002(operator, left, right, 1, @b)
+						//    ...
+						//    CM_0003(2, @a)
+						// @b ...
+						else if (node.opcode === 2) (() => {
+							const cmd = node;
+							if (cmd.registers & 0b11000) return;
+							if (cmd.args[3] !== 0) return;
+
+							const exitNode = locationToNode.get(cmd.right + cmd.args[4]);
+							if (!exitNode) return;
+
+							const continueNode = exitNode.prev;
+							if (continueNode.type !== 'cmd' || continueNode.opcode !== 3) return;
+							if (continueNode.registers & 0b11) return;
+							if (continueNode.args[0] !== 2 || continueNode.right + continueNode.args[1] !== cmd.left)
+								return;
+
+							// matched!
+							const firstInnerNode = cmd.next;
+							const lastInnerNode = continueNode.prev;
+
+							const newNode = llNode('while', cmd.left, continueNode.right, {
+								cmd,
+								innerHead: undefined,
+								innerTail: undefined,
+							});
+
+							const innerHead = llNode('head', cmd.right, cmd.right, { parent: newNode });
+							const innerTail = llNode('tail', exitNode.left, exitNode.left, { parent: newNode });
+							if (continueNode.prev === cmd) {
+								// empty body(?!)
+								llLink(undefined, innerHead, innerTail);
+							} else {
+								llLink(undefined, innerHead, firstInnerNode);
+								llLink(lastInnerNode, innerTail, undefined);
+							}
+
+							newNode.innerHead = innerHead;
+							newNode.innerTail = innerTail;
+
+							llLink(cmd.prev, newNode, exitNode);
+
+							searchStack.push(
+								{ node: innerHead, left: newNode.left, right: newNode.right },
+								{ node: exitNode, left, right },
+							);
+							node = undefined;
+						})();
+					}
+
+					if (node) node = node.next;
+				}
+			}
+		};
+
+		// Detects if..else and switch.
+		// Handles these node types: fn, cmd, block, repeat, while
 		bai.decompiler.controlFlow = decomp => {
 			const searchStack = [{ node: decomp.head, left: decomp.head.left, right: decomp.tail.right }];
 			while (searchStack.length) {
@@ -998,7 +1135,7 @@ window.initBai = () => {
 
 				node = startNode;
 				while (node) {
-					if (node.type === 'fn' || node.type === 'block') {
+					if (node.type === 'fn' || node.type === 'block' || node.type === 'repeat' || node.type === 'while') {
 						searchStack.push(
 							{ node: node.innerHead, left: node.left, right: node.right },
 							{ node: node.next, left, right },
@@ -1284,7 +1421,7 @@ window.initBai = () => {
 		};
 
 		// Collapses all: if { ... } else { if { ... } } patterns into: if { ... } else if { ... }.
-		// Handles these node types: fn, if, switch
+		// Handles these node types: fn, if, switch, block, repeat, while
 		bai.decompiler.collapseIfElse = decomp => {
 			const ifs = [];
 
@@ -1292,7 +1429,7 @@ window.initBai = () => {
 			while (searchStack.length) {
 				let node = searchStack.pop();
 				while (node) {
-					if (node.type === 'fn') {
+					if (node.type === 'fn' || node.type === 'block' || node.type === 'repeat' || node.type === 'while') {
 						searchStack.push(node.innerHead, node.next);
 						node = undefined;
 					} else if (node.type === 'if') {
@@ -1421,7 +1558,7 @@ window.initBai = () => {
 								searchStack.push(innerHead, next);
 								node = undefined;
 							})();
-					} else if (node.type === 'fn') {
+					} else if (node.type === 'fn' || node.type === 'block' || node.type === 'repeat' || node.type === 'while') {
 						searchStack.push(node.innerHead, node.next);
 						node = undefined;
 					} else if (node.type === 'if') {
@@ -1982,6 +2119,29 @@ window.initBai = () => {
 						output.push(prefix(undefined) + '}');
 						return localNode.next;
 					});
+				} else if (node.type === 'repeat') {
+					const localNode = node;
+					output.push(prefix() + `${keyword('repeat')} (${argF(0, undefined, localNode.initCmd)}) {`);
+					++indent;
+					node = node.innerHead;
+					containerStack.push(() => {
+						--indent;
+						output.push(prefix(undefined) + '}');
+						return localNode.next;
+					});
+				} else if (node.type === 'while') {
+					const localNode = node;
+					const { cmd } = localNode;
+					const condition =
+						bai.compare(cmd.args[0], argF(1, undefined, cmd), argF(2, undefined, cmd), operator);
+					output.push(prefix() + `${keyword('while')} (${condition}) {`);
+					++indent;
+					node = node.innerHead;
+					containerStack.push(() => {
+						--indent;
+						output.push(prefix(undefined) + '}');
+						return localNode.next;
+					});
 				} else if (node.type === 'if') {
 					const localNode = node;
 					let index = 0;
@@ -2138,6 +2298,7 @@ window.initBai = () => {
 				bai.decompiler.decompDeadCode(decomp);
 				bai.decompiler.guaranteedFunctions(decomp);
 				bai.decompiler.threadBlocks(decomp);
+				bai.decompiler.loops(decomp);
 				bai.decompiler.controlFlow(decomp);
 				bai.decompiler.collapseIfElse(decomp);
 				bai.decompiler.simpleIfBlock(decomp);
