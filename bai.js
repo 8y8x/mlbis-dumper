@@ -233,9 +233,7 @@ window.initBai = () => {
 			[0x7, { name: 'stack_compare', args: ['u16', 'u16', 's16', 'location'] }],
 			// 0x8 : literal value
 			// 0x9 - 0x12 : binary operator syntactic sugar
-			// 0x13 : unary negation
-			[0x14, { name: 'bool' }],
-			// 0x15 : bitwise NOT
+			// 0x13 - 0x15 : unary operator syntactic sugar
 			// 0x16 - 0x21 : operator assignment syntactic sugar
 			[0x22, { name: 'sqrt' }],
 			[0x23, { name: 'invsqrt' }],
@@ -273,11 +271,50 @@ window.initBai = () => {
 			[0x44, { name: 'add_items', args: ['item', 's8'] }],
 			[0x45, { name: 'get_player_stat' }],
 			[0x46, { name: 'set_player_stat' }],
-			[0x47, { name: 'BA_0047_thread', args: ['slot', 'u8', 'location'] }],
-			[0x48, { name: 'BA_0048_thread', args: ['slot', 'u8', 'location'] }],
-			[0x49, { name: 'BA_0049_thread', args: ['slot', 'u8', 'location'] }],
-			[0x4a, { name: 'thread_join', args: ['slot'] }],
-			[0x4e, { args: ['slot'] }],
+			[0x47, { args: ['slot', 'u8', 'location'] }], // thread block syntactic sugar
+			[0x48, { args: ['slot', 'u8', 'location'] }], // threadsync block syntactic sugar
+			[0x49, { name: 'tspawn', args: ['slot', 'u8', 'location'] }],
+			[0x4a, { name: 'tjoin', args: ['slot'] }],
+			[0x4b, { name: 'tjoinall', args: ['slot', 's8'] }],
+			[0x4c, { name: 'texit', args: ['slot'] }],
+			[0x4d, { name: 'texitall', args: ['slot', 's8'] }],
+			[0x4e, { name: 'tpause', args: ['slot'] }],
+			[0x4f, { name: 'tpauseall', args: ['slot', 's8'] }],
+			[0x50, { name: 'tresume', args: ['slot'] }],
+			[0x51, { name: 'tresumeall', args: ['slot', 's8'] }],
+			[
+				0x52,
+				{
+					name: 'tgetreg',
+					args: ['slot', 'bool', 'u8'],
+					note: cmd => {
+						if (cmd.registers & 0b110) return;
+						return bai.registerName((cmd.args[1] ? 0xb000 : 0xa000) | cmd.args[2]);
+					},
+				}
+			],
+			[
+				0x53,
+				{
+					name: 'tsetreg',
+					args: ['slot', 'bool', 'u8', 's32'],
+					note: cmd => {
+						if (cmd.registers & 0b0110) return;
+						return bai.registerName((cmd.args[1] ? 0xb000 : 0xa000) | cmd.args[2]);
+					},
+				}
+			],
+			[
+				0x54,
+				{
+					name: 'tsetregfx',
+					args: ['slot', 'bool', 'u8', 'fx32'],
+					note: cmd => {
+						if (cmd.registers & 0b0110) return;
+						return bai.registerName((cmd.args[1] ? 0xb000 : 0xa000) | cmd.args[2]);
+					},
+				}
+			],
 			[0x58, { name: 'party_turn_check' }],
 			[0x59, { name: 'party_turn_wait' }],
 			[
@@ -810,7 +847,7 @@ window.initBai = () => {
 			}
 		};
 
-		// Creates functions using all CM_0003 (mode 1), BA_0047, BA_0048, and BA_0049 references.
+		// Creates functions using all CM_0003 (mode 1) and BA_0049 references.
 		// Handles these node types: cmd
 		bai.decompiler.guaranteedFunctions = decomp => {
 			const functionLabels = new Map();
@@ -887,8 +924,65 @@ window.initBai = () => {
 			}
 		};
 
-		// Detects if..else and switch.
+		// Creates blocks for mini embedded threads from BA_0047 and BA_0048.
 		// Handles these node types: fn, cmd
+		bai.decompiler.threadBlocks = decomp => {
+			const searchStack = [decomp.head];
+			while (searchStack.length) {
+				let node = searchStack.pop();
+				while (node) {
+					if (node.type === 'fn') {
+						searchStack.push(node.innerHead, node.next);
+						node = undefined;
+					} else if (node.type === 'cmd') {
+						// thread block match:
+						//    BA_0047(id, 0, @a)
+						//    ...
+						// @a ...
+						// the same thing goes with BA_0048.
+						// args[1] is always 0 in practice, but if it was nonzero then the thread would be deferrable
+						if (node.opcode === 0x47 || node.opcode === 0x48) {
+							(() => {
+								if (node.registers & 0b110) return;
+
+								const endOffset = node.right + node.args[2];
+
+								const firstInnerNode = node.next;
+								let lastInnerNode = firstInnerNode;
+								while (lastInnerNode && lastInnerNode.right < endOffset) {
+									lastInnerNode = lastInnerNode.next;
+								}
+
+								if (lastInnerNode.right !== endOffset) return;
+
+								// the body of the thread block is: [node.next ... lastInnerNode]
+								const newNode = llNode('block', node.left, lastInnerNode.right, {
+									cmd: node,
+									innerHead: undefined,
+									innerTail: undefined,
+								});
+								llLink(node.prev, newNode, lastInnerNode.next);
+
+								const innerHead = llNode('head', node.left, node.right, { parent: newNode });
+								const innerTail = llNode('tail', node.left, node.right, { parent: newNode });
+								llLink(undefined, innerHead, firstInnerNode);
+								llLink(lastInnerNode, innerTail, undefined);
+
+								newNode.innerHead = innerHead;
+								newNode.innerTail = innerTail;
+
+								node = newNode;
+							})();
+						}
+					}
+
+					if (node) node = node.next;
+				}
+			}
+		};
+
+		// Detects if..else and switch.
+		// Handles these node types: fn, cmd, block
 		bai.decompiler.controlFlow = decomp => {
 			const searchStack = [{ node: decomp.head, left: decomp.head.left, right: decomp.tail.right }];
 			while (searchStack.length) {
@@ -904,7 +998,7 @@ window.initBai = () => {
 
 				node = startNode;
 				while (node) {
-					if (node.type === 'fn') {
+					if (node.type === 'fn' || node.type === 'block') {
 						searchStack.push(
 							{ node: node.innerHead, left: node.left, right: node.right },
 							{ node: node.next, left, right },
@@ -1711,7 +1805,7 @@ window.initBai = () => {
 
 				if (enumType === 'location') {
 					const to = localNode.right + x;
-					return prefix + (labelNames.get(to) ?? location(str16(to)));
+					return prefix + (labelNames.get(to) ?? location('@' + str16(to)));
 				}
 
 				if (useCustomNames.checked) {
@@ -1800,6 +1894,7 @@ window.initBai = () => {
 						if (op === 0x11) str = outF() + argF(0) + operator(' | ') + argF(1);
 						if (op === 0x12) str = outF() + argF(0) + operator(' ^ ') + argF(1);
 						if (op === 0x13) str = outF() + operator('-') + argF(0);
+						if (op === 0x14) str = outF() + operator('!') + argF(0);
 						if (op === 0x15) str = outF() + operator('~') + argF(0);
 						if (0x16 <= op && op <= 0x21) {
 							let target = bai.registerName(node.outputRegister);
@@ -1869,6 +1964,22 @@ window.initBai = () => {
 					containerStack.push(() => {
 						--indent;
 						output.push(prefix(undefined) + `}`);
+						return localNode.next;
+					});
+				} else if (node.type === 'block') {
+					const localNode = node;
+					const { cmd, innerHead } = localNode;
+					if (cmd.opcode === 0x47) {
+						output.push(prefix() + `${keyword('thread')} (${argF(0, 'slot', cmd)}) {`);
+					} else if (cmd.opcode === 0x48) {
+						output.push(prefix() + `${keyword('threadasync')} (${argF(0, 'slot', cmd)}) { `);
+					}
+
+					++indent;
+					node = innerHead;
+					containerStack.push(() => {
+						--indent;
+						output.push(prefix(undefined) + '}');
 						return localNode.next;
 					});
 				} else if (node.type === 'if') {
@@ -2026,6 +2137,7 @@ window.initBai = () => {
 				bai.decompiler.findStaticReferences(decomp);
 				bai.decompiler.decompDeadCode(decomp);
 				bai.decompiler.guaranteedFunctions(decomp);
+				bai.decompiler.threadBlocks(decomp);
 				bai.decompiler.controlFlow(decomp);
 				bai.decompiler.collapseIfElse(decomp);
 				bai.decompiler.simpleIfBlock(decomp);
