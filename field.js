@@ -863,8 +863,8 @@ window.initField = () => {
 				const trueVariable = (attributes >>> 6) & 0xfff;
 
 				const parts = [];
-				if (!missingTrueVariable) parts.push(`var 0x${trueVariable.toString(16).padStart(3, '0')} is true`);
-				if (!missingFalseVariable) parts.push(`var 0x${falseVariable.toString(16).padStart(3, '0')} is false`);
+				if (!missingTrueVariable) parts.push(`reg_d${trueVariable.toString(16).padStart(3, '0')} is true`);
+				if (!missingFalseVariable) parts.push(`reg_d${falseVariable.toString(16).padStart(3, '0')} is false`);
 
 				side.toggleDisplay.style.display = '';
 				addHTML(
