@@ -938,7 +938,7 @@ window.initDisassembler = () => {
 					const Rs = (inst >>> 8) & 0xf;
 					const Rm = inst & 0xf;
 					// should-be-zero
-					const u = unpredictable(Rd === 15 || Rm === 15 || Rs === 15 || Rd === Rs || (inst >>> 12) & 0xf);
+					const u = unpredictable(Rd === 15 || Rm === 15 || Rs === 15 || (inst >>> 12) & 0xf);
 					if (ASM) lines.push(`mul${cond}${S ? 's' : ''} ${r[Rd]}, ${r[Rm]}, ${r[Rs]}` + u);
 					continue;
 				}
