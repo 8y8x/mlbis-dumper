@@ -1620,6 +1620,16 @@
 			// NA
 			fillBattle(ovt.overlays[14], 0x0209caa4, 39, 0x0209c914, 20);
 
+			const ov11 = fs.overlay(11);
+			const ov11Base = ovt.overlays[11].ramStart;
+			fsext.smallFont = sliceDataView(ov11, 0x0206d5ac - ov11Base, 0x0206d5ac + 0x1e46 - ov11Base);
+			fsext.smallFontExt = undefined;
+
+			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
+
+			const ov13 = fs.overlay(13);
+			const ov13Base = ovt.overlays[13].ramStart;
+
 			const ov17 = fs.overlay(17);
 			fsext.bdfxlib = sliceDataView(ov17, 0x020bbf30 - ovt.overlays[17].ramStart, ov17.byteLength);
 			fsext.bdfxlib = unpackSegmentedFile(fsext.bdfxlib, 0, fsext.bdfxlib);
@@ -1628,9 +1638,9 @@
 			fsext.bofxlib = sliceDataView(ov17, 0x020b8d68 - ovt.overlays[17].ramStart, ov17.byteLength);
 			fsext.bofxlib = unpackSegmentedFile(fsext.bofxlib, 0, fsext.bofxlib);
 
-			fsext.baiCommands = fixedSegments(0x13478, 0x156b8, 16, fs.overlay(12));
 			fsext.bmapConfig = fixedSegments(0x0208fae0 - ovt.overlays[13].ramStart, 0x02090158 - ovt.overlays[13].ramStart, 9, fs.overlay(13));
 			fsext.bmapSprites = bufToU32(sliceDataView(fs.overlay(13), 0x02090158 - ovt.overlays[13].ramStart, 0x02090438 - ovt.overlays[13].ramStart));
+
 			fsext.monsters = fixedSegments(0xe074, 0xf448, 36, fs.overlay(11));
 
 			fsext.fevent = unpackSegmentedFile(fs.overlay(3), 0xc8ac, fs.get('/FEvent/FEvent.dat'));
@@ -1654,11 +1664,6 @@
 			fsext.fontPalette = sliceDataView(fs.arm9, 0x02050144 - 0x02004000, 0x02050144 + 0xc0 - 0x02004000);
 			fsext.textboxTileset = sliceDataView(fs.arm9, 0x020506bc - 0x02004000, 0x020506bc + 100*32 - 0x02004000);
 			fsext.textboxStyles = sliceDataView(fs.arm9, 0x0205011c - 0x02004000, 0x0205011c + 4*4 - 0x02004000);
-
-			const ov11 = fs.overlay(11);
-			const ov11Base = ovt.overlays[11].ramStart;
-			fsext.smallFont = sliceDataView(ov11, 0x0206d5ac - ov11Base, 0x0206d5ac + 0x1e46 - ov11Base);
-			fsext.smallFontExt = undefined;
 		} else if (headers.gamecode === 'CLJK') {
 			// KO
 			fillBattle(ovt.overlays[14], 0x020a58e4, 39, 0x020a5754, 20);
@@ -5511,6 +5516,16 @@
 		updateFile();
 
 		return textboxes;
+	}));
+
+	// +---------------------------------------------------------------------------------------------------------------+
+	// | Section: Battle Sprites                                                                                       |
+	// +---------------------------------------------------------------------------------------------------------------+
+
+	const ca = (window.ca = createSection('Battle Sprites', section => {
+		const ca = {};
+
+		return ca;
 	}));
 
 	// +---------------------------------------------------------------------------------------------------------------+

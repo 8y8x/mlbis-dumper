@@ -137,7 +137,7 @@ window.initBai = () => {
 			if (id === 0x401e) return 'brg_pc_selected_action';
 			if (id === 0x4023) return 'brgturn'; // official, ref: script 700a
 			if (id === 0x4028) return 'brg_language';
-			if (0x402a <= id && id <= 0x4049) return `brg_arg${id - 0x402a + 1}`; // "arg", ref: script 4014
+			if (0x402a <= id && id <= 0x4030) return `brg_arg${id - 0x402a + 1}`; // "arg", ref: script 4014
 			return `reg_${str16(id)}`;
 		};
 
@@ -224,55 +224,57 @@ window.initBai = () => {
 		};
 
 		bai.cmdDetails = new Map([
+			[0x0, { name: 'exit' }],
 			// 0x1 : return syntactic sugar
 			[0x2, { args: ['operator', 's32', 's32', 's32', 'location'] }], // 0x2 : if/elif/else goto/tailcall
 			[0x3, { args: ['u8', 'location'] }], // 0x3 : break/continue/tailcall/call/goto
 			[0x4, { name: 'wait' }],
-			[0x5, { name: 'stack_push' }],
-			[0x6, { name: 'stack_pop' }],
-			[0x7, { name: 'stack_compare', args: ['u16', 'u16', 's16', 'location'] }],
+			[0x5, { name: 'push' }],
+			[0x6, { name: 'pop' }],
+			[0x7, { name: 'stackcmp', args: ['u16', 'u16', 's16', 'location'] }],
 			// 0x8 : literal value
 			// 0x9 - 0x12 : binary operator syntactic sugar
 			// 0x13 - 0x15 : unary operator syntactic sugar
 			// 0x16 - 0x21 : operator assignment syntactic sugar
 			[0x22, { name: 'sqrt' }],
 			[0x23, { name: 'invsqrt' }],
-			[0x24, { name: 'reciprocal' }],
+			[0x24, { name: 'invert' }],
 			[0x25, { name: 'sin' }],
 			[0x26, { name: 'cos' }],
 			[0x27, { name: 'atan' }],
 			[0x28, { name: 'atan2' }],
 			[0x29, { name: 'random' }],
-			[0x2a, { name: 'fx32' }],
-			[0x2b, { name: 'fx32_add' }],
-			[0x2c, { name: 'fx32_subtract' }],
-			[0x2d, { name: 'fx32_mul' }],
-			[0x2e, { name: 'fx32_div' }],
-			[0x2f, { name: 'fx32_remainder' }],
-			[0x30, { name: 'fx32_to_int' }],
-			[0x31, { name: 'fx32_trunc' }],
-			[0x32, { name: 'fx32_sqrt' }],
-			[0x33, { name: 'fx32_invsqrt' }],
-			[0x34, { name: 'fx32_reciprocal' }],
-			[0x35, { name: 'fx32_sin' }],
-			[0x36, { name: 'fx32_cos' }],
-			[0x37, { name: 'fx32_atan' }],
-			[0x38, { name: 'fx32_atan2' }],
+			[0x2a, { name: 'fx_store' }],
+			[0x2b, { name: 'fx_add' }],
+			[0x2c, { name: 'fx_subtract' }],
+			[0x2d, { name: 'fx_mul' }],
+			[0x2e, { name: 'fx_div' }],
+			[0x2f, { name: 'fx_remainder' }],
+			[0x30, { name: 'fx_to_int' }],
+			[0x31, { name: 'fx_floor' }],
+			[0x32, { name: 'fx_sqrt' }],
+			[0x33, { name: 'fx_invsqrt' }],
+			[0x34, { name: 'fx_inv' }],
+			[0x35, { name: 'fx_sin' }],
+			[0x36, { name: 'fx_cos' }],
+			[0x37, { name: 'fx_atan' }],
+			[0x38, { name: 'fx_atan2' }],
 			// 0x39 : array access syntactic sugar
-			[0x3a, { name: 'array_len' }],
+			[0x3a, { name: 'table_len', args: ['location'] }],
 			[0x3b, { name: 'debugln', args: ['location'] }],
 			[0x3c, { name: 'debug', args: ['location'] }],
 			[0x3d, { name: 'debug_bin' }],
 			[0x3e, { name: 'debug_dec' }],
 			[0x3f, { name: 'debug_hex' }],
-			[0x40, { name: 'reset_game' }],
-			[0x41, { name: 'add_coins' }],
-			[0x43, { name: 'get_item_count', args: ['item'] }],
-			[0x44, { name: 'add_items', args: ['item', 's8'] }],
-			[0x45, { name: 'get_player_stat' }],
-			[0x46, { name: 'set_player_stat' }],
-			[0x47, { args: ['slot', 'u8', 'location'] }], // thread block syntactic sugar
-			[0x48, { args: ['slot', 'u8', 'location'] }], // threadsync block syntactic sugar
+			[0x40, { name: 'reset' }],
+			[0x41, { name: 'addcoin' }],
+			[0x42, { name: 'addbean' }],
+			[0x43, { name: 'getitems', args: ['item'] }],
+			[0x44, { name: 'additem', args: ['item', 's8'] }],
+			[0x45, { name: 'getstat' }],
+			[0x46, { name: 'setstat' }],
+			[0x47, { name: 'tblock', args: ['slot', 'u8', 'location'] }], // thread block syntactic sugar
+			[0x48, { name: 'tblockasync', args: ['slot', 'u8', 'location'] }], // threadsync block syntactic sugar
 			[0x49, { name: 'tspawn', args: ['slot', 'u8', 'location'] }],
 			[0x4a, { name: 'tjoin', args: ['slot'] }],
 			[0x4b, { name: 'tjoinall', args: ['slot', 's8'] }],
@@ -370,9 +372,9 @@ window.initBai = () => {
 			[0x73, { name: 'counterattack_set', args: ['slot', 'counterattack'] }],
 			[0x7b, { name: 'action_block_disable', args: ['action_block'] }],
 			[0x7e, { name: 'end_battle' }],
-			[0xbf, { name: 'attribute_get', args: ['slot', 'attribute'] }],
-			[0xc0, { name: 'attribute_set', args: ['slot', 'attribute', 's32'] }],
-			[0xc1, { name: 'attribute_set_fx32', args: ['slot', 'attribute', 'fx32'] }],
+			[0xbf, { name: 'get', args: ['slot', 'attribute'] }],
+			[0xc0, { name: 'set', args: ['slot', 'attribute', 's32'] }],
+			[0xc1, { name: 'setfx', args: ['slot', 'attribute', 'fx32'] }],
 			[0xc6, { name: 'attribute_monster_get', args: ['slot', 'attribute_monster'] }],
 			[0xc8, { name: 'kill', args: ['slot'] }],
 			[0xc9, { name: 'destroy', args: ['slot'] }],
@@ -987,7 +989,6 @@ window.initBai = () => {
 			const searchStack = [{ node: decomp.head, left: decomp.head.left, right: decomp.tail.right }];
 			while (searchStack.length) {
 				let { node, left, right } = searchStack.pop();
-				console.log('.loops searchStack.pop() =>', node, left, right);
 				const startNode = node;
 
 				// preprocess
@@ -1949,7 +1950,7 @@ window.initBai = () => {
 					const enums = bai.enumTypes[enumType];
 					if (enums) {
 						const name = enums.get(x);
-						if (name) return prefix + constant(name);
+						if (name) return prefix + constant(name.toLowerCase());
 					}
 				}
 
