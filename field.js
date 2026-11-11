@@ -427,20 +427,25 @@ window.initField = () => {
 			// side properties treasure
 			const treasureSegments = field.treasure[indices.treasure] || [];
 			const treasureOptions = [`${treasureSegments.length} treasures`];
-			const treasureTypeLookup = [
-				'Bean',
-				'Floating Block',
-				'-',
-				'-',
-				'Brick Block',
-				'Grass',
-				'-',
-				'Underwater Brick Block',
-			];
 			for (let i = 0; i < treasureSegments.length; ++i) {
-				const flags = treasureSegments[i].getUint16(0, true);
-				const type = (flags >> 1) & 0xf;
-				treasureOptions.push(`[${i}] ${treasureTypeLookup[type]}`);
+				const treasure = treasureSegments[i];
+				const packed = treasure.getUint16(0, true);
+				const itemId = treasure.getUint16(2, true);
+				const type = (packed >> 1) & 0xf;
+				const parameter = (packed >> 5) & 0x1f;
+				const count = ((packed >> 10) & 0x1f) + 1;
+
+				const hits = (type === 1 && parameter > 1) ? ` (${parameter})` : ''; // floating blocks only
+
+				if (itemId === 0) {
+					treasureOptions.push(`[${i}] ---`);
+				} else if (0xfffb <= itemId) {
+					const coins = [1, 5, 10, 50, 100][count - 1] ?? count;
+					treasureOptions.push(`[${i}] ${coins}-Coin` + hits);
+				} else {
+					const name = itm.name(itemId) ?? str16(itemId);
+					treasureOptions.push(`[${i}] ${name} x${count}` + hits);
+				}
 			}
 			side.treasureDropdown.replaceWith(
 				(side.treasureDropdown = dropdown(treasureOptions, 0, () => {
@@ -451,15 +456,26 @@ window.initField = () => {
 					}
 
 					const treasure = treasureSegments[side.treasureDropdown.value - 1];
-					const flags = treasure.getUint16(0, true);
+					const packed = treasure.getUint16(0, true);
+					const type = (packed >> 1) & 0xf;
+					const typeName =
+						['Bean', 'Floating Block', '?', '?', 'Brick Block', 'Grass', '?', 'Underwater Block'][type];
+					const parameter = (packed >> 5) & 0x1f;
+					const parameterName = ['Toggle', 'Hits'][type] ?? 'Parameter';
+					const count = ((packed >> 10) & 0x1f) + 1;
+
 					const itemId = treasure.getUint16(2, true);
-					const treasureId = treasure.getUint16(4, true);
+					const itemName = itm.name(itemId); // could be undefined
+					const countName = (0xfffb <= itemId) ? 'Coin Type' : 'Count';
+
+					const register = 0xe000 | treasure.getUint16(4, true);
 					side.treasureDisplay.innerHTML = `<div style="border-left: 1px solid #76f;
-					margin-left: 1px; padding-left: 8px;">
-					Treasure 0x${treasureId.toString(16)},
-					item 0x${itemId.toString(16)},
-					quantity 0x${((flags >> 10) & 0x1f).toString(16)},
-					count/anim 0x${((flags >> 5) & 0x1f).toString(16)}</div>`;
+						margin-left: 1px; padding-left: 8px;">
+						Register: reg_${str16(register)}<br>
+						Type: ${typeName} (${type})<br>
+						Item: ${itemName ?? '?'} (ID 0x${str16(itemId)})<br>
+						${countName}: ${count}, ${parameterName}: ${parameter}
+					</div>`;
 				})),
 			);
 			side.treasureDisplay.innerHTML = '';
